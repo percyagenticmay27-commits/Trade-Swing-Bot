@@ -1,0 +1,29 @@
+{
+  "paper_trade_mode": true,
+  "rows": [
+    {
+      "theme": "AI Infrastructure",
+      "symbol_count": 1,
+      "average_theme_momentum_score": 50.83,
+      "top_symbols": "NBIS"
+    },
+    {
+      "theme": "Clean Energy",
+      "symbol_count": 1,
+      "average_theme_momentum_score": 50.83,
+      "top_symbols": "BE"
+    },
+    {
+      "theme": "Data Centers",
+      "symbol_count": 2,
+      "average_theme_momentum_score": 40.205,
+      "top_symbols": "IREN;NBIS"
+    },
+    {
+      "theme": "Bitcoin Mining",
+      "symbol_count": 1,
+      "average_theme_momentum_score": 29.58,
+      "top_symbols": "IREN"
+    }
+  ]
+}

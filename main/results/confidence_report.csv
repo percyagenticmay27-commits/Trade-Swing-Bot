@@ -1,0 +1,8 @@
+symbol,confidence,win_rate,profit_factor,trade_count,trading_days,promotion_eligible,demotion_eligible
+SOXL,HIGH,57.14285714285714,3.0608184354760706,28,1254,False,False
+TQQQ,HIGH,43.75,1.5619641899146475,16,1254,False,True
+IONL,LOW,25.0,1.0278592017915777,8,311,False,False
+BEX,LOW,,,0,150,False,False
+IRE,LOW,,,0,167,False,False
+DRAM,LOW,,,0,55,False,False
+NEBX,LOW,,,0,197,False,False

@@ -1,0 +1,72 @@
+{
+  "paper_trade_mode": true,
+  "total_market_value": 100000.0,
+  "cash_reserve": 60000.0,
+  "sgov_reserve": 60000.0,
+  "actions": [
+    {
+      "symbol": "BEX",
+      "current_allocation": 0.0,
+      "target_allocation": 0.0,
+      "difference": 0.0,
+      "action": "HOLD",
+      "estimated_cash_change": 0.0
+    },
+    {
+      "symbol": "DRAM",
+      "current_allocation": 0.0,
+      "target_allocation": 0.0,
+      "difference": 0.0,
+      "action": "HOLD",
+      "estimated_cash_change": 0.0
+    },
+    {
+      "symbol": "IONL",
+      "current_allocation": 7.0,
+      "target_allocation": 0.0,
+      "difference": -7.0,
+      "action": "SELL",
+      "estimated_cash_change": -7000.0
+    },
+    {
+      "symbol": "IRE",
+      "current_allocation": 0.0,
+      "target_allocation": 0.0,
+      "difference": 0.0,
+      "action": "HOLD",
+      "estimated_cash_change": 0.0
+    },
+    {
+      "symbol": "NEBX",
+      "current_allocation": 5.0,
+      "target_allocation": 0.0,
+      "difference": -5.0,
+      "action": "SELL",
+      "estimated_cash_change": -5000.0
+    },
+    {
+      "symbol": "SGOV",
+      "current_allocation": 53.0,
+      "target_allocation": 60.0,
+      "difference": 7.0,
+      "action": "MOVE_TO_SGOV",
+      "estimated_cash_change": -7000.0
+    },
+    {
+      "symbol": "SOXL",
+      "current_allocation": 25.0,
+      "target_allocation": 25.0,
+      "difference": 0.0,
+      "action": "HOLD",
+      "estimated_cash_change": 0.0
+    },
+    {
+      "symbol": "TQQQ",
+      "current_allocation": 10.0,
+      "target_allocation": 15.0,
+      "difference": 5.0,
+      "action": "BUY",
+      "estimated_cash_change": 5000.0
+    }
+  ]
+}

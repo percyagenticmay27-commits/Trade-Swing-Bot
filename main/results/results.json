@@ -1,0 +1,85 @@
+{
+  "paper_trade_mode": true,
+  "ranking_method": "0.35 normalized return + 0.25 normalized Sharpe + 0.20 normalized profit factor + 0.10 normalized win rate - 0.10 normalized max drawdown",
+  "combinations_per_symbol": 2916,
+  "results": [
+    {
+      "symbol": "SOXL",
+      "best_total_return": 18.54736591928472,
+      "best_cagr": 3.6044378802700283,
+      "best_sharpe_ratio": 0.9286719685945716,
+      "best_win_rate": 57.14285714285714,
+      "best_profit_factor": 3.0608184354760706,
+      "max_drawdown": 2.7905894305074255,
+      "number_of_trades": 28,
+      "score": 0.813387767233934,
+      "normalized_return": 0.8787562457163998,
+      "normalized_sharpe": 0.9668028163357463,
+      "normalized_profit_factor": 0.9588540664289191,
+      "normalized_win_rate": 0.7928571428571429,
+      "normalized_drawdown": 0.06934150422240498,
+      "parameter_set": {
+        "initial_stop": 0.12,
+        "break_even_trigger": 0.1,
+        "trailing_one_trigger": 0.15,
+        "trailing_one_distance": 0.07,
+        "trailing_two_trigger": 0.3,
+        "trailing_two_distance": 0.1,
+        "rsi_entry_min": 40.0,
+        "rsi_entry_max": 65.0
+      }
+    },
+    {
+      "symbol": "TQQQ",
+      "best_total_return": 5.0576777092318,
+      "best_cagr": 1.032138521830528,
+      "best_sharpe_ratio": 0.3912314925833057,
+      "best_win_rate": 43.75,
+      "best_profit_factor": 1.5619641899146475,
+      "max_drawdown": 6.6406929824076215,
+      "number_of_trades": 16,
+      "score": 0.7701641676544679,
+      "normalized_return": 0.7537991662714528,
+      "normalized_sharpe": 1.0,
+      "normalized_profit_factor": 1.0,
+      "normalized_win_rate": 0.5633445945945946,
+      "normalized_drawdown": 0.0,
+      "parameter_set": {
+        "initial_stop": 0.15,
+        "break_even_trigger": 0.15,
+        "trailing_one_trigger": 0.25,
+        "trailing_one_distance": 0.05,
+        "trailing_two_trigger": 0.3,
+        "trailing_two_distance": 0.12,
+        "rsi_entry_min": 50.0,
+        "rsi_entry_max": 70.0
+      }
+    },
+    {
+      "symbol": "IONL",
+      "best_total_return": 0.16715521074945894,
+      "best_cagr": 0.15981990729279083,
+      "best_sharpe_ratio": 0.05676787100530522,
+      "best_win_rate": 25.0,
+      "best_profit_factor": 1.0278592017915777,
+      "max_drawdown": 4.417436000713011,
+      "number_of_trades": 8,
+      "score": 0.8526851185035252,
+      "normalized_return": 1.0,
+      "normalized_sharpe": 1.0,
+      "normalized_profit_factor": 1.0,
+      "normalized_win_rate": 0.7777777777777779,
+      "normalized_drawdown": 0.25092659274252654,
+      "parameter_set": {
+        "initial_stop": 0.1,
+        "break_even_trigger": 0.1,
+        "trailing_one_trigger": 0.2,
+        "trailing_one_distance": 0.05,
+        "trailing_two_trigger": 0.3,
+        "trailing_two_distance": 0.1,
+        "rsi_entry_min": 40.0,
+        "rsi_entry_max": 65.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+symbol,confidence_level,active_strategy,rank,allocation_percent,theme,theme_allocation,cash_equivalent
+SOXL,HIGH,Strategy A,,25.0,Unclassified,40.0,
+TQQQ,HIGH,Strategy A,,15.0,Unclassified,40.0,
+NEBX,LOW,Strategy A,,0.0,Unclassified,40.0,
+IONL,LOW,Strategy A,,0.0,Unclassified,40.0,
+DRAM,LOW,Strategy A,,0.0,Unclassified,40.0,
+BEX,LOW,Strategy A,,0.0,Unclassified,40.0,
+IRE,LOW,Strategy A,,0.0,Unclassified,40.0,
+SGOV,RESERVE,,,60.0,Cash Equivalent,60.0,SGOV

@@ -1,0 +1,35 @@
+{
+  "paper_trade_mode": true,
+  "summary": {
+    "allocated_percent": 40.0,
+    "sgov_reserve_percent": 60.0,
+    "active_positions": 5,
+    "watchlist_count": 1,
+    "high_confidence_count": 2,
+    "strategy_b_count": 0,
+    "warning_count": 3
+  },
+  "risk_flags": [],
+  "suggested_actions": [
+    "Regenerate missing reports before using the dashboard for allocation review."
+  ],
+  "warnings": [
+    "Missing optional output: stock_performance_report.json",
+    "Missing optional output: weekly_stock_report.json",
+    "Missing optional output: opportunity_quality_report.json"
+  ],
+  "source_files": {
+    "portfolio_allocations.json": true,
+    "portfolio_manager_report.csv": true,
+    "strategy_comparison.json": true,
+    "strategy_recommendations.csv": true,
+    "confidence_report.json": true,
+    "watchlist_report.json": true,
+    "stock_performance_report.json": false,
+    "weekly_stock_report.json": false,
+    "earnings_report.json": true,
+    "theme_momentum.json": true,
+    "source_confluence.json": true,
+    "opportunity_quality_report.json": false
+  }
+}

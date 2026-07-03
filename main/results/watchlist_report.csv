@@ -1,0 +1,4 @@
+underlying_symbol,leveraged_symbol,source_count,institutional_source_count,youtube_source_count,source_confluence_score,source_confluence_level,financial_health_score,watchlist_status,paper_return,win_rate,profit_factor,trading_days,promotion_eligible,themes,theme_momentum_score,composite_score,watchlist_rank,high_priority_rank,capacity_status
+NBIS,NEBX,2,1,1,4,MONITOR,77.29,WATCHLIST,12.5,45.0,1.8,80,False,AI Infrastructure;Data Centers,50.83,65.83,1,,ACTIVE
+IREN,IREL,1,1,0,3,IGNORE,71.57,DISCOVERY,0.0,0.0,0.0,0,False,Bitcoin Mining;Data Centers,29.58,40.3,,,ACTIVE
+BE,,2,1,1,3,MONITOR,62.14,REMOVED,0.0,0.0,0.0,0,False,Clean Energy,50.83,39.56,,,REMOVED

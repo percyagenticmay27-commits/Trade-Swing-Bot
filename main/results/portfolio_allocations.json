@@ -1,0 +1,91 @@
+{
+  "paper_trade_mode": true,
+  "monthly_rebalance": true,
+  "max_position_allocation": 0.25,
+  "max_theme_allocation": 0.4,
+  "strategy_b_boost": 1.1,
+  "cash_allocation": 60.0,
+  "sgov_allocation": 60.0,
+  "allocations": [
+    {
+      "symbol": "SOXL",
+      "confidence_level": "HIGH",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 25.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "TQQQ",
+      "confidence_level": "HIGH",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 15.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "NEBX",
+      "confidence_level": "LOW",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 0.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "IONL",
+      "confidence_level": "LOW",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 0.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "DRAM",
+      "confidence_level": "LOW",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 0.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "BEX",
+      "confidence_level": "LOW",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 0.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "IRE",
+      "confidence_level": "LOW",
+      "active_strategy": "Strategy A",
+      "rank": null,
+      "allocation_percent": 0.0,
+      "theme": "Unclassified",
+      "theme_allocation": 40.0,
+      "cash_equivalent": ""
+    },
+    {
+      "symbol": "SGOV",
+      "confidence_level": "RESERVE",
+      "active_strategy": "",
+      "rank": "",
+      "allocation_percent": 60.0,
+      "theme": "Cash Equivalent",
+      "theme_allocation": 60.0,
+      "cash_equivalent": "SGOV"
+    }
+  ]
+}

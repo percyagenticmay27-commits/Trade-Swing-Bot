@@ -1,0 +1,99 @@
+{
+  "paper_trade_mode": true,
+  "promotion_rules": {
+    "LOW_to_MEDIUM": {
+      "win_rate_min": 40.0,
+      "profit_factor_min": 1.5,
+      "trade_count_min": 15,
+      "trading_days_min": 252
+    },
+    "MEDIUM_to_HIGH": {
+      "win_rate_min": 50.0,
+      "profit_factor_min": 2.0,
+      "trade_count_min": 25,
+      "trading_days_min": 504
+    }
+  },
+  "demotion_rules": {
+    "HIGH_to_MEDIUM": {
+      "win_rate_lt": 45.0,
+      "profit_factor_lt": 1.5
+    },
+    "MEDIUM_to_LOW": {
+      "win_rate_lt": 35.0,
+      "profit_factor_lt": 1.25
+    }
+  },
+  "rows": [
+    {
+      "symbol": "SOXL",
+      "confidence": "HIGH",
+      "win_rate": 57.14285714285714,
+      "profit_factor": 3.0608184354760706,
+      "trade_count": 28,
+      "trading_days": 1254,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    },
+    {
+      "symbol": "TQQQ",
+      "confidence": "HIGH",
+      "win_rate": 43.75,
+      "profit_factor": 1.5619641899146475,
+      "trade_count": 16,
+      "trading_days": 1254,
+      "promotion_eligible": false,
+      "demotion_eligible": true
+    },
+    {
+      "symbol": "IONL",
+      "confidence": "LOW",
+      "win_rate": 25.0,
+      "profit_factor": 1.0278592017915777,
+      "trade_count": 8,
+      "trading_days": 311,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    },
+    {
+      "symbol": "BEX",
+      "confidence": "LOW",
+      "win_rate": null,
+      "profit_factor": null,
+      "trade_count": 0,
+      "trading_days": 150,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    },
+    {
+      "symbol": "IRE",
+      "confidence": "LOW",
+      "win_rate": null,
+      "profit_factor": null,
+      "trade_count": 0,
+      "trading_days": 167,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    },
+    {
+      "symbol": "DRAM",
+      "confidence": "LOW",
+      "win_rate": null,
+      "profit_factor": null,
+      "trade_count": 0,
+      "trading_days": 55,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    },
+    {
+      "symbol": "NEBX",
+      "confidence": "LOW",
+      "win_rate": null,
+      "profit_factor": null,
+      "trade_count": 0,
+      "trading_days": 197,
+      "promotion_eligible": false,
+      "demotion_eligible": false
+    }
+  ]
+}

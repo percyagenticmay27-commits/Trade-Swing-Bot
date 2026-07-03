@@ -1,0 +1,15 @@
+{
+  "paper_trade_mode": true,
+  "rows": [
+    {
+      "source_confluence_level": "MONITOR",
+      "symbol_count": 2,
+      "top_symbols": "BE;NBIS"
+    },
+    {
+      "source_confluence_level": "IGNORE",
+      "symbol_count": 1,
+      "top_symbols": "IREN"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+underlying_symbol,leveraged_symbol,status,paper_return,win_rate,profit_factor,number_of_trades,trading_days,days_in_status,earnings_stability_score,leveraged_vehicle_exists,themes
+NBIS,NEBX,WATCHLIST,12.5,45,1.8,8,80,80,72,true,AI Infrastructure;Data Centers
+IREN,IREL,DISCOVERY,0,0,0,0,0,0,65,true,Bitcoin Mining;Data Centers
+BE,,DISCOVERY,0,0,0,0,0,0,60,false,Clean Energy

@@ -1,0 +1,91 @@
+{
+  "paper_trade_mode": true,
+  "monthly_contribution": 1000.0,
+  "minimum_allocation_floor": 0.05,
+  "maximum_allocation_cap": 0.35,
+  "confidence_max_allocation_caps": {
+    "HIGH": 0.35,
+    "MEDIUM": 0.1,
+    "LOW": 0.05
+  },
+  "allocated_weight": 0.95,
+  "unallocated_weight": 0.050000000000000044,
+  "unallocated_amount": 50.0,
+  "starter_score": 0.25,
+  "core_symbols": [
+    "SOXL",
+    "TQQQ"
+  ],
+  "emerging_symbols": [
+    "IONL",
+    "BEX",
+    "IRE",
+    "DRAM",
+    "NEBX"
+  ],
+  "allocations": [
+    {
+      "symbol": "SOXL",
+      "score": 0.813387767233934,
+      "confidence": "HIGH",
+      "bucket": "CORE",
+      "adjusted_score": 0.813387767233934,
+      "weight": 0.35,
+      "allocation_amount": 350.0
+    },
+    {
+      "symbol": "TQQQ",
+      "score": 0.7701641676544679,
+      "confidence": "HIGH",
+      "bucket": "CORE",
+      "adjusted_score": 0.7701641676544679,
+      "weight": 0.35,
+      "allocation_amount": 350.0
+    },
+    {
+      "symbol": "IONL",
+      "score": 0.8526851185035252,
+      "confidence": "LOW",
+      "bucket": "EMERGING",
+      "adjusted_score": 0.4263425592517626,
+      "weight": 0.05,
+      "allocation_amount": 50.0
+    },
+    {
+      "symbol": "BEX",
+      "score": 0.25,
+      "confidence": "LOW",
+      "bucket": "EMERGING",
+      "adjusted_score": 0.125,
+      "weight": 0.05,
+      "allocation_amount": 50.0
+    },
+    {
+      "symbol": "IRE",
+      "score": 0.25,
+      "confidence": "LOW",
+      "bucket": "EMERGING",
+      "adjusted_score": 0.125,
+      "weight": 0.05,
+      "allocation_amount": 50.0
+    },
+    {
+      "symbol": "DRAM",
+      "score": 0.25,
+      "confidence": "LOW",
+      "bucket": "EMERGING",
+      "adjusted_score": 0.125,
+      "weight": 0.05,
+      "allocation_amount": 50.0
+    },
+    {
+      "symbol": "NEBX",
+      "score": 0.25,
+      "confidence": "LOW",
+      "bucket": "EMERGING",
+      "adjusted_score": 0.125,
+      "weight": 0.05,
+      "allocation_amount": 50.0
+    }
+  ]
+}
