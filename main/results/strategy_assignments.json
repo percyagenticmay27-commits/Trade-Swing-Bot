@@ -1,0 +1,42 @@
+{
+  "paper_trade_mode": true,
+  "version": "1.3",
+  "assignments": [
+    {
+      "symbol": "AMD",
+      "active_strategy": "Strategy A",
+      "recommended_strategy": "Strategy A",
+      "switch_eligible": false,
+      "confidence_level": "preferred",
+      "review_window": "8_week",
+      "cooldown_remaining_weeks": 0,
+      "reason": "Active strategy remains assigned; challenger did not clear return, drawdown, and profit-factor rules",
+      "strategy_a_return": 12.0,
+      "strategy_b_return": 8.5,
+      "strategy_a_max_drawdown": 7.0,
+      "strategy_b_max_drawdown": 6.0,
+      "strategy_a_win_rate": 62.0,
+      "strategy_b_win_rate": 58.0,
+      "strategy_a_trade_count": 8,
+      "strategy_b_trade_count": 8
+    },
+    {
+      "symbol": "AMDL",
+      "active_strategy": "Strategy A",
+      "recommended_strategy": "Strategy B",
+      "switch_eligible": true,
+      "confidence_level": "preferred",
+      "review_window": "8_week",
+      "cooldown_remaining_weeks": 0,
+      "reason": "Strategy B has stronger paper performance by 5.00 percentage points with acceptable risk",
+      "strategy_a_return": 4.0,
+      "strategy_b_return": 9.0,
+      "strategy_a_max_drawdown": 18.0,
+      "strategy_b_max_drawdown": 16.0,
+      "strategy_a_win_rate": 50.0,
+      "strategy_b_win_rate": 55.0,
+      "strategy_a_trade_count": 8,
+      "strategy_b_trade_count": 8
+    }
+  ]
+}
