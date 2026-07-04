@@ -1,0 +1,48 @@
+{
+  "paper_trade_mode": true,
+  "version": "1.3",
+  "reviews": [
+    {
+      "symbol": "AMDL",
+      "active_strategy": "Strategy A",
+      "outcome": "continue_holding",
+      "suggested_review_action": "continue_research",
+      "lifecycle_state": "paper_position",
+      "opportunity_quality_score": 85.0,
+      "opportunity_quality_trend": -2.0,
+      "market_regime_score": 65.0,
+      "thesis_intact": true,
+      "unrealized_percent": -12.0,
+      "drawdown_from_high_percent": -14.0,
+      "reason": "Paper position remains in normal research status."
+    },
+    {
+      "symbol": "SOXL",
+      "active_strategy": "Strategy B",
+      "outcome": "strategy_b_reentry_review",
+      "suggested_review_action": "perform_reentry_review",
+      "lifecycle_state": "paper_position",
+      "opportunity_quality_score": 82.0,
+      "opportunity_quality_trend": -3.0,
+      "market_regime_score": 60.0,
+      "thesis_intact": true,
+      "unrealized_percent": -11.0,
+      "drawdown_from_high_percent": -13.0,
+      "reason": "Strategy B paper drawdown threshold reached; reentry research review is required."
+    },
+    {
+      "symbol": "BEX",
+      "active_strategy": "Strategy A",
+      "outcome": "monitor_closely",
+      "suggested_review_action": "increase_monitoring",
+      "lifecycle_state": "paper_position",
+      "opportunity_quality_score": 72.0,
+      "opportunity_quality_trend": -9.0,
+      "market_regime_score": 55.0,
+      "thesis_intact": true,
+      "unrealized_percent": -4.0,
+      "drawdown_from_high_percent": -6.0,
+      "reason": "Quality, trend, or market regime evidence has weakened and should be monitored."
+    }
+  ]
+}
