@@ -1,0 +1,36 @@
+{
+  "paper_trade_mode": true,
+  "version": "1.3",
+  "reviews": [
+    {
+      "symbol": "AMD",
+      "active_strategy": "Strategy A",
+      "protection_zone": "standard_protection_zone",
+      "suggested_review_action": "standard_profit_review",
+      "unrealized_percent": 22.0,
+      "drawdown_from_high_percent": -2.4,
+      "thesis_intact": true,
+      "reason": "Paper gain is in the standard profit protection review zone."
+    },
+    {
+      "symbol": "SOXL",
+      "active_strategy": "Strategy B",
+      "protection_zone": "strong_trend_zone",
+      "suggested_review_action": "strong_trend_review",
+      "unrealized_percent": 34.0,
+      "drawdown_from_high_percent": -4.0,
+      "thesis_intact": true,
+      "reason": "Paper gain is in the strong trend review zone."
+    },
+    {
+      "symbol": "AMDL",
+      "active_strategy": "Strategy A",
+      "protection_zone": "below_protection_zone",
+      "suggested_review_action": "monitor",
+      "unrealized_percent": 8.0,
+      "drawdown_from_high_percent": -3.2,
+      "thesis_intact": true,
+      "reason": "Paper gain has not reached the protection review zone."
+    }
+  ]
+}
