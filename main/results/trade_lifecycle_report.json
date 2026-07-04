@@ -1,0 +1,48 @@
+{
+  "paper_trade_mode": true,
+  "version": "1.3",
+  "reviews": [
+    {
+      "symbol": "AMD",
+      "active_strategy": "Strategy A",
+      "prior_state": "watchlist",
+      "recommended_state": "entry_ready",
+      "suggested_action": "prepare_entry_review",
+      "unrealized_percent": null,
+      "drawdown_from_high_percent": null,
+      "quality_score": 86.0,
+      "entry_score": 78.0,
+      "market_regime_score": 70.0,
+      "thesis_intact": true,
+      "reason": "Quality, entry, market regime, and thesis checks support entry review."
+    },
+    {
+      "symbol": "AMDL",
+      "active_strategy": "Strategy A",
+      "prior_state": "paper_position",
+      "recommended_state": "paper_position",
+      "suggested_action": "continue_research_position",
+      "unrealized_percent": -10.0,
+      "drawdown_from_high_percent": -12.0,
+      "quality_score": 82.0,
+      "entry_score": 55.0,
+      "market_regime_score": 63.0,
+      "thesis_intact": true,
+      "reason": "Paper position research remains active; thesis is intact."
+    },
+    {
+      "symbol": "SOXL",
+      "active_strategy": "Strategy B",
+      "prior_state": "paper_position",
+      "recommended_state": "reentry_watch",
+      "suggested_action": "research_reentry",
+      "unrealized_percent": -11.0,
+      "drawdown_from_high_percent": -14.0,
+      "quality_score": 75.0,
+      "entry_score": 50.0,
+      "market_regime_score": 58.0,
+      "thesis_intact": true,
+      "reason": "Strategy B paper threshold indicates reentry research should be evaluated."
+    }
+  ]
+}
