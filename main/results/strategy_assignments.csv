@@ -1,0 +1,5 @@
+symbol,active_strategy,recommended_strategy,switch_eligible,confidence_level,review_window,cooldown_remaining_weeks,reason,strategy_a_return,strategy_b_return,strategy_a_max_drawdown,strategy_b_max_drawdown,strategy_a_win_rate,strategy_b_win_rate,strategy_a_trade_count,strategy_b_trade_count
+AMD,Strategy A,Strategy A,False,preferred,8_week,0,"Active strategy remains assigned; challenger did not clear return, drawdown, and profit-factor rules",12.0,8.5,7.0,6.0,62.0,58.0,8,8
+AMDL,Strategy A,Strategy B,True,preferred,8_week,0,"Strategy B has stronger paper performance by 5.00 percentage points with acceptable risk",4.0,9.0,18.0,16.0,50.0,55.0,8,8
+BEX,Strategy A,Strategy A,False,review,4_week,0,"Active strategy remains assigned; challenger did not clear return, drawdown, and profit-factor rules",5.0,6.0,8.0,10.0,57.0,55.0,4,4
+SOXL,Strategy A,Strategy B,True,high,12_week,0,"Strategy B has stronger paper performance by 8.00 percentage points with acceptable risk",6.0,14.0,22.0,20.0,52.0,60.0,12,12
