@@ -31,6 +31,7 @@ OPTIONAL_FILES = (
     "profit_protection_report.json",
     "reentry_report.json",
     "exit_review_report.json",
+    "thesis_monitor_report.json",
 )
 
 
@@ -45,6 +46,9 @@ class DashboardSummary:
     high_confidence_count: int
     strategy_b_count: int
     position_intelligence_count: int
+    thesis_strong_count: int
+    thesis_intact_count: int
+    thesis_attention_count: int
     warning_count: int
 
 
@@ -79,18 +83,20 @@ def build_executive_dashboard(results_dir: Path, *, output_dir: Path | None = No
     profit_reviews = _rows_from_json(_read_json(results_dir / "profit_protection_report.json"), key="reviews") if files["profit_protection_report.json"] else []
     reentry_reviews = _rows_from_json(_read_json(results_dir / "reentry_report.json"), key="reviews") if files["reentry_report.json"] else []
     exit_reviews = _rows_from_json(_read_json(results_dir / "exit_review_report.json"), key="reviews") if files["exit_review_report.json"] else []
+    thesis_reviews = _rows_from_json(_read_json(results_dir / "thesis_monitor_report.json"), key="reviews") if files["thesis_monitor_report.json"] else []
 
     allocation_rows = allocations.get("allocations", []) if isinstance(allocations, dict) else []
     sgov_reserve = _float(allocations.get("sgov_allocation")) if isinstance(allocations, dict) else 0.0
     allocated = max(0.0, 100.0 - sgov_reserve)
     confidence_counts = Counter(str(row.get("confidence", "")).upper() for row in confidence)
+    thesis_counts = Counter(str(row.get("thesis_state", "")).lower() for row in thesis_reviews)
     strategy_b_count = _strategy_b_count(strategies, strategy_assignments)
     active_positions = _active_position_count(portfolio_rows)
     watchlist_count = sum(1 for row in watchlist if str(row.get("watchlist_status", "")).upper() in {"WATCHLIST", "LOW", "MEDIUM", "HIGH"})
-    position_intelligence_count = _position_intelligence_count(lifecycle_reviews, profit_reviews, reentry_reviews, exit_reviews)
+    position_intelligence_count = _position_intelligence_count(lifecycle_reviews, profit_reviews, reentry_reviews, exit_reviews, thesis_reviews)
 
     risk_flags = _risk_flags(allocation_rows, sgov_reserve, warnings)
-    risk_flags.extend(_position_intelligence_flags(lifecycle_reviews, profit_reviews, reentry_reviews, exit_reviews))
+    risk_flags.extend(_position_intelligence_flags(lifecycle_reviews, profit_reviews, reentry_reviews, exit_reviews, thesis_reviews))
     suggested_actions = _suggested_actions(risk_flags, warnings, watchlist_count)
     dashboard = ExecutiveDashboard(
         paper_trade_mode=True,
@@ -102,6 +108,9 @@ def build_executive_dashboard(results_dir: Path, *, output_dir: Path | None = No
             high_confidence_count=confidence_counts["HIGH"],
             strategy_b_count=strategy_b_count,
             position_intelligence_count=position_intelligence_count,
+            thesis_strong_count=thesis_counts["strong"],
+            thesis_intact_count=thesis_counts["intact"],
+            thesis_attention_count=thesis_counts["weakening"] + thesis_counts["broken"],
             warning_count=len(warnings),
         ),
         risk_flags=tuple(risk_flags),
@@ -142,6 +151,9 @@ def format_executive_dashboard_markdown(dashboard: ExecutiveDashboard) -> str:
         f"- High Confidence Count: {summary.high_confidence_count}",
         f"- Strategy B Count: {summary.strategy_b_count}",
         f"- Position Intelligence Count: {summary.position_intelligence_count}",
+        f"- Thesis Strong Count: {summary.thesis_strong_count}",
+        f"- Thesis Intact Count: {summary.thesis_intact_count}",
+        f"- Thesis Attention Count: {summary.thesis_attention_count}",
         "",
         "## Risk Flags",
         "",
@@ -210,8 +222,9 @@ def _position_intelligence_count(
     profit_reviews: Sequence[Mapping[str, object]],
     reentry_reviews: Sequence[Mapping[str, object]],
     exit_reviews: Sequence[Mapping[str, object]],
+    thesis_reviews: Sequence[Mapping[str, object]],
 ) -> int:
-    return len(lifecycle_reviews) + len(profit_reviews) + len(reentry_reviews) + len(exit_reviews)
+    return len(lifecycle_reviews) + len(profit_reviews) + len(reentry_reviews) + len(exit_reviews) + len(thesis_reviews)
 
 
 def _risk_flags(allocation_rows: Sequence[Mapping[str, object]], sgov_reserve: float, warnings: Sequence[str]) -> list[str]:
@@ -238,6 +251,7 @@ def _position_intelligence_flags(
     profit_reviews: Sequence[Mapping[str, object]],
     reentry_reviews: Sequence[Mapping[str, object]],
     exit_reviews: Sequence[Mapping[str, object]],
+    thesis_reviews: Sequence[Mapping[str, object]],
 ) -> list[str]:
     flags: list[str] = []
     if any(str(row.get("recommended_state", "")) == "review_required" for row in lifecycle_reviews):
@@ -248,6 +262,8 @@ def _position_intelligence_flags(
         flags.append("Reentry-ready paper setup detected")
     if any(str(row.get("outcome", "")) not in {"", "continue_holding"} for row in exit_reviews):
         flags.append("Exit review attention required")
+    if any(str(row.get("thesis_state", "")).lower() in {"weakening", "broken"} for row in thesis_reviews):
+        flags.append("Thesis monitor attention required")
     return flags
 
 
@@ -257,6 +273,8 @@ def _suggested_actions(risk_flags: Sequence[str], warnings: Sequence[str], watch
         actions.append("Regenerate missing reports before dashboard review.")
     if any("SGOV" in flag for flag in risk_flags):
         actions.append("Review allocations and preserve enough SGOV reserve for risk control.")
+    if any("thesis" in flag.lower() for flag in risk_flags):
+        actions.append("Review Thesis Monitor outputs before the next paper cycle.")
     if any("review" in flag.lower() for flag in risk_flags):
         actions.append("Review Position Intelligence Layer outputs before the next paper cycle.")
     if watchlist_count == 0:
