@@ -1,0 +1,42 @@
+{
+  "paper_trade_mode": true,
+  "version": "1.4",
+  "reviews": [
+    {
+      "symbol": "AMD",
+      "active_strategy": "Strategy A",
+      "thesis_state": "strong",
+      "thesis_health_score": 90.0,
+      "thesis_intact": true,
+      "suggested_review_action": "continue_research",
+      "evidence_count": 8,
+      "weak_evidence_count": 0,
+      "original_thesis": "AI compute demand and improving fundamentals remain the core paper thesis.",
+      "reason": "Thesis evidence is strong across core components."
+    },
+    {
+      "symbol": "AMDL",
+      "active_strategy": "Strategy A",
+      "thesis_state": "intact",
+      "thesis_health_score": 76.0,
+      "thesis_intact": true,
+      "suggested_review_action": "monitor_thesis",
+      "evidence_count": 8,
+      "weak_evidence_count": 0,
+      "original_thesis": "Leveraged AMD exposure remains supported while underlying AMD thesis remains intact.",
+      "reason": "Thesis evidence remains intact."
+    },
+    {
+      "symbol": "BEX",
+      "active_strategy": "Strategy B",
+      "thesis_state": "weakening",
+      "thesis_health_score": 62.0,
+      "thesis_intact": false,
+      "suggested_review_action": "review_thesis",
+      "evidence_count": 8,
+      "weak_evidence_count": 0,
+      "original_thesis": "Growth and theme exposure require continued evidence confirmation.",
+      "reason": "Thesis evidence is weakening and requires review."
+    }
+  ]
+}
