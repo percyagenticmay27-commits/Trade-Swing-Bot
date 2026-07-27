@@ -1,0 +1,32 @@
+{
+  "integration_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "plugin_name": "Trade Swing Bot",
+  "plugin_type": "SWING_TRADING",
+  "plugin_root": "/home/tradebot/Trade-Swing-Bot/main",
+  "artifact_root": "/home/tradebot/Trade-Swing-Bot/main/results",
+  "manifest_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_plugin_manifest.json",
+  "output_contract_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_output_contract.json",
+  "schema_registry_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_schema_registry.json",
+  "acceptance_report_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_cio_acceptance_report.json",
+  "strategy_registration_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_strategy_service_registration.json",
+  "capability_profiles_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_strategy_capability_profiles.json",
+  "committee_governance_path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_committee_governance.json",
+  "transport": "LOCAL_FILESYSTEM",
+  "consumer": "AI_CIO",
+  "same_server": true,
+  "read_only_consumer": true,
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "automatic_activation_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "direct_database_writes": false,
+  "temporary_suffix": ".tmp",
+  "atomic_publish_required": true,
+  "freshness": {
+    "use_file_modification_time": true,
+    "warning_after_minutes": 1440,
+    "stale_after_minutes": 2880
+  }
+}
