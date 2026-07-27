@@ -1,0 +1,50 @@
+{
+  "learning_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "append_only": true,
+  "automatic_policy_change_allowed": false,
+  "human_approval_required": true,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "learning_mode": "SEMI_ADAPTIVE_OBSERVATION_FIRST",
+  "minimum_evidence": {
+    "completed_decision_traces": 30,
+    "history_months": 6,
+    "observations_per_committee": 10
+  },
+  "committee_sequence": [
+    "DISCOVERY_COMMITTEE",
+    "OPPORTUNITY_COMMITTEE",
+    "ENTRY_COMMITTEE",
+    "PORTFOLIO_COMMITTEE",
+    "EXIT_COMMITTEE"
+  ],
+  "decision_quality_dimensions": [
+    "POLICY_COMPLIANCE",
+    "EVIDENCE_COMPLETENESS",
+    "JURISDICTION_COMPLIANCE",
+    "TRACE_COMPLETENESS"
+  ],
+  "outcome_quality_dimensions": [
+    "RETURN_PERCENT",
+    "MAXIMUM_FAVORABLE_EXCURSION_PERCENT",
+    "MAXIMUM_ADVERSE_EXCURSION_PERCENT",
+    "RANK_OUTCOME_ALIGNMENT",
+    "REPLACEMENT_OUTPERFORMANCE_PERCENT"
+  ],
+  "measurement_horizons": [
+    "3_TRADING_DAYS",
+    "5_TRADING_DAYS",
+    "10_TRADING_DAYS",
+    "20_TRADING_DAYS"
+  ],
+  "proposal_types": [
+    "EVIDENCE_SOURCE_REVIEW",
+    "THRESHOLD_REVIEW",
+    "COMMITTEE_PROCESS_REVIEW",
+    "STRATEGY_PREFERENCE_REVIEW",
+    "NO_CHANGE"
+  ]
+}
