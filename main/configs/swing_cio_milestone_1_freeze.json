@@ -1,0 +1,42 @@
+{
+  "freeze_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "milestone": "CIO_COMPATIBILITY_MILESTONE_1",
+  "freeze_status": "FROZEN_PENDING_LOCAL_VALIDATION",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "automatic_activation_allowed": false,
+  "automatic_policy_change_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "direct_database_writes": false,
+  "frozen_interfaces": [
+    "PLUGIN_MANIFEST",
+    "OUTPUT_CONTRACT",
+    "SCHEMA_REGISTRY",
+    "PRESENTATION_ADAPTER",
+    "STRATEGY_SERVICE_REGISTRATION",
+    "STRATEGY_CAPABILITY_PROFILES",
+    "COMMITTEE_GOVERNANCE",
+    "COMMITTEE_TRACEABILITY",
+    "COMMITTEE_LEARNING",
+    "CIO_VALIDATION_SUITE",
+    "CIO_ACCEPTANCE_TEST"
+  ],
+  "frozen_committees": [
+    "DISCOVERY_COMMITTEE",
+    "OPPORTUNITY_COMMITTEE",
+    "ENTRY_COMMITTEE",
+    "PORTFOLIO_COMMITTEE",
+    "EXIT_COMMITTEE"
+  ],
+  "frozen_strategy_ids": ["STRATEGY_A", "STRATEGY_B"],
+  "approved_extension_rules": [
+    "NEW_ARTIFACT_VERSIONS_MUST_NOT_BREAK_EXISTING_VERSIONS",
+    "NEW_STRATEGIES_REQUIRE_NEW_CAPABILITY_PROFILES",
+    "COMMITTEE_ORDER_CHANGES_REQUIRE_NEW_GOVERNANCE_MAJOR_VERSION",
+    "TRACE_SCHEMA_CHANGES_REQUIRE_NEW_TRACE_SCHEMA_VERSION",
+    "LEARNING_REMAINS_ADVISORY_AND_HUMAN_APPROVED",
+    "NO_LIVE_TRADING_WITHIN_MILESTONE_1"
+  ]
+}
