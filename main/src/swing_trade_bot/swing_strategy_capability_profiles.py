@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 MODULE_NAME = "swing_strategy_capability_profiles"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.1.0"
 PROFILE_SCHEMA_VERSION = "1.0"
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 REQUIRED_STRATEGIES = {"STRATEGY_A", "STRATEGY_B"}
@@ -48,6 +48,8 @@ def validate_strategy_capability_profiles(payload: Mapping[str, Any]) -> Capabil
         errors.append("advisory_only must be true")
     if payload.get("automatic_activation_allowed") is not False:
         errors.append("automatic_activation_allowed must be false")
+    if payload.get("committee_governance_policy") != "configs/swing_committee_governance.json":
+        errors.append("committee_governance_policy must reference configs/swing_committee_governance.json")
 
     profiles = payload.get("profiles")
     if not isinstance(profiles, list) or not profiles:
@@ -98,6 +100,7 @@ def validate_strategy_capability_profiles(payload: Mapping[str, Any]) -> Capabil
 
         _validate_entry_rules(profile, strategy_id, errors)
         _validate_profit_rules(profile, strategy_id, errors)
+        _validate_exit_bias_rules(profile, strategy_id, errors)
 
         if strategy_id == "STRATEGY_A":
             if profile.get("reentry_supported") is not False:
@@ -144,6 +147,7 @@ def build_capability_summary(payload: Mapping[str, Any]) -> dict[str, object]:
         "reentry_capable_strategies": sorted(
             str(p.get("strategy_id")) for p in profiles if p.get("reentry_supported") is True
         ),
+        "committee_governance_policy": payload.get("committee_governance_policy"),
         "paper_trade_mode": payload.get("paper_trade_mode"),
         "advisory_only": payload.get("advisory_only"),
     }
@@ -167,12 +171,15 @@ def _validate_entry_rules(profile: Mapping[str, Any], strategy_id: str, errors: 
     expected = {
         "minimum_opportunity_quality_score": 70.0,
         "minimum_entry_score": 70.0,
-        "minimum_market_regime_score": 50.0,
         "thesis_must_be_intact": True,
+        "market_regime_hard_gate_allowed": False,
+        "entry_score_is_independent_veto": True,
     }
     for field, value in expected.items():
         if rules.get(field) != value:
             errors.append(f"{strategy_id} entry_rules.{field} must be {value}")
+    if "minimum_market_regime_score" in rules:
+        errors.append(f"{strategy_id} entry_rules must not define a minimum_market_regime_score")
 
 
 def _validate_profit_rules(profile: Mapping[str, Any], strategy_id: str, errors: list[str]) -> None:
@@ -191,15 +198,27 @@ def _validate_profit_rules(profile: Mapping[str, Any], strategy_id: str, errors:
             errors.append(f"{strategy_id} profit_protection_rules.{field} must be {value}")
 
 
+def _validate_exit_bias_rules(profile: Mapping[str, Any], strategy_id: str, errors: list[str]) -> None:
+    rules = profile.get("exit_review_rules")
+    if not isinstance(rules, Mapping):
+        errors.append(f"{strategy_id} exit_review_rules must be an object")
+        return
+    if rules.get("market_regime_only_exit_allowed") is not False:
+        errors.append(f"{strategy_id} market_regime_only_exit_allowed must be false")
+    if rules.get("sector_or_theme_exit_allowed") is not False:
+        errors.append(f"{strategy_id} sector_or_theme_exit_allowed must be false")
+
+
 def _validate_reentry_rules(profile: Mapping[str, Any], errors: list[str]) -> None:
     rules = profile.get("reentry_rules")
     expected = {
         "minimum_wait_days": 3,
         "minimum_opportunity_quality_score": 70.0,
         "minimum_entry_score": 70.0,
-        "minimum_market_regime_score": 50.0,
         "maximum_distance_from_reentry_level_percent": 3.0,
         "thesis_must_be_intact": True,
+        "market_regime_hard_gate_allowed": False,
+        "entry_score_is_independent_veto": True,
     }
     if not isinstance(rules, Mapping):
         errors.append("STRATEGY_B reentry_rules must be an object")
@@ -207,3 +226,5 @@ def _validate_reentry_rules(profile: Mapping[str, Any], errors: list[str]) -> No
     for field, value in expected.items():
         if rules.get(field) != value:
             errors.append(f"STRATEGY_B reentry_rules.{field} must be {value}")
+    if "minimum_market_regime_score" in rules:
+        errors.append("STRATEGY_B reentry_rules must not define a minimum_market_regime_score")
