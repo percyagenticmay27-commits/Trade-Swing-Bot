@@ -69,21 +69,9 @@ Required compatibility:
 
 ### Phase 9E.2 — Strategy Capability Profiles
 
-Status: Complete and locally validated; Version 1.4 policy update pending local validation
+Status: Complete and locally validated through Version 1.4 policy
 
 Advertise Strategy A and Strategy B independently of the plugin registration so the CIO can understand their purpose, entry philosophy, exit behavior, risk style, supported assets, profit-protection rules, and reentry capability.
-
-Source configuration:
-
-```text
-configs/swing_strategy_capability_profiles.json
-```
-
-Optional generated output:
-
-```text
-results/swing_strategy_capability_profiles.json
-```
 
 Required compatibility:
 
@@ -99,9 +87,9 @@ Required compatibility:
 
 ### Phase 9E.3 — Independent Committee Governance
 
-Status: Implemented; local validation pending
+Status: Complete and locally validated — 28 governance tests and 39 capability-profile tests passed
 
-Formalize the accepted committee model:
+Frozen committee model:
 
 ```text
 Discovery Committee
@@ -128,18 +116,57 @@ Required policy:
 - Exit may not act solely because of sector, theme concentration, or a market-regime label
 - all decisions remain paper-only, advisory-only, and reproducible from stored evidence
 
+### Phase 9E.4 — Committee Decision Traceability
+
+Status: Implemented; local validation pending
+
+Create immutable, deterministic, append-only decision traces for every committee evaluation.
+
 Files:
 
 ```text
-configs/swing_committee_governance.json
-src/swing_trade_bot/swing_committee_governance.py
-tests/test_swing_committee_governance.py
-docs/SWING_COMMITTEE_GOVERNANCE.md
+configs/swing_committee_traceability.json
+src/swing_trade_bot/swing_committee_traceability.py
+tests/test_swing_committee_traceability.py
+docs/SWING_COMMITTEE_TRACEABILITY.md
 ```
+
+Required behavior:
+
+- stable SHA-256 trace, step, and outcome identifiers
+- evidence snapshots and source-artifact lineage for each committee
+- exact pass, fail, veto, skipped, hold, review, and exit reason codes
+- Opportunity rejection skips Entry and Portfolio
+- Entry veto skips Portfolio allocation
+- original decision traces remain immutable
+- later outcomes are appended separately
+- duplicate outcome records are not appended twice
+- explicit false-value audit for sector, theme, concentration, stock-history, and market-regime hard bias
+- no hindsight rewrite
+- no automatic policy changes
+
+### Phase 9E.5 — Governed Committee Learning Foundation
+
+Status: Planned after Phase 9E.4 validation
+
+Use the Dividend Bot learning pattern to compare committee decisions with later paper outcomes while preserving the original decision trace.
+
+Required behavior:
+
+- observation-only until minimum evidence thresholds are met
+- committee-specific effectiveness metrics
+- Entry outcome windows at 3, 5, 10, and 20 trading days
+- Opportunity rank/outcome comparison
+- Portfolio allocation/outcome comparison
+- Exit and reentry effectiveness comparison
+- append-only learning records
+- advisory proposals only
+- human approval required
+- no automatic policy, threshold, or weight changes
 
 ### Phase 9F — Full CIO Validation Suite
 
-Status: Next after Phase 9E.3 local validation
+Status: Next after Phases 9E.4 and 9E.5 validation
 
 Validate the complete integration as one system:
 
@@ -150,18 +177,20 @@ Validate the complete integration as one system:
 - Strategy Service Registration
 - Strategy Capability Profiles
 - Independent Committee Governance
+- Committee Decision Traceability
+- Governed Committee Learning Foundation
 - strict artifact versions
 - cross-file identity consistency
 - dashboard destination consistency
 - Enterprise registry discovery compatibility
 - strategy-policy consistency
-- paper-only, advisory-only, read-only, and no-execution safety locks
+- paper-only, advisory-only, read-only, append-only, and no-execution safety locks
 
 ### Phase 9F.1 — CIO Acceptance Test
 
 Status: Planned after Phase 9F
 
-Simulate the complete enterprise workflow from strategy discovery through governance, contract validation, schema resolution, presentation normalization, committee-policy validation, and final `READY FOR CIO` reporting.
+Simulate the complete enterprise workflow from strategy discovery through governance, contract validation, schema resolution, presentation normalization, committee-policy validation, trace creation, outcome attachment, and final `READY FOR CIO` reporting.
 
 ### Phase 9G — Milestone 1 Freeze
 
@@ -173,11 +202,11 @@ Freeze the validated CIO compatibility boundary and document approved extension 
 
 ### Phase 10 — AI CIO Platform Integration
 
-Ingest the Swing registration, capability, committee-governance, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
+Ingest the Swing registration, capability, committee-governance, traceability, learning, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
 
 ### Phase 11 — Operational Automation
 
-Schedule report generation, health checks, registry refresh, validation, and governed notifications.
+Schedule report generation, health checks, registry refresh, validation, trace generation, outcome attachment, and governed notifications.
 
 ### Phase 12 — CIO Acceptance
 
@@ -189,7 +218,7 @@ Future CIO-owned persistence only. The Swing repository will not write directly 
 
 ### Phase 14 — Historical Learning
 
-Use archived paper outcomes to improve research analysis while preserving frozen historical evidence.
+Expand governed historical learning after the Milestone 1 committee-learning foundation is frozen and validated.
 
 ### Phase 15 — Future Live Readiness
 
@@ -198,7 +227,9 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9E.3 local validation
+Phase 9E.4 local validation
+        ↓
+Phase 9E.5 governed committee learning
         ↓
 Phase 9F full cross-system validation
         ↓
@@ -217,9 +248,12 @@ Phase 10 AI CIO integration
 - no real order placement
 - no real capital movement
 - no automatic strategy activation
+- no automatic policy, threshold, or weight changes
 - investor governance remains required
 - Swing and Dividend remain independent repositories
 - strict artifact versioning remains mandatory
+- original decision traces are immutable
+- later outcomes and learning records are append-only
 - AI CIO owns registry ingestion and future database persistence
 - Entry Score remains independent from Opportunity Quality
 - no sector, theme, concentration, stock-history, reputation, or market-regime hard bias
