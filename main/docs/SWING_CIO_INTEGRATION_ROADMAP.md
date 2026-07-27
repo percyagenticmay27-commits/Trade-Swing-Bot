@@ -47,7 +47,7 @@ Read registered Swing artifacts and create normalized CIO presentation JSON and 
 
 ### Phase 9E.1 — Enterprise Strategy Registry Export
 
-Status: Implemented; local validation pending
+Status: Complete and locally validated
 
 Export the Swing Bot into the strategy-service shape used by the Dividend platform and AI CIO Enterprise Service Registry.
 
@@ -67,9 +67,36 @@ Required compatibility:
 - no automatic capital movement
 - no direct database writes
 
+### Phase 9E.2 — Strategy Capability Profiles
+
+Status: Implemented; local validation pending
+
+Advertise Strategy A and Strategy B independently of the plugin registration so the CIO can understand their purpose, entry philosophy, exit behavior, risk style, supported assets, profit-protection rules, and reentry capability.
+
+Source configuration:
+
+```text
+configs/swing_strategy_capability_profiles.json
+```
+
+Optional generated output:
+
+```text
+results/swing_strategy_capability_profiles.json
+```
+
+Required compatibility:
+
+- Strategy A remains thesis-based with no hard numerical loss exit
+- Strategy B retains the 10% paper drawdown review and governed reentry workflow
+- shared entry thresholds remain Quality 70, Entry 70, and Regime 50 with intact thesis
+- shared profit zones remain 20%/5% and 30%/10%
+- supported assets remain stocks and leveraged ETFs
+- no automatic strategy activation
+
 ### Phase 9F — Full CIO Validation Suite
 
-Status: Next after Phase 9E.1 validation
+Status: Next after Phase 9E.2 validation
 
 Validate the complete integration as one system:
 
@@ -78,10 +105,12 @@ Validate the complete integration as one system:
 - Schema Registry
 - Presentation Adapter
 - Strategy Service Registration
+- Strategy Capability Profiles
 - strict artifact versions
 - cross-file identity consistency
 - dashboard destination consistency
 - Enterprise registry discovery compatibility
+- strategy-policy consistency
 - paper-only, advisory-only, read-only, and no-execution safety locks
 
 ### Phase 9G — Milestone 1 Freeze
@@ -94,7 +123,7 @@ Freeze the validated CIO compatibility boundary and document approved extension 
 
 ### Phase 10 — AI CIO Platform Integration
 
-Ingest the Swing registration and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
+Ingest the Swing registration, capability, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
 
 ### Phase 11 — Operational Automation
 
@@ -119,7 +148,7 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9E.1 local validation
+Phase 9E.2 local validation
         ↓
 Phase 9F full cross-system validation
         ↓
