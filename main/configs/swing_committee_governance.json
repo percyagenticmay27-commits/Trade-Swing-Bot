@@ -1,0 +1,101 @@
+{
+  "governance_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "policy_version": "1.0.0",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "automatic_activation_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "decision_model": "SEQUENTIAL_INDEPENDENT_COMMITTEES",
+  "evidence_only_allocation": true,
+  "sector_bias_allowed": false,
+  "theme_concentration_limits_allowed": false,
+  "market_regime_hard_veto_allowed": false,
+  "stock_history_bias_allowed": false,
+  "committees": [
+    {
+      "committee_id": "DISCOVERY_COMMITTEE",
+      "sequence": 1,
+      "jurisdiction": "CANDIDATE_DISCOVERY",
+      "question": "Which securities deserve evidence collection and investigation?",
+      "may_veto": false,
+      "produces": ["candidate_universe", "evidence_requests"],
+      "prohibited_actions": ["ENTRY_APPROVAL", "CAPITAL_ALLOCATION", "EXIT_DECISION"]
+    },
+    {
+      "committee_id": "OPPORTUNITY_COMMITTEE",
+      "sequence": 2,
+      "jurisdiction": "OPPORTUNITY_QUALITY_AND_RANK",
+      "question": "Does current validated evidence make this an attractive opportunity?",
+      "may_veto": true,
+      "minimum_opportunity_quality_score": 70.0,
+      "entry_score_included_in_opportunity_quality": false,
+      "sector_or_theme_adjustment_allowed": false,
+      "market_regime_hard_gate_allowed": false,
+      "produces": ["opportunity_quality_score", "opportunity_rank", "opportunity_eligible"],
+      "prohibited_actions": ["ENTRY_TIMING_APPROVAL", "POSITION_SIZING", "EXIT_DECISION"]
+    },
+    {
+      "committee_id": "ENTRY_COMMITTEE",
+      "sequence": 3,
+      "jurisdiction": "ENTRY_TIMING",
+      "question": "Is now an evidence-supported time to deploy paper capital?",
+      "may_veto": true,
+      "minimum_entry_score": 70.0,
+      "opportunity_must_be_eligible": true,
+      "thesis_must_be_intact": true,
+      "market_regime_hard_gate_allowed": false,
+      "timing_evidence": [
+        "DAILY_RSI_DIRECTION",
+        "DAILY_STOCHASTIC_RSI_K_D_RELATIONSHIP",
+        "MOMENTUM_DIRECTION",
+        "VOLUME_CONFIRMATION",
+        "PRICE_TREND_CONFIRMATION",
+        "EXTENSION_AND_PULLBACK_RISK"
+      ],
+      "produces": ["entry_score", "entry_status", "entry_reasons"],
+      "prohibited_actions": ["OPPORTUNITY_RANKING", "POSITION_SIZING", "EXIT_DECISION"]
+    },
+    {
+      "committee_id": "PORTFOLIO_COMMITTEE",
+      "sequence": 4,
+      "jurisdiction": "EVIDENCE_BASED_CAPITAL_COMPETITION",
+      "question": "Among entry-approved opportunities, which deserve paper capital and how much?",
+      "may_veto": true,
+      "allocation_priority": "OPPORTUNITY_RANK_DESCENDING",
+      "higher_rank_receives_more_capital": true,
+      "fixed_position_count_required": false,
+      "sector_or_theme_adjustment_allowed": false,
+      "theme_concentration_limits_allowed": false,
+      "market_regime_allocation_adjustment_allowed": false,
+      "stock_identity_adjustment_allowed": false,
+      "historical_reputation_adjustment_allowed": false,
+      "unallocated_capital_destination": "SGOV",
+      "produces": ["approved_positions", "target_allocations", "reserve_allocation"],
+      "prohibited_actions": ["OPPORTUNITY_SCORING", "ENTRY_TIMING_SCORING", "EXIT_DECISION"]
+    },
+    {
+      "committee_id": "EXIT_COMMITTEE",
+      "sequence": 5,
+      "jurisdiction": "POSITION_CONTINUATION_AND_EXIT_REVIEW",
+      "question": "Does the held position still deserve paper capital under its assigned strategy?",
+      "may_veto": true,
+      "strategy_specific_rules_required": true,
+      "replacement_requires_better_entry_approved_opportunity": true,
+      "sector_or_theme_exit_allowed": false,
+      "market_regime_only_exit_allowed": false,
+      "produces": ["hold_exit_or_review_status", "exit_reasons", "replacement_candidate"],
+      "prohibited_actions": ["OPPORTUNITY_RANKING", "ENTRY_TIMING_SCORING", "POSITION_SIZING"]
+    }
+  ],
+  "final_eligibility_rule": "OPPORTUNITY_APPROVED_AND_ENTRY_APPROVED",
+  "committee_independence_rules": [
+    "EACH_COMMITTEE_HAS_ONE_JURISDICTION",
+    "NO_COMMITTEE_MAY_PERFORM_ANOTHER_COMMITTEES_DECISION",
+    "ENTRY_IS_NOT_BLENDED_INTO_OPPORTUNITY_QUALITY",
+    "SECTOR_THEME_AND_MARKET_REGIME_ARE_EVIDENCE_NOT_PORTFOLIO_QUOTAS",
+    "OUTPUTS_ARE_REPRODUCIBLE_FROM_STORED_EVIDENCE",
+    "ALL_ACTIONS_REMAIN_PAPER_ONLY_AND_ADVISORY_ONLY"
+  ]
+}
