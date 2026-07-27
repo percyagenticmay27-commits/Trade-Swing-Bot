@@ -69,7 +69,7 @@ Required compatibility:
 
 ### Phase 9E.2 — Strategy Capability Profiles
 
-Status: Implemented; local validation pending
+Status: Complete and locally validated; Version 1.4 policy update pending local validation
 
 Advertise Strategy A and Strategy B independently of the plugin registration so the CIO can understand their purpose, entry philosophy, exit behavior, risk style, supported assets, profit-protection rules, and reentry capability.
 
@@ -89,14 +89,57 @@ Required compatibility:
 
 - Strategy A remains thesis-based with no hard numerical loss exit
 - Strategy B retains the 10% paper drawdown review and governed reentry workflow
-- shared entry thresholds remain Quality 70, Entry 70, and Regime 50 with intact thesis
+- Opportunity Quality 70 and Entry Score 70 remain independent gates
+- Entry is an independent timing veto and is not blended into Opportunity Quality
+- Market Regime is evidence, not a mandatory minimum or hard veto
+- sector, theme, and market-regime-only exits are prohibited
 - shared profit zones remain 20%/5% and 30%/10%
 - supported assets remain stocks and leveraged ETFs
 - no automatic strategy activation
 
+### Phase 9E.3 — Independent Committee Governance
+
+Status: Implemented; local validation pending
+
+Formalize the accepted committee model:
+
+```text
+Discovery Committee
+        ↓
+Opportunity Committee
+        ↓
+Entry Committee
+        ↓
+Portfolio Committee
+        ↓
+Exit Committee
+```
+
+Required policy:
+
+- each committee has one jurisdiction
+- Entry is the independent timing wall and may veto a high-quality opportunity
+- Daily RSI direction and Daily Stochastic RSI K/D relationship are explicit Entry evidence
+- only Opportunity-approved and Entry-approved candidates may reach Portfolio
+- higher-ranked approved opportunities receive greater capital priority
+- no sector, theme, stock-history, reputation, concentration, or market-regime allocation bias
+- no fixed number of positions
+- unallocated paper capital remains in SGOV
+- Exit may not act solely because of sector, theme concentration, or a market-regime label
+- all decisions remain paper-only, advisory-only, and reproducible from stored evidence
+
+Files:
+
+```text
+configs/swing_committee_governance.json
+src/swing_trade_bot/swing_committee_governance.py
+tests/test_swing_committee_governance.py
+docs/SWING_COMMITTEE_GOVERNANCE.md
+```
+
 ### Phase 9F — Full CIO Validation Suite
 
-Status: Next after Phase 9E.2 validation
+Status: Next after Phase 9E.3 local validation
 
 Validate the complete integration as one system:
 
@@ -106,6 +149,7 @@ Validate the complete integration as one system:
 - Presentation Adapter
 - Strategy Service Registration
 - Strategy Capability Profiles
+- Independent Committee Governance
 - strict artifact versions
 - cross-file identity consistency
 - dashboard destination consistency
@@ -113,9 +157,15 @@ Validate the complete integration as one system:
 - strategy-policy consistency
 - paper-only, advisory-only, read-only, and no-execution safety locks
 
+### Phase 9F.1 — CIO Acceptance Test
+
+Status: Planned after Phase 9F
+
+Simulate the complete enterprise workflow from strategy discovery through governance, contract validation, schema resolution, presentation normalization, committee-policy validation, and final `READY FOR CIO` reporting.
+
 ### Phase 9G — Milestone 1 Freeze
 
-Status: Planned
+Status: Planned after Phase 9F.1
 
 Freeze the validated CIO compatibility boundary and document approved extension rules.
 
@@ -123,7 +173,7 @@ Freeze the validated CIO compatibility boundary and document approved extension 
 
 ### Phase 10 — AI CIO Platform Integration
 
-Ingest the Swing registration, capability, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
+Ingest the Swing registration, capability, committee-governance, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
 
 ### Phase 11 — Operational Automation
 
@@ -131,7 +181,7 @@ Schedule report generation, health checks, registry refresh, validation, and gov
 
 ### Phase 12 — CIO Acceptance
 
-Perform paper-production acceptance testing across the full Swing-to-CIO workflow.
+Reserved for later paper-production acceptance after platform integration. The pre-freeze interface acceptance gate is Phase 9F.1.
 
 ### Phase 13 — PostgreSQL Import
 
@@ -148,9 +198,11 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9E.2 local validation
+Phase 9E.3 local validation
         ↓
 Phase 9F full cross-system validation
+        ↓
+Phase 9F.1 CIO acceptance test
         ↓
 Phase 9G compatibility freeze
         ↓
@@ -169,3 +221,5 @@ Phase 10 AI CIO integration
 - Swing and Dividend remain independent repositories
 - strict artifact versioning remains mandatory
 - AI CIO owns registry ingestion and future database persistence
+- Entry Score remains independent from Opportunity Quality
+- no sector, theme, concentration, stock-history, reputation, or market-regime hard bias
