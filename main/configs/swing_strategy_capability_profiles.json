@@ -4,13 +4,14 @@
   "paper_trade_mode": true,
   "advisory_only": true,
   "automatic_activation_allowed": false,
+  "committee_governance_policy": "configs/swing_committee_governance.json",
   "profiles": [
     {
       "strategy_id": "STRATEGY_A",
       "display_name": "Strategy A",
-      "strategy_version": "1.3",
+      "strategy_version": "1.4",
       "purpose": "THESIS_PRESERVATION",
-      "entry_philosophy": "QUALITY_TIMING_REGIME_AND_THSIS_CONFIRMATION",
+      "entry_philosophy": "OPPORTUNITY_APPROVAL_THEN_INDEPENDENT_ENTRY_TIMING_APPROVAL",
       "exit_philosophy": "EXIT_REVIEW_ON_THSIS_OR_EVIDENCE_DETERIORATION",
       "risk_style": "MODERATE",
       "capital_protection_level": "MEDIUM",
@@ -20,8 +21,9 @@
       "entry_rules": {
         "minimum_opportunity_quality_score": 70.0,
         "minimum_entry_score": 70.0,
-        "minimum_market_regime_score": 50.0,
-        "thesis_must_be_intact": true
+        "thesis_must_be_intact": true,
+        "market_regime_hard_gate_allowed": false,
+        "entry_score_is_independent_veto": true
       },
       "exit_review_rules": {
         "hard_loss_exit_percent": null,
@@ -31,6 +33,8 @@
         "quality_decline_high_priority": -15.0,
         "market_regime_warning_score": 45.0,
         "market_regime_high_priority_score": 30.0,
+        "market_regime_only_exit_allowed": false,
+        "sector_or_theme_exit_allowed": false,
         "thesis_break_requires_review": true
       },
       "profit_protection_rules": {
@@ -43,9 +47,9 @@
     {
       "strategy_id": "STRATEGY_B",
       "display_name": "Strategy B",
-      "strategy_version": "1.3",
+      "strategy_version": "1.4",
       "purpose": "CAPITAL_PROTECTION_AND_REENTRY",
-      "entry_philosophy": "QUALITY_TIMING_REGIME_AND_THSIS_CONFIRMATION",
+      "entry_philosophy": "OPPORTUNITY_APPROVAL_THEN_INDEPENDENT_ENTRY_TIMING_APPROVAL",
       "exit_philosophy": "TEN_PERCENT_DRAWDOWN_REVIEW_WITH_REENTRY_WORKFLOW",
       "risk_style": "CONSERVATIVE",
       "capital_protection_level": "HIGH",
@@ -55,20 +59,24 @@
       "entry_rules": {
         "minimum_opportunity_quality_score": 70.0,
         "minimum_entry_score": 70.0,
-        "minimum_market_regime_score": 50.0,
-        "thesis_must_be_intact": true
+        "thesis_must_be_intact": true,
+        "market_regime_hard_gate_allowed": false,
+        "entry_score_is_independent_veto": true
       },
       "exit_review_rules": {
         "hard_loss_exit_percent": 10.0,
+        "market_regime_only_exit_allowed": false,
+        "sector_or_theme_exit_allowed": false,
         "thesis_break_requires_review": true
       },
       "reentry_rules": {
         "minimum_wait_days": 3,
         "minimum_opportunity_quality_score": 70.0,
         "minimum_entry_score": 70.0,
-        "minimum_market_regime_score": 50.0,
         "maximum_distance_from_reentry_level_percent": 3.0,
-        "thesis_must_be_intact": true
+        "thesis_must_be_intact": true,
+        "market_regime_hard_gate_allowed": false,
+        "entry_score_is_independent_veto": true
       },
       "profit_protection_rules": {
         "standard_gain_percent": 20.0,
