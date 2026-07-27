@@ -1,0 +1,142 @@
+{
+  "contract_schema_version": "1.0",
+  "contract_id": "SWING-CIO-OUTPUT-CONTRACT",
+  "plugin_id": "SWING-001",
+  "versioning_policy": "STRICT_ARTIFACT_VERSIONING",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "direct_database_writes": false,
+  "supported_formats": ["json", "csv", "markdown", "html", "zip"],
+  "timestamp_policy": {
+    "preferred_field": "generated_at_utc",
+    "format": "ISO-8601 UTC",
+    "suffix": "Z",
+    "missing_timestamp_behavior": "WARN"
+  },
+  "compatibility_policy": {
+    "artifact_versions_are_independent": true,
+    "repository_version_does_not_override_artifact_version": true,
+    "additive_optional_fields_are_backward_compatible": true,
+    "removing_or_renaming_fields_requires_major_version": true,
+    "changing_field_type_requires_major_version": true,
+    "new_required_fields_require_major_version": true
+  },
+  "artifacts": [
+    {
+      "artifact_id": "strategy_assignments_json",
+      "path": "results/strategy_assignments.json",
+      "format": "json",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "root_type": "object",
+      "required_fields": ["paper_trade_mode", "version", "assignments"],
+      "record_collection": "assignments",
+      "record_required_fields": ["symbol", "active_strategy", "recommended_strategy", "switch_eligible", "confidence_level", "review_window", "cooldown_remaining_weeks", "reason"],
+      "allowed_enums": {
+        "active_strategy": ["Strategy A", "Strategy B"],
+        "recommended_strategy": ["Strategy A", "Strategy B"],
+        "confidence_level": ["warning", "review", "preferred", "high", "hold"],
+        "review_window": ["1_week", "4_week", "8_week", "12_week"]
+      },
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "strategy_assignments_csv",
+      "path": "results/strategy_assignments.csv",
+      "format": "csv",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "columns": ["symbol", "active_strategy", "recommended_strategy", "switch_eligible", "confidence_level", "review_window", "cooldown_remaining_weeks", "reason", "strategy_a_return", "strategy_b_return", "strategy_a_max_drawdown", "strategy_b_max_drawdown", "strategy_a_win_rate", "strategy_b_win_rate", "strategy_a_trade_count", "strategy_b_trade_count"],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "strategy_assignments_markdown",
+      "path": "results/strategy_assignments.md",
+      "format": "markdown",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "required_sections": ["Strategy Assignment Report"],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "thesis_monitor_json",
+      "path": "results/thesis_monitor_report.json",
+      "format": "json",
+      "owner_module": "thesis_monitor",
+      "artifact_version": "1.4",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Thesis Monitor",
+      "root_type": "object",
+      "required_fields": ["paper_trade_mode", "version", "reviews"],
+      "record_collection": "reviews",
+      "record_required_fields": ["symbol", "active_strategy", "thesis_state", "thesis_health_score", "thesis_intact", "suggested_review_action", "evidence_count", "weak_evidence_count", "original_thesis", "reason"],
+      "allowed_enums": {
+        "active_strategy": ["Strategy A", "Strategy B"],
+        "thesis_state": ["strong", "intact", "weakening", "broken", "unknown"],
+        "suggested_review_action": ["continue_research", "monitor_thesis", "review_thesis", "high_priority_review", "insufficient_evidence"]
+      },
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "thesis_monitor_markdown",
+      "path": "results/thesis_monitor_report.md",
+      "format": "markdown",
+      "owner_module": "thesis_monitor",
+      "artifact_version": "1.4",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Thesis Monitor",
+      "required_sections": ["Thesis Monitor Report"],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "executive_dashboard_json",
+      "path": "results/executive_dashboard.json",
+      "format": "json",
+      "owner_module": "executive_dashboard",
+      "artifact_version": "1.0.1",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Strategy Overview",
+      "root_type": "object",
+      "required_fields": ["paper_trade_mode"],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "monthly_command_center_json",
+      "path": "results/monthly_command_center.json",
+      "format": "json",
+      "owner_module": "monthly_command_center",
+      "artifact_version": "1.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Strategy Overview",
+      "root_type": "object",
+      "required_fields": ["paper_trade_mode"],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "historical_archive_json",
+      "path": "archive_manager.json",
+      "format": "json",
+      "owner_module": "historical_archive_manager",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Historical Evidence and Archive Health",
+      "root_type": "object",
+      "required_fields": ["paper_trade_mode"],
+      "missing_behavior": "WARN"
+    }
+  ]
+}
