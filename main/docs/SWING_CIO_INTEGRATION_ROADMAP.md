@@ -19,37 +19,25 @@ Define the controlled path for integrating the paper-only Trade Swing Bot with t
 
 Status: Complete
 
-Catalog report-producing modules, artifact paths, versions, formats, owners, dashboard destinations, and missing-data behavior.
-
 ### Phase 9B — Plugin Manifest
 
 Status: Complete and locally validated
-
-Register the Swing Bot identity, capabilities, reports, safety boundaries, and CIO compatibility declarations.
 
 ### Phase 9C — Output Contract
 
 Status: Complete and locally validated
 
-Define strict independent versions and schemas for every CIO-consumable artifact.
-
 ### Phase 9D — Schema Registry
 
 Status: Complete and locally validated
-
-Resolve schemas by the pair `(artifact_id, artifact_version)` and preserve backward compatibility.
 
 ### Phase 9E — CIO Presentation Adapter
 
 Status: Complete and locally validated
 
-Read registered Swing artifacts and create normalized CIO presentation JSON and Markdown without modifying source reports.
-
 ### Phase 9E.1 — Enterprise Strategy Registry Export
 
 Status: Complete and locally validated
-
-Export the Swing Bot into the strategy-service shape used by the Dividend platform and AI CIO Enterprise Service Registry.
 
 ### Phase 9E.2 — Strategy Capability Profiles
 
@@ -118,18 +106,7 @@ Required behavior:
 
 ### Phase 9E.5 — Governed Committee Learning Foundation
 
-Status: Implemented; local validation pending
-
-Use the Dividend Bot learning pattern to compare committee decisions with later paper outcomes while preserving the original decision trace.
-
-Files:
-
-```text
-configs/swing_committee_learning.json
-src/swing_trade_bot/swing_committee_learning.py
-tests/test_swing_committee_learning.py
-docs/SWING_COMMITTEE_LEARNING.md
-```
+Status: Complete and locally validated — 39 focused learning tests passed; combined committee suite 146 passed
 
 Required behavior:
 
@@ -146,7 +123,16 @@ Required behavior:
 
 ### Phase 9F — Full CIO Validation Suite
 
-Status: Next after Phase 9E.5 local validation
+Status: Implemented; local validation pending
+
+Files:
+
+```text
+configs/swing_cio_validation_suite.json
+src/swing_trade_bot/swing_cio_validation_suite.py
+tests/test_swing_cio_validation_suite.py
+docs/SWING_CIO_VALIDATION_SUITE.md
+```
 
 Validate the complete integration as one system:
 
@@ -161,14 +147,14 @@ Validate the complete integration as one system:
 - Governed Committee Learning Foundation
 - strict artifact versions
 - cross-file identity consistency
-- dashboard destination consistency
 - Enterprise registry discovery compatibility
 - strategy-policy consistency
+- governance health score
 - paper-only, advisory-only, read-only, append-only, and no-execution safety locks
 
 ### Phase 9F.1 — CIO Acceptance Test
 
-Status: Planned after Phase 9F
+Status: Planned after Phase 9F local validation
 
 Simulate the complete enterprise workflow from strategy discovery through governance, contract validation, schema resolution, presentation normalization, committee-policy validation, trace creation, outcome attachment, and final `READY FOR CIO` reporting.
 
@@ -182,7 +168,7 @@ Freeze the validated CIO compatibility boundary and document approved extension 
 
 ### Phase 10 — AI CIO Platform Integration
 
-Ingest the Swing registration, capability, committee-governance, traceability, learning, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
+Ingest the Swing registration, capability, committee-governance, traceability, learning, validation, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
 
 ### Phase 11 — Operational Automation
 
@@ -207,9 +193,7 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9E.5 local validation
-        ↓
-Phase 9F full cross-system validation
+Phase 9F local validation
         ↓
 Phase 9F.1 CIO acceptance test
         ↓
