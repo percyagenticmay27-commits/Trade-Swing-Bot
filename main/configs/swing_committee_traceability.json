@@ -1,0 +1,75 @@
+{
+  "trace_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "policy_version": "1.0.0",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "append_only": true,
+  "automatic_policy_change_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "committee_sequence": [
+    "DISCOVERY_COMMITTEE",
+    "OPPORTUNITY_COMMITTEE",
+    "ENTRY_COMMITTEE",
+    "PORTFOLIO_COMMITTEE",
+    "EXIT_COMMITTEE"
+  ],
+  "required_trace_fields": [
+    "decision_trace_id",
+    "evaluation_cycle_id",
+    "symbol",
+    "strategy_id",
+    "generated_at_utc",
+    "committee_steps",
+    "final_status",
+    "source_artifacts",
+    "paper_trade_mode",
+    "advisory_only",
+    "append_only"
+  ],
+  "required_step_fields": [
+    "committee_id",
+    "sequence",
+    "status",
+    "reason_codes",
+    "evidence",
+    "source_artifacts",
+    "input_snapshot_hash",
+    "step_id"
+  ],
+  "allowed_step_statuses": ["PASS", "FAIL", "VETO", "SKIPPED", "NOT_APPLICABLE", "HOLD", "REVIEW", "EXIT"],
+  "allowed_final_statuses": ["REJECTED", "WAIT", "ELIGIBLE_FOR_ALLOCATION", "ALLOCATED", "HOLD", "REVIEW", "EXIT"],
+  "bias_audit_fields": [
+    "sector_bias_applied",
+    "theme_bias_applied",
+    "concentration_limit_applied",
+    "stock_history_bias_applied",
+    "market_regime_veto_applied"
+  ],
+  "bias_audit_required_value": false,
+  "outcome_attachment": {
+    "append_only": true,
+    "required_fields": [
+      "outcome_id",
+      "decision_trace_id",
+      "measurement_horizon",
+      "measured_at_utc",
+      "metrics",
+      "source_artifacts",
+      "record_key"
+    ],
+    "automatic_policy_change_allowed": false,
+    "human_approval_required_for_policy_change": true
+  },
+  "trace_rules": [
+    "ORIGINAL_DECISION_TRACE_IS_IMMUTABLE",
+    "LATER_OUTCOMES_ARE_APPENDED_SEPARATELY",
+    "ENTRY_VETO_SKIPS_PORTFOLIO_ALLOCATION",
+    "OPPORTUNITY_REJECTION_SKIPS_ENTRY_AND_PORTFOLIO",
+    "EACH_STEP_PRESERVES_INPUT_EVIDENCE_AND_SOURCE_LINEAGE",
+    "NO_HINDSIGHT_REWRITE",
+    "NO_SECTOR_THEME_CONCENTRATION_STOCK_HISTORY_OR_MARKET_REGIME_HARD_BIAS",
+    "ALL_RECORDS_REMAIN_PAPER_ONLY_AND_ADVISORY_ONLY"
+  ]
+}
