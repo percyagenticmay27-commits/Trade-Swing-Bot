@@ -51,27 +51,9 @@ Status: Complete and locally validated
 
 Export the Swing Bot into the strategy-service shape used by the Dividend platform and AI CIO Enterprise Service Registry.
 
-Required output:
-
-```text
-results/swing_strategy_service_registration.json
-```
-
-Required compatibility:
-
-- dynamic strategy discovery
-- enabled and healthy status checks
-- paper-compatible strategy filtering
-- investor-controlled paper allocation
-- governance review before activation
-- no automatic capital movement
-- no direct database writes
-
 ### Phase 9E.2 — Strategy Capability Profiles
 
 Status: Complete and locally validated through Version 1.4 policy
-
-Advertise Strategy A and Strategy B independently of the plugin registration so the CIO can understand their purpose, entry philosophy, exit behavior, risk style, supported assets, profit-protection rules, and reentry capability.
 
 Required compatibility:
 
@@ -118,18 +100,7 @@ Required policy:
 
 ### Phase 9E.4 — Committee Decision Traceability
 
-Status: Implemented; local validation pending
-
-Create immutable, deterministic, append-only decision traces for every committee evaluation.
-
-Files:
-
-```text
-configs/swing_committee_traceability.json
-src/swing_trade_bot/swing_committee_traceability.py
-tests/test_swing_committee_traceability.py
-docs/SWING_COMMITTEE_TRACEABILITY.md
-```
+Status: Complete and locally validated — 40 traceability tests passed; combined committee suite 107 passed
 
 Required behavior:
 
@@ -147,26 +118,35 @@ Required behavior:
 
 ### Phase 9E.5 — Governed Committee Learning Foundation
 
-Status: Planned after Phase 9E.4 validation
+Status: Implemented; local validation pending
 
 Use the Dividend Bot learning pattern to compare committee decisions with later paper outcomes while preserving the original decision trace.
 
+Files:
+
+```text
+configs/swing_committee_learning.json
+src/swing_trade_bot/swing_committee_learning.py
+tests/test_swing_committee_learning.py
+docs/SWING_COMMITTEE_LEARNING.md
+```
+
 Required behavior:
 
-- observation-only until minimum evidence thresholds are met
-- committee-specific effectiveness metrics
+- observation-only until 30 completed traces, 6 months, and 10 observations per committee
+- decision quality is measured separately from outcome quality
 - Entry outcome windows at 3, 5, 10, and 20 trading days
 - Opportunity rank/outcome comparison
 - Portfolio allocation/outcome comparison
 - Exit and reentry effectiveness comparison
-- append-only learning records
+- append-only deterministic observations
 - advisory proposals only
 - human approval required
 - no automatic policy, threshold, or weight changes
 
 ### Phase 9F — Full CIO Validation Suite
 
-Status: Next after Phases 9E.4 and 9E.5 validation
+Status: Next after Phase 9E.5 local validation
 
 Validate the complete integration as one system:
 
@@ -227,9 +207,7 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9E.4 local validation
-        ↓
-Phase 9E.5 governed committee learning
+Phase 9E.5 local validation
         ↓
 Phase 9F full cross-system validation
         ↓
@@ -254,6 +232,7 @@ Phase 10 AI CIO integration
 - strict artifact versioning remains mandatory
 - original decision traces are immutable
 - later outcomes and learning records are append-only
+- decision quality remains separate from outcome quality
 - AI CIO owns registry ingestion and future database persistence
 - Entry Score remains independent from Opportunity Quality
 - no sector, theme, concentration, stock-history, reputation, or market-regime hard bias
