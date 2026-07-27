@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 MODULE_NAME = "swing_output_contract"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.0.1"
 CONTRACT_SCHEMA_VERSION = "1.0"
 VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 SUPPORTED_FORMATS = {"json", "csv", "markdown", "html", "zip"}
@@ -93,9 +93,10 @@ def validate_output_contract(contract: Mapping[str, Any]) -> ContractValidationR
         paths.add(path)
 
         artifact_format = artifact.get("format")
-        if artifact_format not in SUPPORTED_FORMATS:
+        format_supported = artifact_format in SUPPORTED_FORMATS
+        if not format_supported:
             errors.append(f"Unsupported artifact format for {artifact_id}: {artifact_format}")
-        if path and artifact_format and not _path_matches_format(path, str(artifact_format)):
+        if path and format_supported and not _path_matches_format(path, str(artifact_format)):
             errors.append(f"Artifact path extension does not match format for {artifact_id}")
 
         for version_field in ("artifact_version", "schema_version"):
@@ -175,4 +176,5 @@ def _path_matches_format(path: str, artifact_format: str) -> bool:
         "html": ".html",
         "zip": ".zip",
     }
-    return path.lower().endswith(suffixes[artifact_format])
+    expected_suffix = suffixes.get(artifact_format)
+    return expected_suffix is not None and path.lower().endswith(expected_suffix)
