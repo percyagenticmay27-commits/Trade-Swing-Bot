@@ -48,13 +48,20 @@ def test_automatic_activation_is_disabled(payload):
     assert payload["automatic_activation_allowed"] is False
 
 
+def test_committee_governance_policy_is_linked(payload):
+    assert payload["committee_governance_policy"] == "configs/swing_committee_governance.json"
+
+
 def test_exactly_two_required_profiles(payload):
     assert {p["strategy_id"] for p in payload["profiles"]} == {"STRATEGY_A", "STRATEGY_B"}
 
 
+def test_strategy_versions_are_1_4(payload):
+    assert {p["strategy_version"] for p in payload["profiles"]} == {"1.4"}
+
+
 def test_strategy_a_has_no_hard_loss_exit(payload):
-    profile = get_strategy_profile(payload, "STRATEGY_A")
-    assert profile["exit_review_rules"]["hard_loss_exit_percent"] is None
+    assert get_strategy_profile(payload, "STRATEGY_A")["exit_review_rules"]["hard_loss_exit_percent"] is None
 
 
 def test_strategy_a_has_no_reentry(payload):
@@ -62,8 +69,7 @@ def test_strategy_a_has_no_reentry(payload):
 
 
 def test_strategy_b_has_ten_percent_loss_review(payload):
-    profile = get_strategy_profile(payload, "STRATEGY_B")
-    assert profile["exit_review_rules"]["hard_loss_exit_percent"] == 10.0
+    assert get_strategy_profile(payload, "STRATEGY_B")["exit_review_rules"]["hard_loss_exit_percent"] == 10.0
 
 
 def test_strategy_b_supports_reentry(payload):
@@ -74,19 +80,33 @@ def test_strategy_b_reentry_wait_is_three_days(payload):
     assert get_strategy_profile(payload, "STRATEGY_B")["reentry_rules"]["minimum_wait_days"] == 3
 
 
-def test_shared_entry_thresholds(payload):
+def test_shared_entry_thresholds_and_independent_veto(payload):
     for profile in payload["profiles"]:
         rules = profile["entry_rules"]
         assert rules["minimum_opportunity_quality_score"] == 70.0
         assert rules["minimum_entry_score"] == 70.0
-        assert rules["minimum_market_regime_score"] == 50.0
         assert rules["thesis_must_be_intact"] is True
+        assert rules["market_regime_hard_gate_allowed"] is False
+        assert rules["entry_score_is_independent_veto"] is True
+        assert "minimum_market_regime_score" not in rules
+
+
+def test_reentry_has_no_market_regime_hard_gate(payload):
+    rules = get_strategy_profile(payload, "STRATEGY_B")["reentry_rules"]
+    assert rules["market_regime_hard_gate_allowed"] is False
+    assert "minimum_market_regime_score" not in rules
+
+
+def test_sector_or_regime_only_exit_is_forbidden(payload):
+    for profile in payload["profiles"]:
+        rules = profile["exit_review_rules"]
+        assert rules["market_regime_only_exit_allowed"] is False
+        assert rules["sector_or_theme_exit_allowed"] is False
 
 
 def test_shared_profit_protection_thresholds(payload):
     for profile in payload["profiles"]:
-        rules = profile["profit_protection_rules"]
-        assert rules == {
+        assert profile["profit_protection_rules"] == {
             "standard_gain_percent": 20.0,
             "standard_giveback_percent": 5.0,
             "strong_gain_percent": 30.0,
@@ -109,6 +129,7 @@ def test_unknown_profile_raises(payload):
     ("advisory_only", False),
     ("automatic_activation_allowed", True),
     ("plugin_id", "BAD"),
+    ("committee_governance_policy", "wrong.json"),
 ])
 def test_top_level_safety_and_identity_rejected(payload, field, bad_value):
     changed = copy.deepcopy(payload)
@@ -166,6 +187,18 @@ def test_bad_entry_threshold_rejected(payload):
     assert validate_strategy_capability_profiles(changed).valid is False
 
 
+def test_market_regime_minimum_is_rejected(payload):
+    changed = copy.deepcopy(payload)
+    changed["profiles"][0]["entry_rules"]["minimum_market_regime_score"] = 50.0
+    assert validate_strategy_capability_profiles(changed).valid is False
+
+
+def test_sector_exit_bias_is_rejected(payload):
+    changed = copy.deepcopy(payload)
+    changed["profiles"][0]["exit_review_rules"]["sector_or_theme_exit_allowed"] = True
+    assert validate_strategy_capability_profiles(changed).valid is False
+
+
 def test_bad_profit_threshold_rejected(payload):
     changed = copy.deepcopy(payload)
     changed["profiles"][0]["profit_protection_rules"]["strong_gain_percent"] = 25.0
@@ -176,6 +209,7 @@ def test_summary_identifies_reentry_strategy(payload):
     summary = build_capability_summary(payload)
     assert summary["profile_count"] == 2
     assert summary["reentry_capable_strategies"] == ["STRATEGY_B"]
+    assert summary["committee_governance_policy"] == "configs/swing_committee_governance.json"
 
 
 def test_write_profiles(payload, tmp_path):
