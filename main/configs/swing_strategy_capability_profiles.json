@@ -1,0 +1,81 @@
+{
+  "profile_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "automatic_activation_allowed": false,
+  "profiles": [
+    {
+      "strategy_id": "STRATEGY_A",
+      "display_name": "Strategy A",
+      "strategy_version": "1.3",
+      "purpose": "THESIS_PRESERVATION",
+      "entry_philosophy": "QUALITY_TIMING_REGIME_AND_THSIS_CONFIRMATION",
+      "exit_philosophy": "EXIT_REVIEW_ON_THSIS_OR_EVIDENCE_DETERIORATION",
+      "risk_style": "MODERATE",
+      "capital_protection_level": "MEDIUM",
+      "reentry_supported": false,
+      "typical_holding_period": "2_TO_12_WEEKS",
+      "supported_assets": ["STOCKS", "LEVERAGED_ETFS"],
+      "entry_rules": {
+        "minimum_opportunity_quality_score": 70.0,
+        "minimum_entry_score": 70.0,
+        "minimum_market_regime_score": 50.0,
+        "thesis_must_be_intact": true
+      },
+      "exit_review_rules": {
+        "hard_loss_exit_percent": null,
+        "quality_warning_score": 70.0,
+        "quality_high_priority_score": 55.0,
+        "quality_decline_warning": -8.0,
+        "quality_decline_high_priority": -15.0,
+        "market_regime_warning_score": 45.0,
+        "market_regime_high_priority_score": 30.0,
+        "thesis_break_requires_review": true
+      },
+      "profit_protection_rules": {
+        "standard_gain_percent": 20.0,
+        "standard_giveback_percent": 5.0,
+        "strong_gain_percent": 30.0,
+        "strong_giveback_percent": 10.0
+      }
+    },
+    {
+      "strategy_id": "STRATEGY_B",
+      "display_name": "Strategy B",
+      "strategy_version": "1.3",
+      "purpose": "CAPITAL_PROTECTION_AND_REENTRY",
+      "entry_philosophy": "QUALITY_TIMING_REGIME_AND_THSIS_CONFIRMATION",
+      "exit_philosophy": "TEN_PERCENT_DRAWDOWN_REVIEW_WITH_REENTRY_WORKFLOW",
+      "risk_style": "CONSERVATIVE",
+      "capital_protection_level": "HIGH",
+      "reentry_supported": true,
+      "typical_holding_period": "DAYS_TO_WEEKS",
+      "supported_assets": ["STOCKS", "LEVERAGED_ETFS"],
+      "entry_rules": {
+        "minimum_opportunity_quality_score": 70.0,
+        "minimum_entry_score": 70.0,
+        "minimum_market_regime_score": 50.0,
+        "thesis_must_be_intact": true
+      },
+      "exit_review_rules": {
+        "hard_loss_exit_percent": 10.0,
+        "thesis_break_requires_review": true
+      },
+      "reentry_rules": {
+        "minimum_wait_days": 3,
+        "minimum_opportunity_quality_score": 70.0,
+        "minimum_entry_score": 70.0,
+        "minimum_market_regime_score": 50.0,
+        "maximum_distance_from_reentry_level_percent": 3.0,
+        "thesis_must_be_intact": true
+      },
+      "profit_protection_rules": {
+        "standard_gain_percent": 20.0,
+        "standard_giveback_percent": 5.0,
+        "strong_gain_percent": 30.0,
+        "strong_giveback_percent": 10.0
+      }
+    }
+  ]
+}
