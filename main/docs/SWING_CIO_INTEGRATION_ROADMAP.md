@@ -16,50 +16,30 @@ Define the controlled path for integrating the paper-only Trade Swing Bot with t
 ## CIO Compatibility Milestone 1
 
 ### Phase 9A — Artifact Inventory
-
 Status: Complete
 
 ### Phase 9B — Plugin Manifest
-
 Status: Complete and locally validated
 
 ### Phase 9C — Output Contract
-
 Status: Complete and locally validated
 
 ### Phase 9D — Schema Registry
-
 Status: Complete and locally validated
 
 ### Phase 9E — CIO Presentation Adapter
-
 Status: Complete and locally validated
 
 ### Phase 9E.1 — Enterprise Strategy Registry Export
-
 Status: Complete and locally validated
 
 ### Phase 9E.2 — Strategy Capability Profiles
-
 Status: Complete and locally validated through Version 1.4 policy
 
-Required compatibility:
-
-- Strategy A remains thesis-based with no hard numerical loss exit
-- Strategy B retains the 10% paper drawdown review and governed reentry workflow
-- Opportunity Quality 70 and Entry Score 70 remain independent gates
-- Entry is an independent timing veto and is not blended into Opportunity Quality
-- Market Regime is evidence, not a mandatory minimum or hard veto
-- sector, theme, and market-regime-only exits are prohibited
-- shared profit zones remain 20%/5% and 30%/10%
-- supported assets remain stocks and leveraged ETFs
-- no automatic strategy activation
-
 ### Phase 9E.3 — Independent Committee Governance
-
 Status: Complete and locally validated — 28 governance tests and 39 capability-profile tests passed
 
-Frozen committee model:
+Frozen committee order:
 
 ```text
 Discovery Committee
@@ -73,149 +53,118 @@ Portfolio Committee
 Exit Committee
 ```
 
-Required policy:
-
-- each committee has one jurisdiction
-- Entry is the independent timing wall and may veto a high-quality opportunity
-- Daily RSI direction and Daily Stochastic RSI K/D relationship are explicit Entry evidence
-- only Opportunity-approved and Entry-approved candidates may reach Portfolio
-- higher-ranked approved opportunities receive greater capital priority
-- no sector, theme, stock-history, reputation, concentration, or market-regime allocation bias
-- no fixed number of positions
-- unallocated paper capital remains in SGOV
-- Exit may not act solely because of sector, theme concentration, or a market-regime label
-- all decisions remain paper-only, advisory-only, and reproducible from stored evidence
+Permanent rules include independent Entry veto authority, no sector/theme/history/concentration bias, no fixed position count, and SGOV for unallocated paper capital.
 
 ### Phase 9E.4 — Committee Decision Traceability
-
 Status: Complete and locally validated — 40 traceability tests passed; combined committee suite 107 passed
 
-Required behavior:
-
-- stable SHA-256 trace, step, and outcome identifiers
-- evidence snapshots and source-artifact lineage for each committee
-- exact pass, fail, veto, skipped, hold, review, and exit reason codes
-- Opportunity rejection skips Entry and Portfolio
-- Entry veto skips Portfolio allocation
-- original decision traces remain immutable
-- later outcomes are appended separately
-- duplicate outcome records are not appended twice
-- explicit false-value audit for sector, theme, concentration, stock-history, and market-regime hard bias
-- no hindsight rewrite
-- no automatic policy changes
+Deterministic append-only traces preserve evidence snapshots, reason codes, source lineage, committee order, bias audits, and later outcome attachments without hindsight rewriting.
 
 ### Phase 9E.5 — Governed Committee Learning Foundation
-
 Status: Complete and locally validated — 39 focused learning tests passed; combined committee suite 146 passed
 
-Required behavior:
-
-- observation-only until 30 completed traces, 6 months, and 10 observations per committee
-- decision quality is measured separately from outcome quality
-- Entry outcome windows at 3, 5, 10, and 20 trading days
-- Opportunity rank/outcome comparison
-- Portfolio allocation/outcome comparison
-- Exit and reentry effectiveness comparison
-- append-only deterministic observations
-- advisory proposals only
-- human approval required
-- no automatic policy, threshold, or weight changes
+Learning remains observation-only until 30 completed traces, 6 months, and 10 observations per committee. Decision quality and outcome quality remain separate. All proposals require human approval and cannot change policy automatically.
 
 ### Phase 9F — Full CIO Validation Suite
-
 Status: Complete and locally validated — 40 focused validation tests passed; combined CIO committee-validation suite 186 passed
 
-Files:
-
-```text
-configs/swing_cio_validation_suite.json
-src/swing_trade_bot/swing_cio_validation_suite.py
-tests/test_swing_cio_validation_suite.py
-docs/SWING_CIO_VALIDATION_SUITE.md
-```
-
-Validated as one system:
-
-- Plugin Manifest
-- Output Contract
-- Schema Registry
-- Presentation Adapter
-- Strategy Service Registration
-- Strategy Capability Profiles
-- Independent Committee Governance
-- Committee Decision Traceability
-- Governed Committee Learning Foundation
-- strict artifact versions
-- cross-file identity consistency
-- Enterprise registry discovery compatibility
-- strategy-policy consistency
-- governance health score
-- paper-only, advisory-only, read-only, append-only, and no-execution safety locks
+The suite validates the manifest, output contract, schema registry, presentation adapter, strategy registration, capability profiles, governance, traceability, learning, strict versions, identity consistency, discovery compatibility, and all safety locks.
 
 ### Phase 9F.1 — CIO Acceptance Test
+Status: Complete and locally validated — 28 focused acceptance tests passed; complete pre-freeze suite 214 passed
 
+Acceptance verifies enterprise discovery, plugin registration, Phase 9F readiness, committee governance, deterministic decision replay, governed learning, and the paper-only safety boundary. Final result must be `READY_FOR_CIO`.
+
+### Phase 9G — Milestone 1 Freeze
 Status: Implemented; local validation pending
 
 Files:
 
 ```text
-configs/swing_cio_acceptance_test.json
-src/swing_trade_bot/swing_cio_acceptance_test.py
-tests/test_swing_cio_acceptance_test.py
-docs/SWING_CIO_ACCEPTANCE_TEST.md
+configs/swing_cio_milestone_1_freeze.json
+src/swing_trade_bot/swing_cio_milestone_1_freeze.py
+tests/test_swing_cio_milestone_1_freeze.py
+docs/SWING_CIO_MILESTONE_1_FREEZE.md
 ```
 
-Acceptance stages:
+Freeze requires Phase 9F `READY`, governance health 100, and Phase 9F.1 `READY_FOR_CIO`.
 
-- Enterprise discovery
-- Plugin registration
-- Full Phase 9F validation
-- Committee governance
-- Deterministic decision-trace replay
-- Governed committee learning
-- Paper-only safety boundary
-- final `READY_FOR_CIO` or `NOT_READY_FOR_CIO` result
+## Phase 10 — AI CIO Platform Integration
 
-### Phase 9G — Milestone 1 Freeze
+### Phase 10A — Same-Server Local Filesystem Registration
+Status: Implemented; local validation pending
 
-Status: Planned after Phase 9F.1 local validation
+The Swing Bot and AI CIO will run on the same DigitalOcean server:
 
-Freeze the validated CIO compatibility boundary and document approved extension rules.
+```text
+/home/tradebot/
+├── Trade-Dividend-Bot/
+├── Trade-Swing-Bot/
+└── AI-CIO/
+```
+
+Files:
+
+```text
+configs/swing_local_filesystem_integration.json
+src/swing_trade_bot/swing_local_filesystem_integration.py
+tests/test_swing_local_filesystem_integration.py
+docs/SWING_LOCAL_FILESYSTEM_INTEGRATION.md
+```
+
+Generated registration:
+
+```text
+results/swing_local_filesystem_registration.json
+```
+
+Required architecture:
+
+- `transport=LOCAL_FILESYSTEM`
+- AI CIO reads Swing artifacts locally and does not import Swing Python modules
+- plugin root `/home/tradebot/Trade-Swing-Bot/main`
+- artifact root `/home/tradebot/Trade-Swing-Bot/main/results`
+- AI CIO validates `plugin_id=SWING-001`
+- AI CIO requires acceptance status `READY_FOR_CIO`
+- AI CIO reads only contracted final JSON artifacts
+- file modification times determine freshness
+- `.tmp` files are ignored
+- Swing artifacts are written and validated before atomic `os.replace`
+- both applications run as non-root user `tradebot`
+- no API, network service, database connection, or Agentic transport is required for Milestone 1
+
+### Phase 10B — AI CIO Registry Consumer
+Status: Planned after Phase 10A local validation
+
+Implement the matching read-only registry entry and local artifact reader in the independent AI-CIO repository. The CIO will display Swing status, freshness, governance health, and contracted recommendations without executing Swing code.
 
 ## Future Phases
 
-### Phase 10 — AI CIO Platform Integration
-
-Ingest the Swing registration, capability, committee-governance, traceability, learning, validation, acceptance, and presentation artifacts into the CIO platform, display Swing intelligence, and expose the strategy as an eligible paper-allocation destination.
-
 ### Phase 11 — Operational Automation
+Schedule report generation, health checks, registry refresh, validation, trace generation, outcome attachment, atomic publication, and governed notifications.
 
-Schedule report generation, health checks, registry refresh, validation, trace generation, outcome attachment, and governed notifications.
-
-### Phase 12 — CIO Acceptance
-
-Reserved for later paper-production acceptance after platform integration. The pre-freeze interface acceptance gate is Phase 9F.1.
+### Phase 12 — CIO Paper-Production Acceptance
+Reserved for later acceptance after the AI-CIO repository consumes the local Swing registration.
 
 ### Phase 13 — PostgreSQL Import
-
 Future CIO-owned persistence only. The Swing repository will not write directly to PostgreSQL.
 
 ### Phase 14 — Historical Learning
-
 Expand governed historical learning after the Milestone 1 committee-learning foundation is frozen and validated.
 
 ### Phase 15 — Future Live Readiness
-
 Separate future milestone requiring explicit investor authorization. No live trading, broker execution, or capital movement is included in the current roadmap.
 
 ## Current Development Sequence
 
 ```text
-Phase 9F.1 local validation
+Phase 9G local validation
         ↓
-Phase 9G compatibility freeze
+Phase 10A local filesystem integration validation
         ↓
-Phase 10 AI CIO integration
+Phase 10B AI-CIO registry consumer
+        ↓
+Phase 11 operational automation
 ```
 
 ## Permanent Rules
@@ -236,3 +185,5 @@ Phase 10 AI CIO integration
 - AI CIO owns registry ingestion and future database persistence
 - Entry Score remains independent from Opportunity Quality
 - no sector, theme, concentration, stock-history, reputation, or market-regime hard bias
+- Milestone 1 integration transport is local filesystem only
+- AI CIO is a read-only artifact consumer and must not import Swing runtime modules
