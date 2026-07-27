@@ -4,21 +4,32 @@
 
 Phase 9E.2 publishes machine-readable capability profiles for Strategy A and Strategy B independently of the Swing plugin registration.
 
-The CIO can use these profiles to understand strategy behavior before showing or allocating paper capital to a strategy family.
+The profiles now reference the independent committee-governance policy defined in:
 
-## Output
+```text
+configs/swing_committee_governance.json
+```
 
-Source configuration:
+## Outputs
 
 ```text
 configs/swing_strategy_capability_profiles.json
-```
-
-Optional generated output:
-
-```text
 results/swing_strategy_capability_profiles.json
 ```
+
+## Shared Entry Governance
+
+Opportunity and Entry answer different questions and are never blended.
+
+```text
+Opportunity Quality >= 70
+Entry Score >= 70
+Thesis intact
+```
+
+Entry is an independent timing veto. Market Regime remains usable evidence, but there is no mandatory Market Regime minimum and no market-regime hard gate.
+
+The Entry Committee may reject an otherwise excellent company when daily timing evidence is deteriorating, including falling RSI, bearish Stochastic RSI K/D behavior, weakening momentum, poor volume confirmation, trend failure, or excessive extension.
 
 ## Strategy A
 
@@ -27,9 +38,9 @@ results/swing_strategy_capability_profiles.json
 - Capital protection: medium
 - Supported assets: stocks and leveraged ETFs
 - Reentry support: no
-- Entry review requires Opportunity Quality 70, Entry Score 70, Market Regime 50, and an intact thesis
-- No hard numerical loss exit is declared
-- Exit review is driven by thesis, opportunity quality, quality trend, market regime, and profit-giveback evidence
+- No hard numerical loss exit
+- Exit review is driven by thesis and evidence deterioration
+- Sector, theme, or Market Regime alone may not force exit
 
 ## Strategy B
 
@@ -38,13 +49,12 @@ results/swing_strategy_capability_profiles.json
 - Capital protection: high
 - Supported assets: stocks and leveraged ETFs
 - Reentry support: yes
-- Entry review requires Opportunity Quality 70, Entry Score 70, Market Regime 50, and an intact thesis
 - A 10% paper drawdown triggers exit/reentry review
-- Reentry requires a three-day wait, intact thesis, Opportunity Quality 70, Entry Score 70, Market Regime 50, and price within 3% of the reentry level
+- Reentry requires a three-day wait, intact thesis, Opportunity Quality 70, Entry Score 70, and price within 3% of the reentry level
+- Reentry has no mandatory Market Regime minimum
+- Sector, theme, or Market Regime alone may not force exit
 
 ## Shared Profit Protection
-
-Both profiles advertise:
 
 ```text
 Standard gain zone: 20%
@@ -55,20 +65,19 @@ Strong giveback review: 10%
 
 These are review thresholds, not automatic brokerage orders.
 
-## CIO Uses
+## Evidence-Only Policy
 
-The capability profile allows the CIO to:
+The profiles do not permit allocation or exit bias based on:
 
-- filter strategies by supported asset type
-- identify reentry-capable strategies
-- compare capital-protection levels
-- explain strategy behavior to the investor
-- validate that a strategy profile matches the frozen Swing policy
-- block future ungoverned strategy profiles
+- stock identity or popularity
+- historical reputation
+- sector or theme
+- theme concentration
+- market-regime label
+
+Sector, theme, Market Regime, and historical price behavior may contribute evidence to current scores, but they do not create automatic exclusions, quotas, or concentration caps.
 
 ## Safety
-
-Permanent rules:
 
 ```text
 paper_trade_mode=True
