@@ -1,0 +1,71 @@
+{
+  "adapter_schema_version": "1.0",
+  "adapter_id": "SWING-CIO-PRESENTATION-001",
+  "plugin_id": "SWING-001",
+  "adapter_version": "1.0.0",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "read_only_sources": true,
+  "direct_database_writes": false,
+  "outputs": {
+    "json": "results/swing_cio_presentation.json",
+    "markdown": "results/swing_cio_presentation.md"
+  },
+  "presentations": [
+    {
+      "presentation_id": "strategy_assignment",
+      "artifact_id": "strategy_assignments_json",
+      "artifact_version": "1.3",
+      "source_path": "results/strategy_assignments.json",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "title": "Strategy Assignment",
+      "record_path": "assignments",
+      "key_fields": ["symbol", "active_strategy", "recommended_strategy", "switch_eligible", "confidence_level", "review_window", "reason"]
+    },
+    {
+      "presentation_id": "thesis_monitor",
+      "artifact_id": "thesis_monitor_json",
+      "artifact_version": "1.4",
+      "source_path": "results/thesis_monitor_report.json",
+      "required": false,
+      "dashboard_destination": "Thesis Monitor",
+      "title": "Thesis Monitor",
+      "record_path": "reviews",
+      "key_fields": ["symbol", "active_strategy", "thesis_state", "thesis_health_score", "thesis_intact", "suggested_review_action", "reason"]
+    },
+    {
+      "presentation_id": "executive_dashboard",
+      "artifact_id": "executive_dashboard_json",
+      "artifact_version": "1.0.1",
+      "source_path": "results/executive_dashboard.json",
+      "required": false,
+      "dashboard_destination": "Swing Strategy Overview",
+      "title": "Executive Dashboard",
+      "record_path": null,
+      "key_fields": []
+    },
+    {
+      "presentation_id": "monthly_command_center",
+      "artifact_id": "monthly_command_center_json",
+      "artifact_version": "1.0",
+      "source_path": "results/monthly_command_center.json",
+      "required": false,
+      "dashboard_destination": "Swing Strategy Overview",
+      "title": "Monthly Command Center",
+      "record_path": null,
+      "key_fields": []
+    },
+    {
+      "presentation_id": "historical_archive",
+      "artifact_id": "historical_archive_json",
+      "artifact_version": "1.0.0",
+      "source_path": "archive_manager.json",
+      "required": false,
+      "dashboard_destination": "Historical Evidence and Archive Health",
+      "title": "Historical Archive",
+      "record_path": null,
+      "key_fields": []
+    }
+  ]
+}
