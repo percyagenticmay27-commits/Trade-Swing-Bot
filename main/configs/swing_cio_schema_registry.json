@@ -1,0 +1,23 @@
+{
+  "registry_schema_version": "1.0",
+  "registry_id": "SWING-CIO-SCHEMA-REGISTRY",
+  "plugin_id": "SWING-001",
+  "versioning_policy": "STRICT_ARTIFACT_VERSIONING",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "direct_database_writes": false,
+  "registrations": [
+    {"artifact_id":"strategy_assignments_json","artifact_version":"1.3","schema_version":"1.0","format":"json","owner_module":"strategy_assignment_engine","dashboard_destination":"Strategy Assignment","status":"ACTIVE","root_type":"object"},
+    {"artifact_id":"strategy_assignments_csv","artifact_version":"1.3","schema_version":"1.0","format":"csv","owner_module":"strategy_assignment_engine","dashboard_destination":"Strategy Assignment","status":"ACTIVE"},
+    {"artifact_id":"strategy_assignments_markdown","artifact_version":"1.3","schema_version":"1.0","format":"markdown","owner_module":"strategy_assignment_engine","dashboard_destination":"Strategy Assignment","status":"ACTIVE"},
+    {"artifact_id":"thesis_monitor_json","artifact_version":"1.4","schema_version":"1.0","format":"json","owner_module":"thesis_monitor","dashboard_destination":"Thesis Monitor","status":"ACTIVE","root_type":"object"},
+    {"artifact_id":"thesis_monitor_markdown","artifact_version":"1.4","schema_version":"1.0","format":"markdown","owner_module":"thesis_monitor","dashboard_destination":"Thesis Monitor","status":"ACTIVE"},
+    {"artifact_id":"executive_dashboard_json","artifact_version":"1.0.1","schema_version":"1.0","format":"json","owner_module":"executive_dashboard","dashboard_destination":"Swing Strategy Overview","status":"ACTIVE","root_type":"object"},
+    {"artifact_id":"executive_dashboard_markdown","artifact_version":"1.0.1","schema_version":"1.0","format":"markdown","owner_module":"executive_dashboard","dashboard_destination":"Swing Strategy Overview","status":"ACTIVE"},
+    {"artifact_id":"monthly_command_center_json","artifact_version":"1.0","schema_version":"1.0","format":"json","owner_module":"monthly_command_center","dashboard_destination":"Swing Strategy Overview","status":"ACTIVE","root_type":"object"},
+    {"artifact_id":"monthly_command_center_markdown","artifact_version":"1.0","schema_version":"1.0","format":"markdown","owner_module":"monthly_command_center","dashboard_destination":"Swing Strategy Overview","status":"ACTIVE"},
+    {"artifact_id":"historical_archive_json","artifact_version":"1.0.0","schema_version":"1.0","format":"json","owner_module":"historical_archive_manager","dashboard_destination":"Historical Evidence and Archive Health","status":"ACTIVE","root_type":"object"},
+    {"artifact_id":"historical_archive_markdown","artifact_version":"1.0.0","schema_version":"1.0","format":"markdown","owner_module":"historical_archive_manager","dashboard_destination":"Historical Evidence and Archive Health","status":"ACTIVE"},
+    {"artifact_id":"historical_archive_html","artifact_version":"1.0.0","schema_version":"1.0","format":"html","owner_module":"historical_archive_manager","dashboard_destination":"Historical Evidence and Archive Health","status":"ACTIVE"}
+  ]
+}
