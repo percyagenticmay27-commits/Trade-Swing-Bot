@@ -1,0 +1,49 @@
+{
+  "validation_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "read_only": true,
+  "append_only_learning": true,
+  "automatic_policy_change_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "robinhood_execution_allowed": false,
+  "required_components": {
+    "plugin_manifest": "configs/swing_cio_plugin_manifest.json",
+    "output_contract": "configs/swing_cio_output_contract.json",
+    "schema_registry": "configs/swing_cio_schema_registry.json",
+    "presentation_adapter": "configs/swing_cio_presentation_adapter.json",
+    "strategy_service_registration": "configs/swing_strategy_service_registration.json",
+    "strategy_capability_profiles": "configs/swing_strategy_capability_profiles.json",
+    "committee_governance": "configs/swing_committee_governance.json",
+    "committee_traceability": "configs/swing_committee_traceability.json",
+    "committee_learning": "configs/swing_committee_learning.json"
+  },
+  "committee_sequence": [
+    "DISCOVERY_COMMITTEE",
+    "OPPORTUNITY_COMMITTEE",
+    "ENTRY_COMMITTEE",
+    "PORTFOLIO_COMMITTEE",
+    "EXIT_COMMITTEE"
+  ],
+  "required_bias_audit_false": [
+    "sector_bias_applied",
+    "theme_bias_applied",
+    "concentration_limit_applied",
+    "stock_history_bias_applied",
+    "market_regime_veto_applied"
+  ],
+  "health_weights": {
+    "identity": 15,
+    "components": 20,
+    "governance": 15,
+    "traceability": 15,
+    "learning": 15,
+    "safety": 20
+  },
+  "outputs": {
+    "json": "results/swing_cio_validation_report.json",
+    "markdown": "results/swing_cio_validation_report.md"
+  }
+}
