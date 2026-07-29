@@ -1,0 +1,32 @@
+{
+  "cycle_schema_version": "1.0",
+  "plugin_id": "SWING-001",
+  "paper_trade_mode": true,
+  "advisory_only": true,
+  "automatic_activation_allowed": false,
+  "broker_execution_allowed": false,
+  "capital_movement_allowed": false,
+  "direct_database_writes": false,
+  "publish_registration_last": true,
+  "atomic_publish_required": true,
+  "static_artifacts": {
+    "swing_plugin_manifest.json": "configs/swing_plugin_manifest.json",
+    "swing_output_contract.json": "configs/swing_output_contract.json",
+    "swing_schema_registry.json": "configs/swing_schema_registry.json",
+    "swing_strategy_service_registration.json": "configs/swing_strategy_service_registration.json",
+    "swing_strategy_capability_profiles.json": "configs/swing_strategy_capability_profiles.json",
+    "swing_committee_governance.json": "configs/swing_committee_governance.json"
+  },
+  "validation_config": "configs/swing_cio_validation_suite.json",
+  "acceptance_config": "configs/swing_cio_acceptance_test.json",
+  "freeze_config": "configs/swing_cio_milestone_1_freeze.json",
+  "local_integration_config": "configs/swing_local_filesystem_integration.json",
+  "decision_trace_path": "results/swing_committee_decision_trace.json",
+  "required_strategy_reports": [
+    "results/opportunity_quality.json",
+    "results/executive_dashboard.json",
+    "results/monthly_command_center.json"
+  ],
+  "cycle_report_json": "results/swing_daily_cycle_report.json",
+  "cycle_report_markdown": "results/swing_daily_cycle_report.md"
+}
