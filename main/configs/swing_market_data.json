@@ -1,6 +1,11 @@
 {
   "market_data_schema_version": "1.0",
-  "provider": "YFINANCE",
+  "provider": "PROVIDER_CHAIN",
+  "provider_order": [
+    "YFINANCE",
+    "ROBINHOOD_AGENT_READ_ONLY",
+    "PRIOR_LOCAL_CSV"
+  ],
   "data_directory": "data",
   "target_completed_bars": 250,
   "minimum_compatible_bars": 51,
@@ -18,5 +23,6 @@
   "paper_trade_mode": true,
   "live_trading_enabled": false,
   "broker_execution_enabled": false,
+  "order_placement_enabled": false,
   "ai_cio_market_data_owner": false
 }
