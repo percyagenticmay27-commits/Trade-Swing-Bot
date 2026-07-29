@@ -18,11 +18,16 @@ class FakeProvider:
     def fetch_daily_bars(self, symbol, *, target_completed_bars, as_of_utc):
         if symbol in self.failures:
             raise ValueError("provider failure")
-        start = date(2025, 7, 1)
+        dates = []
+        current = as_of_utc.date()
+        while len(dates) < target_completed_bars:
+            if current.weekday() < 5:
+                dates.append(current)
+            current -= timedelta(days=1)
+        dates.reverse()
         return tuple(
-            DailyMarketBar(start + timedelta(days=i), Decimal("10"), Decimal("12"), Decimal("9"), Decimal("11"), Decimal("11"), 1000)
-            for i in range(target_completed_bars + 120)
-            if (start + timedelta(days=i)).weekday() < 5
+            DailyMarketBar(item, Decimal("10"), Decimal("12"), Decimal("9"), Decimal("11"), Decimal("11"), 1000)
+            for item in dates
         )
 
 
