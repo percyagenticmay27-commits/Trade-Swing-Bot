@@ -76,23 +76,14 @@ Status: Complete and locally validated — 28 focused acceptance tests passed; c
 Acceptance verifies enterprise discovery, plugin registration, Phase 9F readiness, committee governance, deterministic decision replay, governed learning, and the paper-only safety boundary. Final result must be `READY_FOR_CIO`.
 
 ### Phase 9G — Milestone 1 Freeze
-Status: Implemented; local validation pending
-
-Files:
-
-```text
-configs/swing_cio_milestone_1_freeze.json
-src/swing_trade_bot/swing_cio_milestone_1_freeze.py
-tests/test_swing_cio_milestone_1_freeze.py
-docs/SWING_CIO_MILESTONE_1_FREEZE.md
-```
+Status: Complete and locally validated
 
 Freeze requires Phase 9F `READY`, governance health 100, and Phase 9F.1 `READY_FOR_CIO`.
 
 ## Phase 10 — AI CIO Platform Integration
 
 ### Phase 10A — Same-Server Local Filesystem Registration
-Status: Implemented; local validation pending
+Status: Complete and locally validated — 29 focused integration tests passed; combined freeze/integration suite 53 passed
 
 The Swing Bot and AI CIO will run on the same DigitalOcean server:
 
@@ -101,15 +92,6 @@ The Swing Bot and AI CIO will run on the same DigitalOcean server:
 ├── Trade-Dividend-Bot/
 ├── Trade-Swing-Bot/
 └── AI-CIO/
-```
-
-Files:
-
-```text
-configs/swing_local_filesystem_integration.json
-src/swing_trade_bot/swing_local_filesystem_integration.py
-tests/test_swing_local_filesystem_integration.py
-docs/SWING_LOCAL_FILESYSTEM_INTEGRATION.md
 ```
 
 Generated registration:
@@ -133,10 +115,43 @@ Required architecture:
 - both applications run as non-root user `tradebot`
 - no API, network service, database connection, or Agentic transport is required for Milestone 1
 
+### Phase 10A.1 — Unified Daily Cycle Launcher
+Status: Implemented; local validation pending
+
+Files:
+
+```text
+configs/swing_daily_cycle.json
+src/swing_trade_bot/swing_daily_cycle.py
+run_swing_bot_cycle.py
+tests/test_swing_daily_cycle.py
+docs/SWING_DAILY_CYCLE.md
+```
+
+The launcher provides one authoritative command for server execution:
+
+```text
+python run_swing_bot_cycle.py
+```
+
+It atomically publishes CIO contracts, checks strategy-owned reports, runs validation and acceptance, preserves the Milestone 1 freeze, and publishes the local registration last only after every readiness gate passes. A blocked cycle returns process exit status 1 and never publishes a misleading discovery registration.
+
 ### Phase 10B — AI CIO Registry Consumer
-Status: Planned after Phase 10A local validation
+Status: Planned after Swing deployment-readiness blockers are resolved
 
 Implement the matching read-only registry entry and local artifact reader in the independent AI-CIO repository. The CIO will display Swing status, freshness, governance health, and contracted recommendations without executing Swing code.
+
+## Remaining Swing Deployment Readiness
+
+```text
+✓ 1. Unified daily cycle launcher — implemented; local validation pending
+⬜ 2. Persistent paper portfolio state
+⬜ 3. Market-data refresh and input contract
+⬜ 4. Generate all runtime strategy reports through the unified cycle
+⬜ 5. Server-readiness validator
+⬜ 6. systemd service and timer package
+⬜ 7. Production-code audit for superseded strategy rules
+```
 
 ## Future Phases
 
@@ -158,13 +173,17 @@ Separate future milestone requiring explicit investor authorization. No live tra
 ## Current Development Sequence
 
 ```text
-Phase 9G local validation
+Phase 10A.1 unified-cycle local validation
         ↓
-Phase 10A local filesystem integration validation
+Persistent paper portfolio state
+        ↓
+Market-data input contract
+        ↓
+Server-readiness and systemd deployment package
+        ↓
+Deploy Swing Bot beside Dividend Bot and AI CIO
         ↓
 Phase 10B AI-CIO registry consumer
-        ↓
-Phase 11 operational automation
 ```
 
 ## Permanent Rules
