@@ -1,0 +1,22 @@
+{
+  "market_data_schema_version": "1.0",
+  "provider": "YFINANCE",
+  "data_directory": "data",
+  "target_completed_bars": 250,
+  "minimum_compatible_bars": 51,
+  "configured_strategy_symbols": ["SOXL", "BEX", "TQQQ", "IRE", "IONL", "DRAM"],
+  "portfolio_symbols": [],
+  "watchlist_symbols": [],
+  "candidate_symbols": [],
+  "exchange_timezone": "America/New_York",
+  "market_close_time": "16:00",
+  "settlement_buffer_minutes": 30,
+  "freshness": {
+    "warning_after_completed_sessions": 1,
+    "stale_after_completed_sessions": 3
+  },
+  "paper_trade_mode": true,
+  "live_trading_enabled": false,
+  "broker_execution_enabled": false,
+  "ai_cio_market_data_owner": false
+}
