@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -26,6 +26,7 @@ from .providers.yfinance_provider import YFinanceProvider
 SCHEMA_VERSION = "1.0"
 SYMBOL_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-^]{0,14}$")
 CSV_FIELDS = ("Date", "Open", "High", "Low", "Close", "Adj Close", "Volume")
+LEGACY_REQUIRED_FIELDS = {"date", "close", "volume"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +65,7 @@ def validate_market_data_config(payload: Mapping[str, Any]) -> ValidationResult:
     }.items():
         if payload.get(field) is not expected:
             errors.append(f"{field} must be {str(expected).lower()}")
+
     minimum = payload.get("minimum_compatible_bars")
     target = payload.get("target_completed_bars")
     if not isinstance(minimum, int) or minimum < 51:
@@ -72,6 +74,7 @@ def validate_market_data_config(payload: Mapping[str, Any]) -> ValidationResult:
         errors.append("target_completed_bars must be at least 250")
     if isinstance(minimum, int) and isinstance(target, int) and target < minimum:
         errors.append("target_completed_bars must not be below minimum_compatible_bars")
+
     for field in (
         "configured_strategy_symbols",
         "portfolio_symbols",
@@ -80,6 +83,7 @@ def validate_market_data_config(payload: Mapping[str, Any]) -> ValidationResult:
     ):
         if not isinstance(payload.get(field), list):
             errors.append(f"{field} must be a list")
+
     try:
         ZoneInfo(str(payload.get("exchange_timezone")))
     except Exception:
@@ -88,9 +92,11 @@ def validate_market_data_config(payload: Mapping[str, Any]) -> ValidationResult:
         time.fromisoformat(str(payload.get("market_close_time")))
     except ValueError:
         errors.append("market_close_time must use HH:MM format")
+
     buffer_minutes = payload.get("settlement_buffer_minutes")
     if not isinstance(buffer_minutes, int) or buffer_minutes < 0:
         errors.append("settlement_buffer_minutes must be a non-negative integer")
+
     freshness = payload.get("freshness")
     if not isinstance(freshness, Mapping):
         errors.append("freshness must be an object")
@@ -103,6 +109,7 @@ def validate_market_data_config(payload: Mapping[str, Any]) -> ValidationResult:
             errors.append("freshness.stale_after_completed_sessions must be positive")
         if isinstance(warning, int) and isinstance(stale, int) and stale <= warning:
             errors.append("freshness stale threshold must exceed warning threshold")
+
     try:
         resolve_symbol_requests(
             configured_strategy_symbols=payload.get("configured_strategy_symbols", []),
@@ -157,10 +164,10 @@ def normalize_daily_bars(
 ) -> tuple[DailyMarketBar, ...]:
     by_date: dict[date, DailyMarketBar] = {}
     local_now = as_of_utc.astimezone(ZoneInfo(exchange_timezone))
-    today_complete = local_now.time() >= (
-        datetime.combine(local_now.date(), market_close_time)
-        + timedelta(minutes=settlement_buffer_minutes)
-    ).time()
+    cutoff = datetime.combine(local_now.date(), market_close_time, tzinfo=local_now.tzinfo) + timedelta(
+        minutes=settlement_buffer_minutes
+    )
+    today_complete = local_now >= cutoff
     for bar in bars:
         errors = bar.validate()
         if errors:
@@ -183,6 +190,10 @@ def validate_bar_set(
     warnings: list[str] = []
     if any(left.date >= right.date for left, right in zip(bars, bars[1:])):
         errors.append("bars must be strictly chronological with no duplicate dates")
+    for bar in bars:
+        bar_errors = bar.validate()
+        if bar_errors:
+            errors.append(f"invalid bar {bar.date}: {'; '.join(bar_errors)}")
     if len(bars) < minimum_compatible_bars:
         errors.append(f"only {len(bars)} completed bars; at least {minimum_compatible_bars} required")
     elif len(bars) < target_completed_bars:
@@ -191,6 +202,7 @@ def validate_bar_set(
 
 
 def render_market_data_csv(bars: Sequence[DailyMarketBar]) -> str:
+    """Render only the stable Version 1 seven-column publication contract."""
     stream = StringIO(newline="")
     writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS, lineterminator="\n")
     writer.writeheader()
@@ -207,20 +219,97 @@ def render_market_data_csv(bars: Sequence[DailyMarketBar]) -> str:
     return stream.getvalue()
 
 
-def read_market_data_csv(path: str | Path) -> tuple[DailyMarketBar, ...]:
+def _normalized_header_map(fieldnames: Sequence[str] | None) -> dict[str, str]:
+    if fieldnames is None:
+        raise ValueError("CSV is missing a header row")
+    mapping: dict[str, str] = {}
+    for original in fieldnames:
+        normalized = " ".join(str(original).strip().lower().replace("_", " ").split())
+        if normalized in mapping:
+            raise ValueError(f"CSV contains duplicate normalized header: {normalized}")
+        mapping[normalized] = original
+    return mapping
+
+
+def _decimal_value(row: Mapping[str, str], header_map: Mapping[str, str], name: str, *, fallback: Decimal | None = None) -> Decimal:
+    original = header_map.get(name)
+    if original is None:
+        if fallback is None:
+            raise ValueError(f"CSV is missing required numeric column: {name}")
+        return fallback
+    raw = str(row.get(original, "")).strip()
+    if not raw:
+        if fallback is None:
+            raise ValueError(f"CSV contains blank numeric value for: {name}")
+        return fallback
+    try:
+        return Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError(f"CSV contains invalid numeric value for {name}: {raw!r}") from exc
+
+
+def read_market_data_csv(
+    path: str | Path,
+    *,
+    allow_legacy: bool = False,
+) -> tuple[DailyMarketBar, ...]:
+    """Read a strict published CSV or, for fallback only, a recognized legacy CSV.
+
+    Strict mode requires the exact seven-column Version 1 contract. Legacy mode
+    accepts case-insensitive date/close/volume files with optional OHLC and
+    adjusted-close columns. Missing legacy OHLC values are represented by Close
+    for validation only; the original legacy file is never rewritten here.
+    """
     with Path(path).open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
-        if reader.fieldnames != list(CSV_FIELDS):
-            raise ValueError(f"CSV header must be {','.join(CSV_FIELDS)}")
-        return tuple(
-            DailyMarketBar(
-                date=date.fromisoformat(row["Date"]),
-                open=Decimal(row["Open"]), high=Decimal(row["High"]),
-                low=Decimal(row["Low"]), close=Decimal(row["Close"]),
-                adjusted_close=Decimal(row["Adj Close"]), volume=int(row["Volume"]),
-            )
-            for row in reader
-        )
+        if not allow_legacy:
+            if reader.fieldnames != list(CSV_FIELDS):
+                raise ValueError(f"CSV header must be {','.join(CSV_FIELDS)}")
+            header_map = {name.lower(): name for name in CSV_FIELDS}
+        else:
+            header_map = _normalized_header_map(reader.fieldnames)
+            missing = sorted(LEGACY_REQUIRED_FIELDS - set(header_map))
+            if missing:
+                raise ValueError(
+                    "legacy CSV must contain date, close, and volume columns; missing: "
+                    + ", ".join(missing)
+                )
+
+        bars: list[DailyMarketBar] = []
+        for row_number, row in enumerate(reader, start=2):
+            try:
+                date_header = header_map["date"]
+                close = _decimal_value(row, header_map, "close")
+                open_price = _decimal_value(row, header_map, "open", fallback=close)
+                high = _decimal_value(row, header_map, "high", fallback=max(open_price, close))
+                low = _decimal_value(row, header_map, "low", fallback=min(open_price, close))
+                adjusted = _decimal_value(
+                    row,
+                    header_map,
+                    "adj close",
+                    fallback=_decimal_value(row, header_map, "adjusted close", fallback=close),
+                )
+                volume_header = header_map["volume"]
+                volume_raw = str(row.get(volume_header, "")).strip()
+                if not volume_raw:
+                    raise ValueError("blank volume")
+                volume = int(Decimal(volume_raw))
+                bar = DailyMarketBar(
+                    date=date.fromisoformat(str(row.get(date_header, "")).strip()),
+                    open=open_price,
+                    high=high,
+                    low=low,
+                    close=close,
+                    adjusted_close=adjusted,
+                    volume=volume,
+                )
+                bar_errors = bar.validate()
+                if bar_errors:
+                    raise ValueError("; ".join(bar_errors))
+                bars.append(bar)
+            except (KeyError, ValueError, InvalidOperation) as exc:
+                raise ValueError(f"invalid CSV row {row_number}: {exc}") from exc
+        return tuple(bars)
 
 
 def atomic_write_market_data_csv(
@@ -234,8 +323,12 @@ def atomic_write_market_data_csv(
             handle.write(render_market_data_csv(bars))
             handle.flush()
             os.fsync(handle.fileno())
-        reread = read_market_data_csv(temp_path)
-        validation = validate_bar_set(reread, minimum_compatible_bars=minimum_bars, target_completed_bars=minimum_bars)
+        reread = read_market_data_csv(temp_path, allow_legacy=False)
+        validation = validate_bar_set(
+            reread,
+            minimum_compatible_bars=minimum_bars,
+            target_completed_bars=minimum_bars,
+        )
         if not validation.valid:
             raise ValueError("temporary CSV validation failed: " + "; ".join(validation.errors))
         os.replace(temp_path, final_path)
@@ -299,6 +392,7 @@ def refresh_symbol(
     validation_status = "NOT_RUN"
     publication_status = "NOT_PUBLISHED"
     bars: tuple[DailyMarketBar, ...] = ()
+
     try:
         fetched = provider.fetch_daily_bars(
             request.symbol,
@@ -325,15 +419,23 @@ def refresh_symbol(
             raise ValueError("; ".join(result.errors))
         validation_status = "PASSED"
         atomic_write_market_data_csv(
-            bars, destination, minimum_bars=int(config["minimum_compatible_bars"])
+            bars,
+            destination,
+            minimum_bars=int(config["minimum_compatible_bars"]),
         )
         publication_status = "PUBLISHED"
     except (MarketDataProviderError, ValueError, OSError) as exc:
         errors.append(str(exc))
-        prior_preserved = destination.exists()
-        if prior_preserved:
+        if destination.exists():
             try:
-                prior = read_market_data_csv(destination)
+                prior = read_market_data_csv(destination, allow_legacy=True)
+                prior = normalize_daily_bars(
+                    prior,
+                    as_of_utc=as_of_utc,
+                    exchange_timezone=str(config["exchange_timezone"]),
+                    market_close_time=time.fromisoformat(str(config["market_close_time"])),
+                    settlement_buffer_minutes=int(config["settlement_buffer_minutes"]),
+                )
                 prior_validation = validate_bar_set(
                     prior,
                     minimum_compatible_bars=int(config["minimum_compatible_bars"]),
@@ -347,11 +449,19 @@ def refresh_symbol(
                     warnings.extend(prior_validation.warnings)
                     warnings.append("refresh failed; preserved prior valid file")
                     errors = []
+                elif prior_freshness == "STALE":
+                    errors.append("prior file is structurally valid but stale")
+                else:
+                    errors.extend(f"prior file validation failed: {item}" for item in prior_validation.errors)
             except (ValueError, OSError, IndexError) as prior_exc:
                 errors.append(f"prior file is unusable: {prior_exc}")
+
     latest = bars[-1].date if bars else None
     freshness_status = _freshness(latest, config, as_of_utc)
-    usable = publication_status in {"PUBLISHED", "PRESERVED_PRIOR_VALID_FILE"} and freshness_status != "STALE"
+    usable = (
+        publication_status in {"PUBLISHED", "PRESERVED_PRIOR_VALID_FILE"}
+        and freshness_status in {"FRESH", "WARNING"}
+    )
     return SymbolRefreshResult(
         symbol=request.symbol,
         required=request.required,
@@ -379,12 +489,21 @@ def refresh_market_data(
     config_validation = validate_market_data_config(config)
     if not config_validation.valid:
         return MarketDataRefreshReport(
-            generated_at=_iso_utc(now), provider=str(config.get("provider", "UNKNOWN")),
-            requested_symbols=(), required_symbols=(), optional_symbols=(),
-            successful_symbols=(), failed_symbols=(), target_completed_bars=int(config.get("target_completed_bars", 0) or 0),
+            generated_at=_iso_utc(now),
+            provider=str(config.get("provider", "UNKNOWN")),
+            requested_symbols=(),
+            required_symbols=(),
+            optional_symbols=(),
+            successful_symbols=(),
+            failed_symbols=(),
+            target_completed_bars=int(config.get("target_completed_bars", 0) or 0),
             minimum_compatible_bars=int(config.get("minimum_compatible_bars", 0) or 0),
-            symbol_results=(), overall_status="BLOCKED", warnings=(), errors=config_validation.errors,
+            symbol_results=(),
+            overall_status="BLOCKED",
+            warnings=(),
+            errors=config_validation.errors,
         )
+
     requests = resolve_symbol_requests(
         configured_strategy_symbols=config["configured_strategy_symbols"],
         portfolio_symbols=config["portfolio_symbols"],
@@ -392,50 +511,66 @@ def refresh_market_data(
         candidate_symbols=config["candidate_symbols"],
     )
     data_dir = Path(project_root) / str(config["data_directory"])
-    results = tuple(refresh_symbol(provider, item, data_directory=data_dir, config=config, as_of_utc=now) for item in requests)
+    results = tuple(
+        refresh_symbol(provider, item, data_directory=data_dir, config=config, as_of_utc=now)
+        for item in requests
+    )
     successful = tuple(item.symbol for item in results if not item.errors)
     failed = tuple(item.symbol for item in results if item.errors)
     required_failures = [item for item in results if item.required and item.errors]
     optional_failures = [item for item in results if not item.required and item.errors]
     warnings = [warning for item in results for warning in item.warnings]
     errors = [f"{item.symbol}: {error}" for item in required_failures for error in item.errors]
+
     if required_failures:
         overall = "BLOCKED"
     elif optional_failures or warnings:
         overall = "READY_WITH_WARNINGS"
     else:
         overall = "READY"
+
     return MarketDataRefreshReport(
-        generated_at=_iso_utc(now), provider=provider.provider_name,
+        generated_at=_iso_utc(now),
+        provider=provider.provider_name,
         requested_symbols=tuple(item.symbol for item in requests),
         required_symbols=tuple(item.symbol for item in requests if item.required),
         optional_symbols=tuple(item.symbol for item in requests if not item.required),
-        successful_symbols=successful, failed_symbols=failed,
+        successful_symbols=successful,
+        failed_symbols=failed,
         target_completed_bars=int(config["target_completed_bars"]),
         minimum_compatible_bars=int(config["minimum_compatible_bars"]),
-        symbol_results=results, overall_status=overall,
-        warnings=tuple(dict.fromkeys(warnings + [f"{item.symbol}: optional symbol failed" for item in optional_failures])),
+        symbol_results=results,
+        overall_status=overall,
+        warnings=tuple(
+            dict.fromkeys(
+                warnings + [f"{item.symbol}: optional symbol failed" for item in optional_failures]
+            )
+        ),
         errors=tuple(dict.fromkeys(errors)),
     )
 
 
 def render_markdown(report: MarketDataRefreshReport) -> str:
     lines = [
-        "# Market Data Refresh Status", "",
+        "# Market Data Refresh Status",
+        "",
         f"- Generated at: `{report.generated_at}`",
         f"- Provider: `{report.provider}`",
         f"- Overall status: **{report.overall_status}**",
         f"- Requested: {len(report.requested_symbols)}",
         f"- Successful: {len(report.successful_symbols)}",
-        f"- Failed: {len(report.failed_symbols)}", "",
-        "## Symbol Results", "",
+        f"- Failed: {len(report.failed_symbols)}",
+        "",
+        "## Symbol Results",
+        "",
         "| Symbol | Required | Fetch | Validation | Publication | Bars | Latest | Freshness |",
         "|---|---:|---|---|---|---:|---|---|",
     ]
     for item in report.symbol_results:
         lines.append(
             f"| {item.symbol} | {item.required} | {item.fetch_status} | {item.validation_status} | "
-            f"{item.publication_status} | {item.bar_count} | {item.latest_completed_date or ''} | {item.freshness_status} |"
+            f"{item.publication_status} | {item.bar_count} | {item.latest_completed_date or ''} | "
+            f"{item.freshness_status} |"
         )
     lines.extend(["", "## Warnings", ""])
     lines.extend(f"- {item}" for item in report.warnings) if report.warnings else lines.append("- None")
@@ -459,7 +594,10 @@ def _atomic_write_text(text: str, path: Path) -> None:
             temp.unlink()
 
 
-def write_market_data_refresh_status(report: MarketDataRefreshReport, output_directory: str | Path) -> dict[str, str]:
+def write_market_data_refresh_status(
+    report: MarketDataRefreshReport,
+    output_directory: str | Path,
+) -> dict[str, str]:
     output = Path(output_directory)
     json_path = output / "market_data_refresh_status.json"
     md_path = output / "market_data_refresh_status.md"
@@ -479,9 +617,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         now = _utc_now()
         report = MarketDataRefreshReport(
-            generated_at=_iso_utc(now), provider="YFINANCE", requested_symbols=(), required_symbols=(),
-            optional_symbols=(), successful_symbols=(), failed_symbols=(), target_completed_bars=250,
-            minimum_compatible_bars=51, symbol_results=(), overall_status="BLOCKED", warnings=(), errors=(str(exc),),
+            generated_at=_iso_utc(now),
+            provider="YFINANCE",
+            requested_symbols=(),
+            required_symbols=(),
+            optional_symbols=(),
+            successful_symbols=(),
+            failed_symbols=(),
+            target_completed_bars=250,
+            minimum_compatible_bars=51,
+            symbol_results=(),
+            overall_status="BLOCKED",
+            warnings=(),
+            errors=(str(exc),),
         )
     write_market_data_refresh_status(report, project_root / "results")
     print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
