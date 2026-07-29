@@ -14,24 +14,36 @@ from .position_state import MarketBar
 
 
 def load_csv(path: Path) -> list[MarketBar]:
-    """Load chronological daily bars from a date,close,volume CSV file."""
+    """Load chronological daily bars from stable or legacy CSV headers.
+
+    Adj Close is retained in the source CSV contract but existing strategy
+    calculations continue to use Close.
+    """
     with path.open(newline="", encoding="utf-8-sig") as csv_file:
         reader = csv.DictReader(csv_file)
+        if reader.fieldnames is None:
+            raise ValueError(f"{path} must contain CSV headers")
+        normalized = {_normalize_header(name): name for name in reader.fieldnames}
         required = {"date", "close", "volume"}
-        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
-            raise ValueError(f"{path} must contain date, close, and volume columns")
-        bars = [
-            MarketBar(
-                date=date.fromisoformat(row["date"]),
-                close=float(row["close"]),
-                volume=float(row["volume"]),
-                open=_optional_float(row.get("open")),
-                high=_optional_float(row.get("high")),
-                low=_optional_float(row.get("low")),
+        if not required.issubset(normalized):
+            raise ValueError(f"{path} must contain Date, Close, and Volume columns")
+        bars = []
+        for row in reader:
+            bars.append(
+                MarketBar(
+                    date=date.fromisoformat(row[normalized["date"]]),
+                    close=float(row[normalized["close"]]),
+                    volume=float(row[normalized["volume"]]),
+                    open=_optional_float(row.get(normalized.get("open", ""))),
+                    high=_optional_float(row.get(normalized.get("high", ""))),
+                    low=_optional_float(row.get(normalized.get("low", ""))),
+                )
             )
-            for row in reader
-        ]
     return bars
+
+
+def _normalize_header(value: str) -> str:
+    return " ".join(value.strip().lower().replace("_", " ").split())
 
 
 def _optional_float(value: str | None) -> float | None:
