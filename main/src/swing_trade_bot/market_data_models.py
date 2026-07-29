@@ -73,11 +73,16 @@ class SymbolRefreshResult:
     latest_completed_date: str | None
     freshness_status: str
     prior_file_preserved: bool
+    provider_attempts: tuple[dict[str, Any], ...] = ()
+    selected_provider: str | None = None
+    adjusted_close_source: str = "UNAVAILABLE"
+    corporate_action_adjusted: bool = False
     warnings: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["provider_attempts"] = [dict(item) for item in self.provider_attempts]
         payload["warnings"] = list(self.warnings)
         payload["errors"] = list(self.errors)
         return payload
@@ -101,10 +106,11 @@ class MarketDataRefreshReport:
     paper_trade_mode: bool = True
     live_trading_enabled: bool = False
     broker_execution_enabled: bool = False
+    order_placement_enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "generated_at": self.generated_at,
             "provider": self.provider,
             "overall_status": self.overall_status,
@@ -121,4 +127,5 @@ class MarketDataRefreshReport:
             "paper_trade_mode": self.paper_trade_mode,
             "live_trading_enabled": self.live_trading_enabled,
             "broker_execution_enabled": self.broker_execution_enabled,
+            "order_placement_enabled": self.order_placement_enabled,
         }
