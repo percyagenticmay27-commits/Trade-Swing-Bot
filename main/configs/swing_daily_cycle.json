@@ -10,9 +10,9 @@
   "publish_registration_last": true,
   "atomic_publish_required": true,
   "static_artifacts": {
-    "swing_plugin_manifest.json": "configs/swing_plugin_manifest.json",
-    "swing_output_contract.json": "configs/swing_output_contract.json",
-    "swing_schema_registry.json": "configs/swing_schema_registry.json",
+    "swing_plugin_manifest.json": "configs/swing_cio_plugin_manifest.json",
+    "swing_output_contract.json": "configs/swing_cio_output_contract.json",
+    "swing_schema_registry.json": "configs/swing_cio_schema_registry.json",
     "swing_strategy_service_registration.json": "configs/swing_strategy_service_registration.json",
     "swing_strategy_capability_profiles.json": "configs/swing_strategy_capability_profiles.json",
     "swing_committee_governance.json": "configs/swing_committee_governance.json"
