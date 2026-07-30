@@ -23,7 +23,7 @@
   "local_integration_config": "configs/swing_local_filesystem_integration.json",
   "decision_trace_path": "results/swing_committee_decision_trace.json",
   "required_strategy_reports": [
-    "results/opportunity_quality.json",
+    "results/opportunity_quality_report.json",
     "results/executive_dashboard.json",
     "results/monthly_command_center.json"
   ],
