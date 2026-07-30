@@ -287,6 +287,7 @@ class SwingTraderEnterprisePlugin(EnterpriseStrategyPlugin):
             "schema_version": "1.0",
             "contract_version": "1.0",
             "runtime_state": runtime_state,
+            "runtime_status": runtime_state,
             "latest_cycle": latest_cycle,
             "latest_successful_run": self._last_successful_run,
             "latest_failure": self._last_failure,
@@ -311,6 +312,7 @@ class SwingTraderEnterprisePlugin(EnterpriseStrategyPlugin):
             "schema_version": "1.0",
             "contract_version": "1.0",
             "overall_status": overall_status,
+            "health_status": overall_status,
             "checks": {
                 "paper_only": "OK",
                 "required_services": "OK",
@@ -343,6 +345,7 @@ class SwingTraderEnterprisePlugin(EnterpriseStrategyPlugin):
                 for name, path in sorted(output_paths.items())
             ],
             "latest_outputs": dict(sorted(output_paths.items())),
+            "outputs": dict(sorted(output_paths.items())),
             "output_count": len(paths),
             "missing_outputs": [],
             "warnings": list(warnings),
