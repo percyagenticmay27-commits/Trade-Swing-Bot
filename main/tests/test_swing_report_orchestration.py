@@ -93,6 +93,16 @@ def test_producers_execute_in_dependency_order(
 
     monkeypatch.setattr(cycle, "write_decision_trace", write_trace)
     monkeypatch.setattr(cycle, "build_opportunity_quality_report", opportunity)
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_stock_performance_report",
+        lambda *args, **kwargs: order.append("stock_performance"),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_weekly_stock_report",
+        lambda *args, **kwargs: order.append("weekly_stock"),
+    )
     monkeypatch.setattr(cycle, "build_executive_dashboard", dashboard)
     monkeypatch.setattr(cycle, "build_monthly_command_center", monthly)
 
@@ -116,12 +126,16 @@ def test_producers_execute_in_dependency_order(
         "trace_build",
         "trace_write",
         "opportunity",
+        "stock_performance",
+        "weekly_stock",
         "dashboard",
         "monthly",
     ]
     assert stages == [
         "COMMITTEE_DECISION_TRACE",
         "OPPORTUNITY_QUALITY",
+        "STOCK_PERFORMANCE_REPORT",
+        "WEEKLY_STOCK_REPORT",
         "EXECUTIVE_DASHBOARD",
         "MONTHLY_COMMAND_CENTER",
     ]
@@ -228,6 +242,16 @@ def test_dashboard_failure_blocks_monthly(
         "build_opportunity_quality_report",
         lambda **kwargs: calls.append("opportunity"),
     )
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_stock_performance_report",
+        lambda *args, **kwargs: calls.append("stock_performance"),
+    )
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_weekly_stock_report",
+        lambda *args, **kwargs: calls.append("weekly_stock"),
+    )
 
     def fail_dashboard(*args, **kwargs):
         calls.append("dashboard")
@@ -250,6 +274,6 @@ def test_dashboard_failure_blocks_monthly(
         lambda *args: None,
     )
     assert ready is False
-    assert calls == ["opportunity", "dashboard"]
+    assert calls == ["opportunity", "stock_performance", "weekly_stock", "dashboard"]
     assert "required dashboard evidence missing" in errors[0]
     assert not (tmp_path / "results/monthly_command_center.json").exists()
