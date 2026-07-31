@@ -26,6 +26,8 @@
   "opportunity_quality_input_path": "results/opportunity_quality_inputs.json",
   "required_strategy_reports": [
     "results/opportunity_quality_report.json",
+    "results/stock_performance_report.json",
+    "results/weekly_stock_report.json",
     "results/executive_dashboard.json",
     "results/monthly_command_center.json"
   ],
