@@ -132,6 +132,7 @@ def test_producers_execute_in_dependency_order(
         "monthly",
     ]
     assert stages == [
+        "COMMITTEE_RUNTIME_EVIDENCE",
         "COMMITTEE_DECISION_TRACE",
         "OPPORTUNITY_QUALITY",
         "STOCK_PERFORMANCE_REPORT",
