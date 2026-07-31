@@ -18,6 +18,7 @@ from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markd
 from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
+from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
 from .opportunity_quality_engine import build_opportunity_quality_report
 from .stock_performance_report import build_and_write_stock_performance_report
 from .weekly_stock_report import build_and_write_weekly_stock_report
@@ -130,8 +131,20 @@ def _produce_strategy_reports(
     """Run authentic report producers in their frozen dependency order."""
 
     evidence_relative = str(config.get("decision_trace_evidence_path", ""))
+    evidence_path = root / evidence_relative
     try:
-        evidence = load_json(root / evidence_relative)
+        if not evidence_path.is_file():
+            build_and_write_runtime_evidence(
+                output_dir,
+                evidence_path,
+                generated_at_utc=generated_at,
+                paper_trade_mode=True,
+            )
+            published.append(str(evidence_path))
+            stage("COMMITTEE_RUNTIME_EVIDENCE", True, "Highest-ranked candidate evidence was produced from current reports")
+        else:
+            stage("COMMITTEE_RUNTIME_EVIDENCE", True, "Existing committee runtime evidence is available")
+        evidence = load_json(evidence_path)
         raw_steps = evidence.get("committee_steps")
         if not isinstance(raw_steps, list) or not raw_steps:
             raise ValueError("committee_steps must be a non-empty list")
@@ -167,7 +180,9 @@ def _produce_strategy_reports(
         published.append(str(trace_path))
         stage("COMMITTEE_DECISION_TRACE", True, "Authentic committee trace was produced from runtime evidence")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"Committee decision trace production failed: {exc}")
+        errors.append(f"Committee runtime evidence or decision trace production failed: {exc}")
+        if not evidence_path.is_file():
+            stage("COMMITTEE_RUNTIME_EVIDENCE", False, "Committee runtime evidence production failed safely")
         stage("COMMITTEE_DECISION_TRACE", False, "Committee trace production failed safely")
         _mark_skipped_producers(stage, "Opportunity Quality depends on the committee trace")
         return False
