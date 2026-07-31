@@ -19,6 +19,8 @@ from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_mar
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
 from .opportunity_quality_engine import build_opportunity_quality_report
+from .stock_performance_report import build_and_write_stock_performance_report
+from .weekly_stock_report import build_and_write_weekly_stock_report
 from .executive_dashboard import build_executive_dashboard
 from .monthly_command_center import build_monthly_command_center
 from .swing_local_filesystem_integration import (
@@ -182,7 +184,58 @@ def _produce_strategy_reports(
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Opportunity Quality production failed: {exc}")
         stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
-        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Opportunity Quality did not complete")
+        stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
+        stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
+        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
+        stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
+
+    try:
+        build_and_write_stock_performance_report(
+            output_dir / "strategy_comparison.json",
+            output_dir / "strategy_recommendations.csv",
+            output_dir / "portfolio_allocations.json",
+            output_dir / "portfolio_manager_report.csv",
+            output_dir,
+            paper_trade_mode=True,
+        )
+        for suffix in ("csv", "json", "md"):
+            published.append(str(output_dir / f"stock_performance_report.{suffix}"))
+        stage("STOCK_PERFORMANCE_REPORT", True, "Stock Performance reports were produced from existing paper outputs")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Stock Performance production failed: {exc}")
+        stage("STOCK_PERFORMANCE_REPORT", False, "Stock Performance production failed safely")
+        stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
+        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
+        stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
+
+    try:
+        optional_paths = {
+            "portfolio_manager_report_path": output_dir / "portfolio_manager_report.csv",
+            "confidence_report_path": output_dir / "confidence_report.json",
+            "strategy_recommendations_path": output_dir / "strategy_recommendations.csv",
+            "watchlist_report_path": output_dir / "watchlist_report.json",
+            "earnings_report_path": output_dir / "earnings_report.json",
+        }
+        build_and_write_weekly_stock_report(
+            output_dir / "stock_performance_report.json",
+            output_dir / "portfolio_allocations.json",
+            output_dir,
+            **{
+                name: path
+                for name, path in optional_paths.items()
+                if path.is_file()
+            },
+            paper_trade_mode=True,
+        )
+        for suffix in ("csv", "json", "md"):
+            published.append(str(output_dir / f"weekly_stock_report.{suffix}"))
+        stage("WEEKLY_STOCK_REPORT", True, "Weekly Stock reports were produced after Stock Performance")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Weekly Stock production failed: {exc}")
+        stage("WEEKLY_STOCK_REPORT", False, "Weekly Stock production failed safely")
+        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
         stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
         return False
 
@@ -218,7 +271,9 @@ def _mark_skipped_producers(
     reason: str,
 ) -> None:
     stage("OPPORTUNITY_QUALITY", False, f"Skipped: {reason}")
-    stage("EXECUTIVE_DASHBOARD", False, "Skipped because Opportunity Quality did not complete")
+    stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
+    stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
+    stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
     stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
 
 
