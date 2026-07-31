@@ -20,6 +20,7 @@ from .swing_cio_validation_suite import validate_repository, render_markdown as 
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
 from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
 from .opportunity_quality_engine import build_opportunity_quality_report
+from .opportunity_quality_inputs import build_and_write_opportunity_quality_inputs
 from .stock_performance_report import build_and_write_stock_performance_report
 from .weekly_stock_report import build_and_write_weekly_stock_report
 from .executive_dashboard import build_executive_dashboard
@@ -188,8 +189,13 @@ def _produce_strategy_reports(
         return False
 
     try:
+        quality_input_path = root / str(config.get("opportunity_quality_input_path", ""))
+        if not quality_input_path.is_file():
+            build_and_write_opportunity_quality_inputs(output_dir, quality_input_path)
+            published.append(str(quality_input_path))
+        stage("OPPORTUNITY_QUALITY_INPUTS", True, "Opportunity Quality inputs were assembled from authentic available evidence")
         build_opportunity_quality_report(
-            input_path=root / str(config.get("opportunity_quality_input_path", "")),
+            input_path=quality_input_path,
             output_dir=output_dir,
             paper_trade_mode=True,
         )
@@ -197,7 +203,8 @@ def _produce_strategy_reports(
             published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
         stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality reports were produced from existing inputs")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"Opportunity Quality production failed: {exc}")
+        errors.append(f"Opportunity Quality input or report production failed: {exc}")
+        stage("OPPORTUNITY_QUALITY_INPUTS", False, "Opportunity Quality input assembly or validation failed safely")
         stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
         stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
         stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
@@ -285,6 +292,7 @@ def _mark_skipped_producers(
     stage: Callable[[str, bool, str], None],
     reason: str,
 ) -> None:
+    stage("OPPORTUNITY_QUALITY_INPUTS", False, f"Skipped: {reason}")
     stage("OPPORTUNITY_QUALITY", False, f"Skipped: {reason}")
     stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
     stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
