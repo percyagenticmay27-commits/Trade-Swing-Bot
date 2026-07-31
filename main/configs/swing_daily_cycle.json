@@ -21,7 +21,9 @@
   "acceptance_config": "configs/swing_cio_acceptance_test.json",
   "freeze_config": "configs/swing_cio_milestone_1_freeze.json",
   "local_integration_config": "configs/swing_local_filesystem_integration.json",
+  "decision_trace_evidence_path": "results/swing_committee_runtime_evidence.json",
   "decision_trace_path": "results/swing_committee_decision_trace.json",
+  "opportunity_quality_input_path": "results/opportunity_quality_inputs.json",
   "required_strategy_reports": [
     "results/opportunity_quality_report.json",
     "results/executive_dashboard.json",
