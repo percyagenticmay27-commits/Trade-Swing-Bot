@@ -22,8 +22,6 @@ LEVEL_CAPS = {
     "WATCHLIST": 0.0,
 }
 MAX_POSITION_ALLOCATION = 0.25
-MAX_THEME_ALLOCATION = 0.40
-STRATEGY_B_BOOST = 1.10
 CASH_EQUIVALENT_SYMBOL = "SGOV"
 PORTFOLIO_COLUMNS = (
     "symbol",
@@ -96,24 +94,17 @@ position, theme, and paper-only risk caps.
             live_candidates,
             key=lambda candidate: (
                 _rank_value(candidate.rank),
-                -_strategy_score(candidate),
                 candidate.symbol,
             ),
         )
         raw_weights = _raw_rank_weights(ordered)
         capped_rows: list[PortfolioAllocationRow] = []
-        theme_totals: dict[str, float] = defaultdict(float)
 
         for candidate, raw_weight in zip(ordered, raw_weights):
             level = _normalize_level(candidate.confidence_level)
             cap = min(LEVEL_CAPS[level], MAX_POSITION_ALLOCATION)
-            if candidate.active_strategy.strip().upper() == "STRATEGY B":
-                cap *= STRATEGY_B_BOOST
-            cap = min(cap, MAX_POSITION_ALLOCATION)
             theme = candidate.theme or "Unclassified"
-            remaining_theme_capacity = max(0.0, MAX_THEME_ALLOCATION - theme_totals[theme])
-            allocation = min(raw_weight, cap, remaining_theme_capacity)
-            theme_totals[theme] += allocation
+            allocation = min(raw_weight, cap)
             capped_rows.append(
                 PortfolioAllocationRow(
                     symbol=candidate.symbol.upper(),
@@ -127,8 +118,11 @@ position, theme, and paper-only risk caps.
                 )
             )
 
+        theme_totals: dict[str, float] = defaultdict(float)
+        for row in capped_rows:
+            theme_totals[row.theme] += row.allocation_percent
         rows_with_theme_totals = tuple(
-            replace(row, theme_allocation=round(theme_totals[row.theme] * 100.0, 6))
+            replace(row, theme_allocation=round(theme_totals[row.theme], 6))
             for row in capped_rows
         )
         allocated = sum(row.allocation_percent for row in rows_with_theme_totals) / 100.0
@@ -219,8 +213,10 @@ def write_portfolio_reports(output_dir: Path, report: PortfolioAllocationReport)
                 "paper_trade_mode": True,
                 "monthly_rebalance": True,
                 "max_position_allocation": MAX_POSITION_ALLOCATION,
-                "max_theme_allocation": MAX_THEME_ALLOCATION,
-                "strategy_b_boost": STRATEGY_B_BOOST,
+                "rank_controls_relative_allocation": true,
+                "theme_allocation_limit_enabled": false,
+                "strategy_assignment_boost_enabled": false,
+                "historical_return_weighting_enabled": false,
                 "cash_allocation": report.cash_allocation,
                 "sgov_allocation": report.sgov_allocation,
                 "allocations": rows,
@@ -302,16 +298,11 @@ def _raw_rank_weights(candidates: Sequence[PortfolioCandidate]) -> list[float]:
     if not candidates:
         return []
     scores = [
-        (1.0 / _rank_value(candidate.rank)) * max(_strategy_score(candidate), 0.01)
+        1.0 / _rank_value(candidate.rank)
         for candidate in candidates
     ]
     total = sum(scores)
     return [score / total for score in scores]
-
-
-def _strategy_score(candidate: PortfolioCandidate) -> float:
-    boost = 1.1 if candidate.active_strategy.strip().upper() == "STRATEGY B" else 1.0
-    return max(0.0, 1.0 + (candidate.strategy_return / 100.0)) * boost
 
 
 def _strategy_return(row: Mapping[str, str]) -> float:
