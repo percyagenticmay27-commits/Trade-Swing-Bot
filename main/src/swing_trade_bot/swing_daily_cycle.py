@@ -12,11 +12,15 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
 from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
+from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
+from .opportunity_quality_engine import build_opportunity_quality_report
+from .executive_dashboard import build_executive_dashboard
+from .monthly_command_center import build_monthly_command_center
 from .swing_local_filesystem_integration import (
     atomic_write_json,
     build_local_filesystem_registration,
@@ -74,7 +78,7 @@ def validate_cycle_config(payload: Mapping[str, Any]) -> list[str]:
     static = payload.get("static_artifacts")
     if not isinstance(static, Mapping) or not static:
         errors.append("static_artifacts must be a non-empty object")
-    for field in ("validation_config", "acceptance_config", "freeze_config", "local_integration_config", "decision_trace_path"):
+    for field in ("validation_config", "acceptance_config", "freeze_config", "local_integration_config", "decision_trace_path", "decision_trace_evidence_path", "opportunity_quality_input_path"):
         if not isinstance(payload.get(field), str) or not str(payload.get(field)).strip():
             errors.append(f"{field} must be a non-empty relative path")
     reports = payload.get("required_strategy_reports")
@@ -112,6 +116,112 @@ def _readiness_alias(report: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _produce_strategy_reports(
+    root: Path,
+    output_dir: Path,
+    config: Mapping[str, Any],
+    generated_at: str,
+    errors: list[str],
+    published: list[str],
+    stage: Callable[[str, bool, str], None],
+) -> bool:
+    """Run authentic report producers in their frozen dependency order."""
+
+    evidence_relative = str(config.get("decision_trace_evidence_path", ""))
+    try:
+        evidence = load_json(root / evidence_relative)
+        raw_steps = evidence.get("committee_steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise ValueError("committee_steps must be a non-empty list")
+        steps = [
+            build_committee_step(
+                evaluation_cycle_id=str(evidence.get("evaluation_cycle_id", "")),
+                symbol=str(evidence.get("symbol", "")),
+                strategy_id=str(evidence.get("strategy_id", "")),
+                committee_id=str(item.get("committee_id", "")),
+                sequence=int(item.get("sequence", 0)),
+                status=str(item.get("status", "")),
+                reason_codes=item.get("reason_codes"),
+                evidence=item.get("evidence"),
+                source_artifacts=item.get("source_artifacts"),
+            )
+            for item in raw_steps
+            if isinstance(item, Mapping)
+        ]
+        if len(steps) != len(raw_steps):
+            raise ValueError("every committee step must be an object")
+        trace = build_decision_trace(
+            evaluation_cycle_id=str(evidence.get("evaluation_cycle_id", "")),
+            symbol=str(evidence.get("symbol", "")),
+            strategy_id=str(evidence.get("strategy_id", "")),
+            committee_steps=steps,
+            final_status=str(evidence.get("final_status", "")),
+            source_artifacts=evidence.get("source_artifacts"),
+            bias_audit=evidence.get("bias_audit"),
+            generated_at_utc=generated_at,
+        )
+        trace_path = root / str(config.get("decision_trace_path", ""))
+        write_decision_trace(trace, trace_path)
+        published.append(str(trace_path))
+        stage("COMMITTEE_DECISION_TRACE", True, "Authentic committee trace was produced from runtime evidence")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Committee decision trace production failed: {exc}")
+        stage("COMMITTEE_DECISION_TRACE", False, "Committee trace production failed safely")
+        _mark_skipped_producers(stage, "Opportunity Quality depends on the committee trace")
+        return False
+
+    try:
+        build_opportunity_quality_report(
+            input_path=root / str(config.get("opportunity_quality_input_path", "")),
+            output_dir=output_dir,
+            paper_trade_mode=True,
+        )
+        for suffix in ("csv", "json", "md"):
+            published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
+        stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality reports were produced from existing inputs")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Opportunity Quality production failed: {exc}")
+        stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
+        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Opportunity Quality did not complete")
+        stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
+
+    try:
+        build_executive_dashboard(output_dir, output_dir=output_dir, paper_trade_mode=True)
+        published.extend([
+            str(output_dir / "executive_dashboard.json"),
+            str(output_dir / "executive_dashboard.md"),
+        ])
+        stage("EXECUTIVE_DASHBOARD", True, "Executive Dashboard was produced from existing reports")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Executive Dashboard production failed: {exc}")
+        stage("EXECUTIVE_DASHBOARD", False, "Executive Dashboard production failed safely")
+        stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
+
+    try:
+        build_monthly_command_center(output_dir, output_dir=output_dir, paper_trade_mode=True)
+        published.extend([
+            str(output_dir / "monthly_command_center.json"),
+            str(output_dir / "monthly_command_center.md"),
+        ])
+        stage("MONTHLY_COMMAND_CENTER", True, "Monthly Command Center was produced from existing reports")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Monthly Command Center production failed: {exc}")
+        stage("MONTHLY_COMMAND_CENTER", False, "Monthly Command Center production failed safely")
+        return False
+    return True
+
+
+def _mark_skipped_producers(
+    stage: Callable[[str, bool, str], None],
+    reason: str,
+) -> None:
+    stage("OPPORTUNITY_QUALITY", False, f"Skipped: {reason}")
+    stage("EXECUTIVE_DASHBOARD", False, "Skipped because Opportunity Quality did not complete")
+    stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+
+
 def run_swing_daily_cycle(
     repository_root: str | Path,
     *,
@@ -141,20 +251,44 @@ def run_swing_daily_cycle(
     published.extend(_publish_static_artifacts(root, output_dir, static_mapping, errors))
     stage("STATIC_CIO_ARTIFACTS", len(errors) == static_before, "CIO contracts were atomically published")
 
-    missing_reports = [str(item) for item in config.get("required_strategy_reports", []) if not (root / str(item)).exists()]
+    producers_ready = _produce_strategy_reports(
+        root,
+        output_dir,
+        config,
+        generated_at,
+        errors,
+        published,
+        stage,
+    )
+    required_paths = [
+        str(config.get("decision_trace_path", "")),
+        *[str(item) for item in config.get("required_strategy_reports", [])],
+    ]
+    missing_reports = [
+        item for item in required_paths if not item or not (root / item).is_file()
+    ]
     if missing_reports:
-        warnings.extend(f"Required strategy report is not available yet: {item}" for item in missing_reports)
-    stage("STRATEGY_REPORTS", not missing_reports, "All contracted strategy reports are present")
+        warnings.extend(
+            f"Required strategy report is not available yet: {item}"
+            for item in missing_reports
+        )
+    reports_ready = producers_ready and not missing_reports
+    stage("STRATEGY_REPORTS", reports_ready, "All contracted strategy reports are present")
 
     validation_config = _load_required(root, str(config.get("validation_config", "")), errors)
-    validation_report = validate_repository(root, validation_config) if validation_config else {
-        "overall_status": "NOT_READY", "governance_health_score": 0, "errors": ["Validation configuration unavailable"]
-    }
+    if reports_ready and validation_config:
+        validation_report = validate_repository(root, validation_config)
+    else:
+        validation_report = {
+            "overall_status": "NOT_READY",
+            "governance_health_score": 0,
+            "errors": ["Required strategy reports are unavailable; CIO validation was not run"],
+        }
     atomic_write_json(validation_report, output_dir / "swing_cio_validation_report.json")
     atomic_write_text(render_validation_markdown(validation_report), output_dir / "swing_cio_validation_report.md")
     published.extend([str(output_dir / "swing_cio_validation_report.json"), str(output_dir / "swing_cio_validation_report.md")])
     validation_ready = validation_report.get("overall_status") == "READY" and not validation_report.get("errors")
-    stage("FULL_CIO_VALIDATION", validation_ready, "Phase 9F validation completed")
+    stage("FULL_CIO_VALIDATION", validation_ready, "Phase 9F validation completed only after report readiness")
 
     acceptance_config = _load_required(root, str(config.get("acceptance_config", "")), errors)
     service_registration = _load_required(root, "configs/swing_strategy_service_registration.json", errors)
