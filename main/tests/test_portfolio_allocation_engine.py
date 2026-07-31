@@ -40,17 +40,17 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertNotIn("NBIS", {row.symbol for row in report.rows})
         self.assertGreater(report.sgov_allocation, 0.0)
 
-    def test_strategy_b_increases_cap_by_ten_percent(self) -> None:
+    def test_strategy_b_and_historical_return_do_not_boost_allocation(self) -> None:
         report = PortfolioAllocationEngine().allocate(
             [
-                candidate("A", "LOW", 1, "AI Infrastructure", strategy="Strategy B"),
-                candidate("B", "LOW", 2, "Cloud Computing"),
+                candidate("A", "LOW", 1, "AI Infrastructure", strategy="Strategy B", strategy_return=500.0),
+                candidate("B", "LOW", 1, "Cloud Computing", strategy="Strategy A", strategy_return=-50.0),
             ]
         )
         weights = {row.symbol: row.allocation_percent for row in report.rows}
 
-        self.assertLessEqual(weights["A"], 7.7)
-        self.assertGreater(weights["A"], weights["B"])
+        self.assertEqual(weights["A"], weights["B"])
+        self.assertLessEqual(weights["A"], 7.0)
 
     def test_rank_weighting_prefers_rank_one(self) -> None:
         report = PortfolioAllocationEngine().allocate(
@@ -72,7 +72,7 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertGreater(weights["A"], weights["B"])
         self.assertGreater(weights["B"], weights["C"])
 
-    def test_theme_concentration_is_capped_at_forty_percent(self) -> None:
+    def test_theme_does_not_reduce_rank_driven_allocation(self) -> None:
         report = PortfolioAllocationEngine().allocate(
             [
                 candidate("NBIS", "HIGH", 1, "AI Infrastructure"),
@@ -82,9 +82,11 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
             ]
         )
 
+        weights = {row.symbol: row.allocation_percent for row in report.rows}
         ai_rows = [row for row in report.rows if row.theme == "AI Infrastructure"]
-        self.assertTrue(ai_rows)
-        self.assertLessEqual(ai_rows[0].theme_allocation, 40.0)
+        self.assertGreater(weights["NBIS"], weights["NEBX"])
+        self.assertGreater(weights["NEBX"], weights["SMCI"])
+        self.assertGreater(ai_rows[0].theme_allocation, 40.0)
 
     def test_build_candidates_combines_confidence_watchlist_and_strategy_files(self) -> None:
         rows = build_candidates(
@@ -112,6 +114,10 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertEqual(rows[-1]["symbol"], "SGOV")
         self.assertTrue(payload["paper_trade_mode"])
         self.assertIn("sgov_allocation", payload)
+        self.assertTrue(payload["rank_controls_relative_allocation"])
+        self.assertFalse(payload["theme_allocation_limit_enabled"])
+        self.assertFalse(payload["strategy_assignment_boost_enabled"])
+        self.assertFalse(payload["historical_return_weighting_enabled"])
 
     def test_rebalance_table_includes_reserve(self) -> None:
         report = PortfolioAllocationEngine().allocate([candidate("SOXL", "HIGH", 1, "Semiconductors")])

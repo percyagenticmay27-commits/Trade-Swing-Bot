@@ -25,8 +25,10 @@ def _base_config() -> dict:
         "acceptance_config": "configs/acceptance.json",
         "freeze_config": "configs/freeze.json",
         "local_integration_config": "configs/integration.json",
+        "decision_trace_evidence_path": "results/trace_evidence.json",
         "decision_trace_path": "results/trace.json",
-        "required_strategy_reports": ["results/opportunity_quality.json"],
+        "opportunity_quality_input_path": "results/opportunity_quality_inputs.json",
+        "required_strategy_reports": ["results/opportunity_quality_report.json"],
         "cycle_report_json": "results/swing_daily_cycle_report.json",
         "cycle_report_markdown": "results/swing_daily_cycle_report.md",
     }
@@ -137,13 +139,14 @@ def _prepare_cycle_tree(root: Path, *, include_report: bool = True, include_trac
         },
     )
     if include_report:
-        _write(root / "results/opportunity_quality.json", {"status": "READY"})
+        _write(root / "results/opportunity_quality_report.json", {"status": "READY"})
     if include_trace:
         _write(root / "results/trace.json", {"decision_trace_id": "TRACE-1"})
     return config
 
 
 def _patch_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cycle, "_produce_strategy_reports", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         cycle,
         "validate_repository",
@@ -181,7 +184,7 @@ def test_missing_strategy_report_blocks_registration(tmp_path: Path, monkeypatch
     report = cycle.run_swing_daily_cycle(tmp_path)
     assert report["cycle_status"] == "BLOCKED"
     assert report["registration_published"] is False
-    assert report["missing_strategy_reports"] == ["results/opportunity_quality.json"]
+    assert report["missing_strategy_reports"] == ["results/opportunity_quality_report.json"]
     assert not (tmp_path / "results/swing_local_filesystem_registration.json").exists()
 
 
