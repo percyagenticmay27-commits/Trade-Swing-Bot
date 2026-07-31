@@ -231,7 +231,7 @@ def _optional_rows(path: Path, keys: Sequence[str] = ("rows", "candidates", "res
 def _candidate_is_active(row: Mapping[str, Any]) -> bool:
     capacity = _text(row, "capacity_status", default="ACTIVE").upper()
     status = _text(row, "watchlist_status", default="WATCHLIST").upper()
-    return capacity == "ACTIVE" and status not in {"REMOVED", "DISCOVERY"}
+    return capacity == "ACTIVE" and status != "REMOVED"
 
 
 def _rank_key(row: Mapping[str, Any]) -> tuple[int, int, float, str]:
