@@ -1,21 +1,23 @@
 """Enterprise Registry v2 export for the paper-only Swing strategy plugin.
 
 This module publishes descriptive registration metadata and read-only evidence
-paths. It does not import another strategy, move capital, activate strategies,
-contact brokers, place orders, or implement host-side registry behavior.
+paths. It does not move capital, activate strategies, contact brokers, place
+orders, or implement host-side registry behavior.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 MODULE_NAME = "swing_strategy_service_registration"
-MODULE_VERSION = "2.0.0"
+MODULE_VERSION = "2.0.1"
 SCHEMA_VERSION = "1.0"
 PLUGIN_CONTRACT_VERSION = "2.0"
 DEPLOYMENT_ROOT = "/home/tradebot/Trade-Swing-Bot/main"
+DEFAULT_MANIFEST_PATH = f"{DEPLOYMENT_ROOT}/configs/swing_cio_plugin_manifest.json"
+DEFAULT_PRESENTATION_PATH = f"{DEPLOYMENT_ROOT}/results/swing_cio_presentation.json"
 ELIGIBLE_STATUSES = {"ONLINE", "ENABLED", "AVAILABLE", "HEALTHY", "READY"}
 
 CAPABILITIES: tuple[str, ...] = (
@@ -32,20 +34,31 @@ CAPABILITIES: tuple[str, ...] = (
     "WEEKLY_STOCK_REPORTING",
 )
 
-# Every filename below is produced or consumed by an existing Swing module or
-# the locked daily-cycle contract. Registry v2 paths are read-only evidence.
+
+def _artifact(artifact_id: str, artifact_type: str, filename: str) -> dict[str, object]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_type": artifact_type,
+        "path": f"{DEPLOYMENT_ROOT}/results/{filename}",
+        "format": "json",
+        "scope": "STRATEGY",
+        "authoritative": True,
+        "required": False,
+    }
+
+
 DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
-    {"artifact_id": "opportunity_quality", "artifact_type": "OPPORTUNITY_QUALITY", "path": f"{DEPLOYMENT_ROOT}/results/opportunity_quality_report.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": True},
-    {"artifact_id": "executive_dashboard", "artifact_type": "EXECUTIVE_DASHBOARD", "path": f"{DEPLOYMENT_ROOT}/results/executive_dashboard.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": True},
-    {"artifact_id": "monthly_command_center", "artifact_type": "MONTHLY_COMMAND_CENTER", "path": f"{DEPLOYMENT_ROOT}/results/monthly_command_center.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": True},
-    {"artifact_id": "portfolio_allocations", "artifact_type": "PORTFOLIO_ALLOCATIONS", "path": f"{DEPLOYMENT_ROOT}/results/portfolio_allocations.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "portfolio_risk", "artifact_type": "PORTFOLIO_RISK", "path": f"{DEPLOYMENT_ROOT}/results/portfolio_risk.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "position_lifecycle", "artifact_type": "POSITION_LIFECYCLE", "path": f"{DEPLOYMENT_ROOT}/results/position_lifecycle.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "watchlist_report", "artifact_type": "WATCHLIST", "path": f"{DEPLOYMENT_ROOT}/results/watchlist_report.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "stock_performance_report", "artifact_type": "STOCK_PERFORMANCE", "path": f"{DEPLOYMENT_ROOT}/results/stock_performance_report.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "weekly_stock_report", "artifact_type": "WEEKLY_STOCK_REPORT", "path": f"{DEPLOYMENT_ROOT}/results/weekly_stock_report.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "market_data_refresh_status", "artifact_type": "MARKET_DATA_STATUS", "path": f"{DEPLOYMENT_ROOT}/results/market_data_refresh_status.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
-    {"artifact_id": "swing_daily_cycle_report", "artifact_type": "DAILY_CYCLE_STATUS", "path": f"{DEPLOYMENT_ROOT}/results/swing_daily_cycle_report.json", "format": "json", "scope": "STRATEGY", "authoritative": True, "required": False},
+    _artifact("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality_report.json"),
+    _artifact("executive_dashboard", "EXECUTIVE_DASHBOARD", "executive_dashboard.json"),
+    _artifact("monthly_command_center", "MONTHLY_COMMAND_CENTER", "monthly_command_center.json"),
+    _artifact("portfolio_allocations", "PORTFOLIO_ALLOCATIONS", "portfolio_allocations.json"),
+    _artifact("portfolio_risk", "PORTFOLIO_RISK", "portfolio_risk.json"),
+    _artifact("position_lifecycle", "POSITION_LIFECYCLE", "position_lifecycle.json"),
+    _artifact("watchlist_report", "WATCHLIST", "watchlist_report.json"),
+    _artifact("stock_performance_report", "STOCK_PERFORMANCE", "stock_performance_report.json"),
+    _artifact("weekly_stock_report", "WEEKLY_STOCK_REPORT", "weekly_stock_report.json"),
+    _artifact("market_data_refresh_status", "MARKET_DATA_STATUS", "market_data_refresh_status.json"),
+    _artifact("swing_daily_cycle_report", "DAILY_CYCLE_STATUS", "swing_daily_cycle_report.json"),
 )
 
 
@@ -75,8 +88,8 @@ def build_strategy_service_registration(
     *,
     health: str = "HEALTHY",
     enabled: bool = True,
-    manifest_path: str = "configs/swing_cio_plugin_manifest.json",
-    presentation_path: str = "results/swing_cio_presentation.json",
+    manifest_path: str = DEFAULT_MANIFEST_PATH,
+    presentation_path: str = DEFAULT_PRESENTATION_PATH,
 ) -> dict[str, Any]:
     """Translate the Swing plugin manifest into an Enterprise Registry v2 record."""
     safety = manifest.get("safety") if isinstance(manifest.get("safety"), Mapping) else {}
@@ -134,6 +147,14 @@ def _validate_capabilities(value: object, errors: list[str]) -> None:
         errors.append("capability names must be unique")
 
 
+def _validate_absolute_swing_path(value: object, field: str, errors: list[str]) -> None:
+    path = str(value or "")
+    if not PurePosixPath(path).is_absolute():
+        errors.append(f"{field} must be an absolute DigitalOcean path")
+    elif not path.startswith(DEPLOYMENT_ROOT + "/"):
+        errors.append(f"{field} must be rooted under {DEPLOYMENT_ROOT}")
+
+
 def _validate_artifacts(value: object, errors: list[str]) -> None:
     if not isinstance(value, list) or not value:
         errors.append("dashboard_artifacts must be a non-empty list")
@@ -149,8 +170,7 @@ def _validate_artifacts(value: object, errors: list[str]) -> None:
         artifact_id = str(artifact.get("artifact_id") or "")
         ids.append(artifact_id)
         path = str(artifact.get("path") or "")
-        parsed = PurePosixPath(path)
-        if not parsed.is_absolute():
+        if not PurePosixPath(path).is_absolute():
             errors.append(f"artifact path must be absolute: {path}")
         if not path.startswith(DEPLOYMENT_ROOT + "/results/"):
             errors.append(f"artifact path must be under Swing results: {path}")
@@ -158,10 +178,10 @@ def _validate_artifacts(value: object, errors: list[str]) -> None:
             errors.append(f"artifact format must be json: {artifact_id}")
         if artifact.get("scope") != "STRATEGY":
             errors.append(f"artifact scope must be STRATEGY: {artifact_id}")
-        if not isinstance(artifact.get("authoritative"), bool):
-            errors.append(f"artifact authoritative must be boolean: {artifact_id}")
-        if not isinstance(artifact.get("required"), bool):
-            errors.append(f"artifact required must be boolean: {artifact_id}")
+        if artifact.get("authoritative") is not True:
+            errors.append(f"artifact authoritative must be true: {artifact_id}")
+        if artifact.get("required") is not False:
+            errors.append(f"runtime artifact required must be false: {artifact_id}")
     if len(ids) != len(set(ids)):
         errors.append("artifact IDs must be unique")
 
@@ -196,6 +216,8 @@ def validate_strategy_service_registration(registration: Mapping[str, Any]) -> R
             errors.append(f"{field} must be false")
     if registration.get("database_owner") != "AI_CIO_PLATFORM":
         errors.append("database_owner must be AI_CIO_PLATFORM")
+    _validate_absolute_swing_path(registration.get("manifest_path"), "manifest_path", errors)
+    _validate_absolute_swing_path(registration.get("presentation_path"), "presentation_path", errors)
     _validate_capabilities(registration.get("capabilities"), errors)
     _validate_artifacts(registration.get("dashboard_artifacts"), errors)
     if str(registration.get("health", "")).upper() not in {"HEALTHY", "READY", "OK", "WARNING", "UNKNOWN"}:
