@@ -13,6 +13,7 @@ from swing_trade_bot.swing_strategy_service_registration import (
 )
 
 CONFIG_PATH = Path("configs/swing_strategy_service_registration.json")
+PUBLISHED_PATH = Path("results/swing_strategy_service_registration.json")
 ALLOWED_REPORT_FILENAMES = {
     "opportunity_quality_report.json",
     "executive_dashboard.json",
@@ -28,8 +29,8 @@ ALLOWED_REPORT_FILENAMES = {
 }
 
 
-def load_registration() -> dict:
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+def load_registration(path: Path = CONFIG_PATH) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def manifest() -> dict:
@@ -56,6 +57,17 @@ def test_registry_v2_metadata_validates():
     result = validate_strategy_service_registration(registration)
     assert result.valid, result.errors
     assert registration["plugin_contract_version"] == "2.0"
+    assert len(registration["capabilities"]) > 0
+    assert len(registration["dashboard_artifacts"]) > 0
+
+
+def test_published_registration_matches_configured_registry_v2_metadata():
+    assert PUBLISHED_PATH.exists()
+    configured = load_registration(CONFIG_PATH)
+    published = load_registration(PUBLISHED_PATH)
+    assert published == configured
+    assert len(published["capabilities"]) == len(CAPABILITIES)
+    assert len(published["dashboard_artifacts"]) == len(DASHBOARD_ARTIFACTS)
 
 
 def test_builder_produces_registry_v2_metadata():
@@ -65,8 +77,7 @@ def test_builder_produces_registry_v2_metadata():
 
 
 def test_capability_names_are_deterministic_and_unique():
-    registration = load_registration()
-    capabilities = registration["capabilities"]
+    capabilities = load_registration()["capabilities"]
     assert capabilities == sorted(capabilities)
     assert len(capabilities) == len(set(capabilities))
     assert tuple(capabilities) == CAPABILITIES
@@ -78,15 +89,20 @@ def test_artifact_ids_are_unique():
     assert len(artifact_ids) == len(set(artifact_ids))
 
 
-def test_artifact_paths_are_absolute_and_rooted_on_digitalocean():
-    for artifact in load_registration()["dashboard_artifacts"]:
+def test_evidence_paths_are_absolute_and_rooted_on_digitalocean():
+    registration = load_registration()
+    for field in ("manifest_path", "presentation_path"):
+        path = registration[field]
+        assert PurePosixPath(path).is_absolute()
+        assert path.startswith(DEPLOYMENT_ROOT + "/")
+    for artifact in registration["dashboard_artifacts"]:
         path = artifact["path"]
         assert PurePosixPath(path).is_absolute()
         assert path.startswith(DEPLOYMENT_ROOT + "/results/")
         assert artifact["scope"] == "STRATEGY"
 
 
-def test_only_existing_swing_report_filenames_are_declared():
+def test_only_authoritative_swing_report_filenames_are_declared():
     declared = {
         PurePosixPath(item["path"]).name
         for item in load_registration()["dashboard_artifacts"]
@@ -95,11 +111,16 @@ def test_only_existing_swing_report_filenames_are_declared():
     assert declared == {PurePosixPath(item["path"]).name for item in DASHBOARD_ARTIFACTS}
 
 
+def test_all_runtime_report_artifacts_are_optional():
+    artifacts = load_registration()["dashboard_artifacts"]
+    assert artifacts
+    assert all(item["required"] is False for item in artifacts)
+    assert all(item["authoritative"] is True for item in artifacts)
+
+
 def test_optional_missing_reports_do_not_invalidate_registration(tmp_path):
     registration = load_registration()
-    optional = [item for item in registration["dashboard_artifacts"] if item["required"] is False]
-    assert optional
-    assert all(not (tmp_path / PurePosixPath(item["path"]).name).exists() for item in optional)
+    assert all(not (tmp_path / PurePosixPath(item["path"]).name).exists() for item in registration["dashboard_artifacts"])
     result = validate_strategy_service_registration(registration)
     assert result.valid, result.errors
 
@@ -125,6 +146,12 @@ def test_unsafe_paper_safety_values_are_rejected(field, unsafe_value):
     assert not validate_strategy_service_registration(registration).valid
 
 
+def test_required_runtime_artifact_is_rejected():
+    registration = load_registration()
+    registration["dashboard_artifacts"][0]["required"] = True
+    assert not validate_strategy_service_registration(registration).valid
+
+
 def test_duplicate_capability_is_rejected():
     registration = load_registration()
     registration["capabilities"].append(registration["capabilities"][0])
@@ -145,9 +172,7 @@ def test_relative_artifact_path_is_rejected():
 
 
 def test_no_trade_dividend_bot_production_imports_exist():
-    source = Path("src/swing_trade_bot/swing_strategy_service_registration.py").read_text(
-        encoding="utf-8"
-    )
+    source = Path("src/swing_trade_bot/swing_strategy_service_registration.py").read_text(encoding="utf-8")
     lowered = source.lower()
     assert "trade_dividend_bot" not in lowered
     assert "trade-dividend-bot" not in lowered
