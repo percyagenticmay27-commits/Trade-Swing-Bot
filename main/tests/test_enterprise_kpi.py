@@ -38,6 +38,66 @@ def test_build_kpis_uses_preserved_swing_strategy_allocation(tmp_path):
     assert enterprise_kpi.validate_kpis(payload) == ()
 
 
+def test_build_kpis_prefers_authoritative_paper_ledger(tmp_path):
+    _write_json(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write_json(
+        tmp_path / "paper_ledger" / "paper_portfolio_summary.json",
+        {
+            "paper_trade_mode": True,
+            "valuation_source": "PAPER_LEDGER_MARK_TO_MARKET",
+            "account_capital": 4500.0,
+            "invested_capital": 1800.0,
+            "cash_balance": 2700.0,
+            "positions_market_value": 1850.0,
+            "portfolio_value": 4550.0,
+            "unrealized_pnl": 50.0,
+            "portfolio_return_percent": 1.111111,
+            "position_count": 2,
+        },
+    )
+
+    payload = enterprise_kpi.build_kpis(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    assert payload["portfolio_value"] == 4550.0
+    assert payload["portfolio_value_source"] == "PAPER_LEDGER_MARK_TO_MARKET"
+    assert payload["cash_balance"] == 2700.0
+    assert payload["invested_capital"] == 1800.0
+    assert payload["positions_market_value"] == 1850.0
+    assert payload["unrealized_pnl"] == 50.0
+    assert payload["portfolio_return_percent"] == pytest.approx(1.111111)
+    assert payload["position_count"] == 2
+    assert payload["source_artifacts"]["paper_ledger/paper_portfolio_summary.json"] is True
+    assert enterprise_kpi.validate_kpis(payload) == ()
+
+
+def test_paper_ledger_capital_must_match_swing_allocation(tmp_path):
+    _write_json(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write_json(
+        tmp_path / "paper_ledger" / "paper_portfolio_summary.json",
+        {
+            "paper_trade_mode": True,
+            "valuation_source": "PAPER_LEDGER_MARK_TO_MARKET",
+            "account_capital": 10000.0,
+            "invested_capital": 1800.0,
+            "cash_balance": 8200.0,
+            "positions_market_value": 1800.0,
+            "portfolio_value": 10000.0,
+            "unrealized_pnl": 0.0,
+            "portfolio_return_percent": 0.0,
+            "position_count": 2,
+        },
+    )
+
+    with pytest.raises(ValueError, match="SWING-001 allocation"):
+        enterprise_kpi.build_kpis(
+            tmp_path,
+            strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+        )
+
+
 def test_publish_kpis_reads_strategy_allocation_file(tmp_path):
     results = tmp_path / "results"
     _write_json(results / "portfolio_allocations.json", {"allocations": []})
