@@ -57,7 +57,7 @@ def test_no_closed_trades_reports_partial_without_fabricated_win_rate(tmp_path: 
 
 def test_closed_trades_calculate_core_metrics_and_strategy_breakdown(tmp_path: Path):
     _, portfolio, closed, history = _paths(tmp_path)
-    _write(portfolio, _safe(account_capital=4500, portfolio_value=4575, cash_balance=2700,
+    _write(portfolio, _safe(account_capital=4500, portfolio_value=4650, cash_balance=2775,
                             invested_capital=1800, positions_market_value=1875,
                             unrealized_pnl=75, position_count=2))
     rows = [
