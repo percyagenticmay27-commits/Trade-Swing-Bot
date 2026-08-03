@@ -1,8 +1,9 @@
 """Publish read-only Swing KPI evidence for the existing Enterprise dashboard.
 
-The publisher reads existing Swing reports and a preserved strategy-allocation
-mapping only. It never substitutes total account capital for the SWING-001
-allocation, imports host production code, moves capital, or reaches a broker.
+The publisher reads existing Swing reports, authoritative paper-ledger evidence,
+and a preserved strategy-allocation mapping only. It never substitutes total
+account capital for the SWING-001 allocation, imports host production code,
+moves capital, or reaches a broker.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher"
-MODULE_VERSION = "1.1.0"
+MODULE_VERSION = "1.2.0"
 SCHEMA_VERSION = "1.0"
 STRATEGY_ID = "SWING-001"
 DEFAULT_STRATEGY_ALLOCATIONS_PATH = Path("results/enterprise_strategy_allocations.json")
@@ -62,7 +63,6 @@ def resolve_strategy_allocation(
     strategy_allocations: Mapping[str, Any],
     strategy_id: str = STRATEGY_ID,
 ) -> float:
-    """Resolve the preserved allocation for one strategy without account fallback."""
     mapping = _strategy_allocations_mapping(strategy_allocations)
     allocated = _finite_nonnegative(mapping.get(strategy_id))
     if allocated is None:
@@ -88,6 +88,48 @@ def _active_positions(allocations: Mapping[str, Any] | None) -> int | None:
     return count
 
 
+def _validated_paper_portfolio(
+    payload: Mapping[str, Any] | None,
+    allocated: float,
+) -> dict[str, float | int] | None:
+    if not payload:
+        return None
+    if payload.get("paper_trade_mode") is not True:
+        return None
+    if payload.get("valuation_source") != "PAPER_LEDGER_MARK_TO_MARKET":
+        return None
+    account_capital = _finite_nonnegative(payload.get("account_capital"))
+    portfolio_value = _finite_nonnegative(payload.get("portfolio_value"))
+    cash_balance = _finite_nonnegative(payload.get("cash_balance"))
+    invested_capital = _finite_nonnegative(payload.get("invested_capital"))
+    positions_market_value = _finite_nonnegative(payload.get("positions_market_value"))
+    unrealized_pnl_raw = payload.get("unrealized_pnl")
+    return_raw = payload.get("portfolio_return_percent")
+    position_count = payload.get("position_count")
+    try:
+        unrealized_pnl = float(unrealized_pnl_raw)
+        portfolio_return_percent = float(return_raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(unrealized_pnl) or not math.isfinite(portfolio_return_percent):
+        return None
+    if account_capital is None or abs(account_capital - allocated) > 0.01:
+        raise ValueError("paper ledger account_capital must equal the preserved SWING-001 allocation")
+    if None in {portfolio_value, cash_balance, invested_capital, positions_market_value}:
+        return None
+    if not isinstance(position_count, int) or position_count < 0:
+        return None
+    return {
+        "portfolio_value": round(float(portfolio_value), 2),
+        "cash_balance": round(float(cash_balance), 2),
+        "invested_capital": round(float(invested_capital), 2),
+        "positions_market_value": round(float(positions_market_value), 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "portfolio_return_percent": round(portfolio_return_percent, 6),
+        "position_count": position_count,
+    }
+
+
 def build_enterprise_strategy_kpis(
     results_dir: str | Path = "results",
     *,
@@ -99,34 +141,49 @@ def build_enterprise_strategy_kpis(
     executive = _load_json(root / "executive_dashboard.json")
     opportunity = _load_json(root / "opportunity_quality_report.json")
     watchlist = _load_json(root / "watchlist_report.json")
+    paper_portfolio = _load_json(root / "paper_ledger" / "paper_portfolio_summary.json")
 
     allocated = resolve_strategy_allocation(strategy_allocations)
     warnings: list[str] = []
-    portfolio_value = _find_numeric(
-        executive,
-        ("portfolio_value", "current_portfolio_value", "total_portfolio_value"),
-    )
-    portfolio_value_source = "EXECUTIVE_DASHBOARD"
-    if portfolio_value is None:
-        portfolio_value = allocated
-        portfolio_value_source = "PAPER_ALLOCATION_PROXY"
-        warnings.append(
-            "Marked-to-market portfolio value is unavailable; using the preserved SWING-001 allocation as a disclosed proxy."
-        )
+    ledger = _validated_paper_portfolio(paper_portfolio, allocated)
 
-    position_count = _active_positions(allocations)
-    if position_count is None:
-        position_count = int(_find_numeric(executive, ("active_positions", "position_count")) or 0)
-        warnings.append("Position count was not available from portfolio_allocations.json.")
+    if ledger is not None:
+        portfolio_value = float(ledger["portfolio_value"])
+        portfolio_value_source = "PAPER_LEDGER_MARK_TO_MARKET"
+        position_count = int(ledger["position_count"])
+        cash_balance = float(ledger["cash_balance"])
+        invested_capital = float(ledger["invested_capital"])
+        positions_market_value = float(ledger["positions_market_value"])
+        unrealized_pnl = float(ledger["unrealized_pnl"])
+        portfolio_return_percent = float(ledger["portfolio_return_percent"])
+    else:
+        portfolio_value = _find_numeric(executive, ("portfolio_value", "current_portfolio_value", "total_portfolio_value"))
+        portfolio_value_source = "EXECUTIVE_DASHBOARD"
+        if portfolio_value is None:
+            portfolio_value = allocated
+            portfolio_value_source = "PAPER_ALLOCATION_PROXY"
+            warnings.append(
+                "Marked-to-market paper ledger value is unavailable; using the preserved SWING-001 allocation as a disclosed proxy."
+            )
+        position_count = _active_positions(allocations)
+        if position_count is None:
+            position_count = int(_find_numeric(executive, ("active_positions", "position_count")) or 0)
+            warnings.append("Position count was not available from portfolio_allocations.json.")
+        cash_balance = None
+        invested_capital = None
+        positions_market_value = None
+        unrealized_pnl = None
+        portfolio_return_percent = None
 
     source_artifacts = {
         "portfolio_allocations.json": allocations is not None,
         "executive_dashboard.json": executive is not None,
         "opportunity_quality_report.json": opportunity is not None,
         "watchlist_report.json": watchlist is not None,
+        "paper_ledger/paper_portfolio_summary.json": paper_portfolio is not None,
     }
     available_count = sum(source_artifacts.values())
-    evidence_status = "AVAILABLE" if allocations is not None else "REGISTRY_ONLY"
+    evidence_status = "AVAILABLE" if allocations is not None or ledger is not None else "REGISTRY_ONLY"
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -139,11 +196,16 @@ def build_enterprise_strategy_kpis(
         "allocated_capital": round(allocated, 2),
         "allocation_source": "STRATEGY_ALLOCATIONS",
         "strategy_allocations_source": str(strategy_allocations_source) if strategy_allocations_source else None,
-        "portfolio_value": round(portfolio_value, 2),
+        "portfolio_value": round(float(portfolio_value), 2),
         "portfolio_value_source": portfolio_value_source,
+        "cash_balance": cash_balance,
+        "invested_capital": invested_capital,
+        "positions_market_value": positions_market_value,
+        "unrealized_pnl": unrealized_pnl,
+        "portfolio_return_percent": portfolio_return_percent,
         "position_count": int(position_count),
         "evidence_status": evidence_status,
-        "capabilities": ["opportunity_quality", "portfolio_allocations", "strategy_kpis", "watchlist"],
+        "capabilities": ["opportunity_quality", "paper_portfolio", "portfolio_allocations", "strategy_kpis", "watchlist"],
         "artifacts": available_count,
         "source_artifacts": source_artifacts,
         "warnings": warnings,
@@ -175,6 +237,10 @@ def validate_enterprise_strategy_kpis(payload: Mapping[str, Any]) -> tuple[str, 
             errors.append(f"{field} must be finite and nonnegative")
     if payload.get("portfolio_value_source") == "PAPER_ALLOCATION_PROXY" and payload.get("portfolio_value") != payload.get("allocated_capital"):
         errors.append("PAPER_ALLOCATION_PROXY must equal allocated_capital")
+    if payload.get("portfolio_value_source") == "PAPER_LEDGER_MARK_TO_MARKET":
+        for field in ("cash_balance", "invested_capital", "positions_market_value"):
+            if _finite_nonnegative(payload.get(field)) is None:
+                errors.append(f"{field} is required for PAPER_LEDGER_MARK_TO_MARKET")
     if not isinstance(payload.get("position_count"), int) or payload.get("position_count", -1) < 0:
         errors.append("position_count must be a nonnegative integer")
     for field in ("paper_trade_mode", "paper_compatible", "advisory_only", "reporting_only", "governance_review_required"):
