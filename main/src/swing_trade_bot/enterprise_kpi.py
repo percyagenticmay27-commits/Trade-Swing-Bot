@@ -1,12 +1,8 @@
 """Host-compatible Swing Enterprise KPI facade.
 
-This module provides the compact Enterprise KPI entry points expected by the
-existing AI CIO host while delegating all calculations and publication to the
-Swing-owned, paper-only KPI publisher.
-
-It intentionally does not import Trade-Dividend-Bot production modules, access
-brokerage execution, move capital, place orders, or write directly to the AI
-CIO database.
+This module delegates to the Swing-owned, paper-only KPI publisher. It does not
+import external host production modules, access brokerage execution, move
+capital, place orders, or write directly to the AI CIO database.
 """
 from __future__ import annotations
 
@@ -14,13 +10,14 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .enterprise_strategy_kpi_publisher import (
-    DEFAULT_ALLOCATED_CAPITAL,
+    DEFAULT_STRATEGY_ALLOCATIONS_PATH,
     MODULE_NAME,
     MODULE_VERSION,
     SCHEMA_VERSION,
     STRATEGY_ID,
     build_and_write_enterprise_strategy_kpis,
     build_enterprise_strategy_kpis,
+    resolve_strategy_allocation,
     validate_enterprise_strategy_kpis,
     write_enterprise_strategy_kpis,
 )
@@ -36,17 +33,18 @@ DIRECT_DATABASE_WRITES = False
 def build_kpis(
     results_dir: str | Path = "results",
     *,
-    allocated_capital: float = DEFAULT_ALLOCATED_CAPITAL,
+    strategy_allocations: Mapping[str, Any],
+    strategy_allocations_source: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Build read-only Swing KPI evidence from existing Swing report files."""
+    """Build Swing KPI evidence from existing reports and preserved allocation."""
     return build_enterprise_strategy_kpis(
         results_dir,
-        allocated_capital=allocated_capital,
+        strategy_allocations=strategy_allocations,
+        strategy_allocations_source=strategy_allocations_source,
     )
 
 
 def validate_kpis(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    """Validate Swing KPI evidence against locked paper-only requirements."""
     return validate_enterprise_strategy_kpis(payload)
 
 
@@ -54,20 +52,20 @@ def publish_kpis(
     results_dir: str | Path = "results",
     output_path: str | Path = "results/enterprise_strategy_kpis.json",
     *,
-    allocated_capital: float = DEFAULT_ALLOCATED_CAPITAL,
+    strategy_allocations_path: str | Path = DEFAULT_STRATEGY_ALLOCATIONS_PATH,
 ) -> Path:
     """Atomically publish host-readable Swing KPI evidence."""
     return build_and_write_enterprise_strategy_kpis(
         results_dir,
         output_path,
-        allocated_capital=allocated_capital,
+        strategy_allocations_path=strategy_allocations_path,
     )
 
 
 __all__ = [
     "BROKER_EXECUTION_ENABLED",
     "CAPITAL_MOVEMENT_ENABLED",
-    "DEFAULT_ALLOCATED_CAPITAL",
+    "DEFAULT_STRATEGY_ALLOCATIONS_PATH",
     "DIRECT_DATABASE_WRITES",
     "LIVE_TRADING_ENABLED",
     "MODULE_NAME",
@@ -80,6 +78,7 @@ __all__ = [
     "build_enterprise_strategy_kpis",
     "build_kpis",
     "publish_kpis",
+    "resolve_strategy_allocation",
     "validate_enterprise_strategy_kpis",
     "validate_kpis",
     "write_enterprise_strategy_kpis",
