@@ -1,9 +1,8 @@
 """Publish read-only Swing KPI evidence for the existing Enterprise dashboard.
 
-The publisher reads existing Swing reports only. It never imports host or
-Dividend production code, writes to a database, moves capital, or reaches a
-broker. When marked-to-market portfolio value is unavailable, it discloses a
-paper-allocation proxy rather than pretending the value is live brokerage data.
+The publisher reads existing Swing reports and a preserved strategy-allocation
+mapping only. It never substitutes total account capital for the SWING-001
+allocation, imports host production code, moves capital, or reaches a broker.
 """
 from __future__ import annotations
 
@@ -14,10 +13,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.1.0"
 SCHEMA_VERSION = "1.0"
 STRATEGY_ID = "SWING-001"
-DEFAULT_ALLOCATED_CAPITAL = 10_000.0
+DEFAULT_STRATEGY_ALLOCATIONS_PATH = Path("results/enterprise_strategy_allocations.json")
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:
@@ -52,6 +51,25 @@ def _find_numeric(payload: Mapping[str, Any] | None, keys: tuple[str, ...]) -> f
     return None
 
 
+def _strategy_allocations_mapping(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    nested = payload.get("strategy_allocations")
+    if isinstance(nested, Mapping):
+        return nested
+    return payload
+
+
+def resolve_strategy_allocation(
+    strategy_allocations: Mapping[str, Any],
+    strategy_id: str = STRATEGY_ID,
+) -> float:
+    """Resolve the preserved allocation for one strategy without account fallback."""
+    mapping = _strategy_allocations_mapping(strategy_allocations)
+    allocated = _finite_nonnegative(mapping.get(strategy_id))
+    if allocated is None:
+        raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
+    return allocated
+
+
 def _active_positions(allocations: Mapping[str, Any] | None) -> int | None:
     if not allocations:
         return None
@@ -73,7 +91,8 @@ def _active_positions(allocations: Mapping[str, Any] | None) -> int | None:
 def build_enterprise_strategy_kpis(
     results_dir: str | Path = "results",
     *,
-    allocated_capital: float = DEFAULT_ALLOCATED_CAPITAL,
+    strategy_allocations: Mapping[str, Any],
+    strategy_allocations_source: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(results_dir)
     allocations = _load_json(root / "portfolio_allocations.json")
@@ -81,10 +100,7 @@ def build_enterprise_strategy_kpis(
     opportunity = _load_json(root / "opportunity_quality_report.json")
     watchlist = _load_json(root / "watchlist_report.json")
 
-    allocated = _finite_nonnegative(allocated_capital)
-    if allocated is None:
-        raise ValueError("allocated_capital must be a finite nonnegative number")
-
+    allocated = resolve_strategy_allocation(strategy_allocations)
     warnings: list[str] = []
     portfolio_value = _find_numeric(
         executive,
@@ -95,7 +111,7 @@ def build_enterprise_strategy_kpis(
         portfolio_value = allocated
         portfolio_value_source = "PAPER_ALLOCATION_PROXY"
         warnings.append(
-            "Marked-to-market portfolio value is unavailable; using allocated paper capital as a disclosed proxy."
+            "Marked-to-market portfolio value is unavailable; using the preserved SWING-001 allocation as a disclosed proxy."
         )
 
     position_count = _active_positions(allocations)
@@ -121,16 +137,13 @@ def build_enterprise_strategy_kpis(
         "plugin_id": STRATEGY_ID,
         "strategy_name": "Trade Swing Bot",
         "allocated_capital": round(allocated, 2),
+        "allocation_source": "STRATEGY_ALLOCATIONS",
+        "strategy_allocations_source": str(strategy_allocations_source) if strategy_allocations_source else None,
         "portfolio_value": round(portfolio_value, 2),
         "portfolio_value_source": portfolio_value_source,
         "position_count": int(position_count),
         "evidence_status": evidence_status,
-        "capabilities": [
-            "opportunity_quality",
-            "portfolio_allocations",
-            "strategy_kpis",
-            "watchlist",
-        ],
+        "capabilities": ["opportunity_quality", "portfolio_allocations", "strategy_kpis", "watchlist"],
         "artifacts": available_count,
         "source_artifacts": source_artifacts,
         "warnings": warnings,
@@ -153,23 +166,21 @@ def validate_enterprise_strategy_kpis(payload: Mapping[str, Any]) -> tuple[str, 
     errors: list[str] = []
     if payload.get("strategy_id") != STRATEGY_ID:
         errors.append("strategy_id must be SWING-001")
+    if payload.get("allocation_source") != "STRATEGY_ALLOCATIONS":
+        errors.append("allocation_source must be STRATEGY_ALLOCATIONS")
     if payload.get("evidence_status") not in {"AVAILABLE", "REGISTRY_ONLY"}:
         errors.append("unsupported evidence_status")
     for field in ("allocated_capital", "portfolio_value"):
         if _finite_nonnegative(payload.get(field)) is None:
             errors.append(f"{field} must be finite and nonnegative")
+    if payload.get("portfolio_value_source") == "PAPER_ALLOCATION_PROXY" and payload.get("portfolio_value") != payload.get("allocated_capital"):
+        errors.append("PAPER_ALLOCATION_PROXY must equal allocated_capital")
     if not isinstance(payload.get("position_count"), int) or payload.get("position_count", -1) < 0:
         errors.append("position_count must be a nonnegative integer")
-    for field in (
-        "paper_trade_mode", "paper_compatible", "advisory_only", "reporting_only",
-        "governance_review_required",
-    ):
+    for field in ("paper_trade_mode", "paper_compatible", "advisory_only", "reporting_only", "governance_review_required"):
         if payload.get(field) is not True:
             errors.append(f"{field} must be true")
-    for field in (
-        "live_trading_enabled", "broker_execution_enabled", "capital_movement_enabled",
-        "order_placement_enabled", "automatic_activation_allowed", "direct_database_writes",
-    ):
+    for field in ("live_trading_enabled", "broker_execution_enabled", "capital_movement_enabled", "order_placement_enabled", "automatic_activation_allowed", "direct_database_writes"):
         if payload.get(field) is not False:
             errors.append(f"{field} must be false")
     return tuple(errors)
@@ -191,7 +202,15 @@ def build_and_write_enterprise_strategy_kpis(
     results_dir: str | Path = "results",
     output_path: str | Path = "results/enterprise_strategy_kpis.json",
     *,
-    allocated_capital: float = DEFAULT_ALLOCATED_CAPITAL,
+    strategy_allocations_path: str | Path = DEFAULT_STRATEGY_ALLOCATIONS_PATH,
 ) -> Path:
-    payload = build_enterprise_strategy_kpis(results_dir, allocated_capital=allocated_capital)
+    allocation_path = Path(strategy_allocations_path)
+    strategy_allocations = _load_json(allocation_path)
+    if strategy_allocations is None:
+        raise FileNotFoundError(f"Strategy allocation evidence not found: {allocation_path}")
+    payload = build_enterprise_strategy_kpis(
+        results_dir,
+        strategy_allocations=strategy_allocations,
+        strategy_allocations_source=allocation_path,
+    )
     return write_enterprise_strategy_kpis(payload, output_path)
