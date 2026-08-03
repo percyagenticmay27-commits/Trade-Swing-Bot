@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from swing_trade_bot.enterprise_strategy_kpi_publisher_v21 import (
-    build_and_write_enterprise_strategy_kpis_v21,
+    _load_json,
+    build_enterprise_strategy_kpis_v21,
+    write_enterprise_strategy_kpis_v21,
 )
 
 
@@ -18,11 +21,20 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    output = build_and_write_enterprise_strategy_kpis_v21(
+    allocation_path = Path(args.strategy_allocations_file)
+    allocations = _load_json(allocation_path)
+    if allocations is None:
+        raise FileNotFoundError(f"Strategy allocation evidence not found: {allocation_path}")
+
+    payload = build_enterprise_strategy_kpis_v21(
         args.results_dir,
-        args.output,
-        strategy_allocations_path=args.strategy_allocations_file,
+        strategy_allocations=allocations,
+        strategy_allocations_source=allocation_path,
     )
+    payload["artifact_contract"] = sorted(
+        payload["artifact_contract"], key=lambda row: row["artifact_id"]
+    )
+    output = write_enterprise_strategy_kpis_v21(payload, args.output)
     print(output)
     return 0
 
