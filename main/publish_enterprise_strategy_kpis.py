@@ -1,4 +1,4 @@
-"""Publish Swing paper-strategy KPI evidence for the existing AI CIO host."""
+"""Publish Swing paper-strategy KPI v2 evidence for the existing AI CIO host."""
 from __future__ import annotations
 
 import argparse
@@ -31,12 +31,22 @@ def main() -> int:
     print(json.dumps({
         "output": str(output),
         "strategy_id": payload["strategy_id"],
+        "kpi_contract_version": payload["kpi_contract_version"],
         "evidence_status": payload["evidence_status"],
         "allocated_capital": payload["allocated_capital"],
-        "allocation_source": payload["allocation_source"],
         "portfolio_value": payload["portfolio_value"],
         "portfolio_value_source": payload["portfolio_value_source"],
+        "cash_balance": payload["cash_balance"],
+        "invested_capital": payload["invested_capital"],
         "position_count": payload["position_count"],
+        "trade_count": payload["trade_count"],
+        "closed_trade_count": payload["closed_trade_count"],
+        "win_rate_percent": payload["win_rate_percent"],
+        "opportunity_quality": payload["opportunity_quality"],
+        "watchlist_count": payload["watchlist_count"],
+        "capabilities": payload["capabilities"],
+        "artifacts": payload["artifacts"],
+        "warnings": payload["warnings"],
     }, indent=2))
     return 0
 
