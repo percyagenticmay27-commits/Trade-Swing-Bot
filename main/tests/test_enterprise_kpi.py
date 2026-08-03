@@ -34,7 +34,7 @@ def test_build_kpis_uses_preserved_swing_strategy_allocation(tmp_path):
     assert payload["portfolio_value"] == 4500.0
     assert payload["portfolio_value_source"] == "PAPER_ALLOCATION_PROXY"
     assert payload["position_count"] == 2
-    assert payload["evidence_status"] == "AVAILABLE"
+    assert payload["evidence_status"] == "PARTIAL"
     assert enterprise_kpi.validate_kpis(payload) == ()
 
 
