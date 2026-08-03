@@ -26,6 +26,7 @@ ALLOWED_REPORT_FILENAMES = {
     "weekly_stock_report.json",
     "market_data_refresh_status.json",
     "swing_daily_cycle_report.json",
+    "enterprise_strategy_kpis.json",
 }
 
 
@@ -76,11 +77,15 @@ def test_builder_produces_registry_v2_metadata():
     assert validate_strategy_service_registration(registration).valid
 
 
-def test_capability_names_are_deterministic_and_unique():
-    capabilities = load_registration()["capabilities"]
+def test_capability_names_are_deterministic_unique_and_host_compatible():
+    registration = load_registration()
+    capabilities = registration["capabilities"]
+    artifact_types = [item["artifact_type"].lower() for item in registration["dashboard_artifacts"]]
     assert capabilities == sorted(capabilities)
     assert len(capabilities) == len(set(capabilities))
     assert tuple(capabilities) == CAPABILITIES
+    assert set(artifact_types) <= set(capabilities)
+    assert all(item == item.lower() for item in capabilities)
 
 
 def test_artifact_ids_are_unique():
@@ -109,6 +114,14 @@ def test_only_authoritative_swing_report_filenames_are_declared():
     }
     assert declared == ALLOWED_REPORT_FILENAMES
     assert declared == {PurePosixPath(item["path"]).name for item in DASHBOARD_ARTIFACTS}
+
+
+def test_strategy_kpi_artifact_is_declared_for_dashboard_evidence():
+    registration = load_registration()
+    artifact = next(item for item in registration["dashboard_artifacts"] if item["artifact_type"] == "strategy_kpis")
+    assert artifact["path"].endswith("/results/enterprise_strategy_kpis.json")
+    assert artifact["required"] is False
+    assert "strategy_kpis" in registration["capabilities"]
 
 
 def test_all_runtime_report_artifacts_are_optional():
@@ -163,6 +176,14 @@ def test_duplicate_artifact_id_is_rejected():
     duplicate = copy.deepcopy(registration["dashboard_artifacts"][0])
     registration["dashboard_artifacts"].append(duplicate)
     assert not validate_strategy_service_registration(registration).valid
+
+
+def test_artifact_without_matching_capability_is_rejected():
+    registration = load_registration()
+    registration["dashboard_artifacts"][0]["artifact_type"] = "unknown_artifact"
+    result = validate_strategy_service_registration(registration)
+    assert not result.valid
+    assert any("no matching enabled capability" in error for error in result.errors)
 
 
 def test_relative_artifact_path_is_rejected():
