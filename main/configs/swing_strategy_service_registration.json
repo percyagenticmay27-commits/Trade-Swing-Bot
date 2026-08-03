@@ -31,117 +31,31 @@
   "database_owner": "AI_CIO_PLATFORM",
   "direct_database_writes": false,
   "capabilities": [
-    "DAILY_CYCLE_STATUS",
-    "EXECUTIVE_DASHBOARD_REPORTING",
-    "MARKET_DATA_REFRESH_STATUS",
-    "MONTHLY_COMMAND_CENTER_REPORTING",
-    "OPPORTUNITY_QUALITY_REPORTING",
-    "PORTFOLIO_ALLOCATION_REPORTING",
-    "PORTFOLIO_RISK_REPORTING",
-    "POSITION_LIFECYCLE_REPORTING",
-    "STOCK_PERFORMANCE_REPORTING",
-    "WATCHLIST_REPORTING",
-    "WEEKLY_STOCK_REPORTING"
+    "daily_cycle_status",
+    "executive_dashboard",
+    "market_data_status",
+    "monthly_command_center",
+    "opportunity_quality",
+    "portfolio_allocations",
+    "portfolio_risk",
+    "position_lifecycle",
+    "stock_performance",
+    "strategy_kpis",
+    "watchlist",
+    "weekly_stock_report"
   ],
   "dashboard_artifacts": [
-    {
-      "artifact_id": "opportunity_quality",
-      "artifact_type": "OPPORTUNITY_QUALITY",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/opportunity_quality_report.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "executive_dashboard",
-      "artifact_type": "EXECUTIVE_DASHBOARD",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/executive_dashboard.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "monthly_command_center",
-      "artifact_type": "MONTHLY_COMMAND_CENTER",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/monthly_command_center.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "portfolio_allocations",
-      "artifact_type": "PORTFOLIO_ALLOCATIONS",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/portfolio_allocations.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "portfolio_risk",
-      "artifact_type": "PORTFOLIO_RISK",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/portfolio_risk.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "position_lifecycle",
-      "artifact_type": "POSITION_LIFECYCLE",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/position_lifecycle.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "watchlist_report",
-      "artifact_type": "WATCHLIST",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/watchlist_report.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "stock_performance_report",
-      "artifact_type": "STOCK_PERFORMANCE",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/stock_performance_report.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "weekly_stock_report",
-      "artifact_type": "WEEKLY_STOCK_REPORT",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/weekly_stock_report.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "market_data_refresh_status",
-      "artifact_type": "MARKET_DATA_STATUS",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/market_data_refresh_status.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    },
-    {
-      "artifact_id": "swing_daily_cycle_report",
-      "artifact_type": "DAILY_CYCLE_STATUS",
-      "path": "/home/tradebot/Trade-Swing-Bot/main/results/swing_daily_cycle_report.json",
-      "format": "json",
-      "scope": "STRATEGY",
-      "authoritative": true,
-      "required": false
-    }
+    {"artifact_id":"daily_cycle_status","artifact_type":"daily_cycle_status","path":"/home/tradebot/Trade-Swing-Bot/main/results/swing_daily_cycle_report.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"executive_dashboard","artifact_type":"executive_dashboard","path":"/home/tradebot/Trade-Swing-Bot/main/results/executive_dashboard.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"market_data_status","artifact_type":"market_data_status","path":"/home/tradebot/Trade-Swing-Bot/main/results/market_data_refresh_status.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"monthly_command_center","artifact_type":"monthly_command_center","path":"/home/tradebot/Trade-Swing-Bot/main/results/monthly_command_center.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"opportunity_quality","artifact_type":"opportunity_quality","path":"/home/tradebot/Trade-Swing-Bot/main/results/opportunity_quality_report.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"portfolio_allocations","artifact_type":"portfolio_allocations","path":"/home/tradebot/Trade-Swing-Bot/main/results/portfolio_allocations.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"portfolio_risk","artifact_type":"portfolio_risk","path":"/home/tradebot/Trade-Swing-Bot/main/results/portfolio_risk.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"position_lifecycle","artifact_type":"position_lifecycle","path":"/home/tradebot/Trade-Swing-Bot/main/results/position_lifecycle.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"stock_performance","artifact_type":"stock_performance","path":"/home/tradebot/Trade-Swing-Bot/main/results/stock_performance_report.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"strategy_kpis","artifact_type":"strategy_kpis","path":"/home/tradebot/Trade-Swing-Bot/main/results/enterprise_strategy_kpis.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"watchlist","artifact_type":"watchlist","path":"/home/tradebot/Trade-Swing-Bot/main/results/watchlist_report.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false},
+    {"artifact_id":"weekly_stock_report","artifact_type":"weekly_stock_report","path":"/home/tradebot/Trade-Swing-Bot/main/results/weekly_stock_report.json","format":"json","scope":"STRATEGY","authoritative":true,"required":false}
   ]
 }
