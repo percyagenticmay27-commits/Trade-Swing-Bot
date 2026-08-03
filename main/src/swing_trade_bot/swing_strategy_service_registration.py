@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 MODULE_NAME = "swing_strategy_service_registration"
-MODULE_VERSION = "2.0.1"
+MODULE_VERSION = "2.1.0"
 SCHEMA_VERSION = "1.0"
 PLUGIN_CONTRACT_VERSION = "2.0"
 DEPLOYMENT_ROOT = "/home/tradebot/Trade-Swing-Bot/main"
@@ -20,18 +20,21 @@ DEFAULT_MANIFEST_PATH = f"{DEPLOYMENT_ROOT}/configs/swing_cio_plugin_manifest.js
 DEFAULT_PRESENTATION_PATH = f"{DEPLOYMENT_ROOT}/results/swing_cio_presentation.json"
 ELIGIBLE_STATUSES = {"ONLINE", "ENABLED", "AVAILABLE", "HEALTHY", "READY"}
 
+# Enterprise Registry v2 matches normalized artifact_type values to enabled
+# capability names. Keep these identifiers lowercase, sorted, and exact.
 CAPABILITIES: tuple[str, ...] = (
-    "DAILY_CYCLE_STATUS",
-    "EXECUTIVE_DASHBOARD_REPORTING",
-    "MARKET_DATA_REFRESH_STATUS",
-    "MONTHLY_COMMAND_CENTER_REPORTING",
-    "OPPORTUNITY_QUALITY_REPORTING",
-    "PORTFOLIO_ALLOCATION_REPORTING",
-    "PORTFOLIO_RISK_REPORTING",
-    "POSITION_LIFECYCLE_REPORTING",
-    "STOCK_PERFORMANCE_REPORTING",
-    "WATCHLIST_REPORTING",
-    "WEEKLY_STOCK_REPORTING",
+    "daily_cycle_status",
+    "executive_dashboard",
+    "market_data_status",
+    "monthly_command_center",
+    "opportunity_quality",
+    "portfolio_allocations",
+    "portfolio_risk",
+    "position_lifecycle",
+    "stock_performance",
+    "strategy_kpis",
+    "watchlist",
+    "weekly_stock_report",
 )
 
 
@@ -48,17 +51,18 @@ def _artifact(artifact_id: str, artifact_type: str, filename: str) -> dict[str, 
 
 
 DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
-    _artifact("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality_report.json"),
-    _artifact("executive_dashboard", "EXECUTIVE_DASHBOARD", "executive_dashboard.json"),
-    _artifact("monthly_command_center", "MONTHLY_COMMAND_CENTER", "monthly_command_center.json"),
-    _artifact("portfolio_allocations", "PORTFOLIO_ALLOCATIONS", "portfolio_allocations.json"),
-    _artifact("portfolio_risk", "PORTFOLIO_RISK", "portfolio_risk.json"),
-    _artifact("position_lifecycle", "POSITION_LIFECYCLE", "position_lifecycle.json"),
-    _artifact("watchlist_report", "WATCHLIST", "watchlist_report.json"),
-    _artifact("stock_performance_report", "STOCK_PERFORMANCE", "stock_performance_report.json"),
-    _artifact("weekly_stock_report", "WEEKLY_STOCK_REPORT", "weekly_stock_report.json"),
-    _artifact("market_data_refresh_status", "MARKET_DATA_STATUS", "market_data_refresh_status.json"),
-    _artifact("swing_daily_cycle_report", "DAILY_CYCLE_STATUS", "swing_daily_cycle_report.json"),
+    _artifact("daily_cycle_status", "daily_cycle_status", "swing_daily_cycle_report.json"),
+    _artifact("executive_dashboard", "executive_dashboard", "executive_dashboard.json"),
+    _artifact("market_data_status", "market_data_status", "market_data_refresh_status.json"),
+    _artifact("monthly_command_center", "monthly_command_center", "monthly_command_center.json"),
+    _artifact("opportunity_quality", "opportunity_quality", "opportunity_quality_report.json"),
+    _artifact("portfolio_allocations", "portfolio_allocations", "portfolio_allocations.json"),
+    _artifact("portfolio_risk", "portfolio_risk", "portfolio_risk.json"),
+    _artifact("position_lifecycle", "position_lifecycle", "position_lifecycle.json"),
+    _artifact("stock_performance", "stock_performance", "stock_performance_report.json"),
+    _artifact("strategy_kpis", "strategy_kpis", "enterprise_strategy_kpis.json"),
+    _artifact("watchlist", "watchlist", "watchlist_report.json"),
+    _artifact("weekly_stock_report", "weekly_stock_report", "weekly_stock_report.json"),
 )
 
 
@@ -155,10 +159,11 @@ def _validate_absolute_swing_path(value: object, field: str, errors: list[str]) 
         errors.append(f"{field} must be rooted under {DEPLOYMENT_ROOT}")
 
 
-def _validate_artifacts(value: object, errors: list[str]) -> None:
+def _validate_artifacts(value: object, capabilities: object, errors: list[str]) -> None:
     if not isinstance(value, list) or not value:
         errors.append("dashboard_artifacts must be a non-empty list")
         return
+    capability_set = set(capabilities) if isinstance(capabilities, list) else set()
     ids: list[str] = []
     for index, artifact in enumerate(value):
         if not isinstance(artifact, Mapping):
@@ -168,7 +173,10 @@ def _validate_artifacts(value: object, errors: list[str]) -> None:
             if field not in artifact:
                 errors.append(f"dashboard_artifacts[{index}] missing {field}")
         artifact_id = str(artifact.get("artifact_id") or "")
+        artifact_type = str(artifact.get("artifact_type") or "").strip().lower()
         ids.append(artifact_id)
+        if artifact_type not in capability_set:
+            errors.append(f"artifact type has no matching enabled capability: {artifact_type}")
         path = str(artifact.get("path") or "")
         if not PurePosixPath(path).is_absolute():
             errors.append(f"artifact path must be absolute: {path}")
@@ -219,7 +227,7 @@ def validate_strategy_service_registration(registration: Mapping[str, Any]) -> R
     _validate_absolute_swing_path(registration.get("manifest_path"), "manifest_path", errors)
     _validate_absolute_swing_path(registration.get("presentation_path"), "presentation_path", errors)
     _validate_capabilities(registration.get("capabilities"), errors)
-    _validate_artifacts(registration.get("dashboard_artifacts"), errors)
+    _validate_artifacts(registration.get("dashboard_artifacts"), registration.get("capabilities"), errors)
     if str(registration.get("health", "")).upper() not in {"HEALTHY", "READY", "OK", "WARNING", "UNKNOWN"}:
         warnings.append(f"Unrecognized health value: {registration.get('health')}")
     return RegistrationValidationResult(not errors, tuple(errors), tuple(warnings))
