@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from swing_trade_bot.daily_swing_email import send_daily_swing_email
+from swing_trade_bot.daily_swing_email_v2 import send_daily_swing_email
 
 
 def build_parser() -> argparse.ArgumentParser:
