@@ -1,8 +1,9 @@
 """Paper-only portfolio valuation built from the persistent execution ledger.
 
 This module owns no market-data fetching and performs no broker operations. It
-reads open paper positions plus completed local daily CSV bars, marks the
-positions to market, and atomically publishes authoritative portfolio evidence.
+reads open paper positions plus completed local daily CSV bars, validates that
+those bars are fresh, applies split normalization when adjusted-close evidence
+requires it, and atomically publishes authoritative portfolio evidence.
 """
 from __future__ import annotations
 
@@ -22,7 +23,8 @@ BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 DIRECT_DATABASE_WRITES = False
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
+DEFAULT_MAX_PRICE_AGE_DAYS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +41,8 @@ class ValuedPaperPosition:
     unrealized_pnl_percent: float
     allocation_percent: float
     active_strategy: str
+    split_adjustment_factor: float = 1.0
+    price_source: str = "ADJ_CLOSE"
     status: str = "OPEN"
 
 
@@ -56,7 +60,7 @@ class PaperPortfolioReport:
     positions: tuple[ValuedPaperPosition, ...]
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
-    valuation_source: str = "PAPER_LEDGER_MARK_TO_MARKET"
+    valuation_source: str = "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
     paper_trade_mode: bool = True
     live_trading_enabled: bool = False
     broker_execution_enabled: bool = False
@@ -72,10 +76,13 @@ def build_paper_portfolio_report(
     data_dir: Path,
     account_capital: float,
     as_of: date | None = None,
+    max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
 ) -> PaperPortfolioReport:
-    """Mark every open paper position to the latest completed local Close."""
+    """Mark open paper positions to fresh, split-adjusted completed closes."""
     if not math.isfinite(account_capital) or account_capital <= 0:
         raise ValueError("account_capital must be finite and positive")
+    if max_price_age_days < 0:
+        raise ValueError("max_price_age_days must be nonnegative")
 
     source = _load_json(ledger_dir / "open_positions.json")
     rows = source.get("positions")
@@ -92,17 +99,38 @@ def build_paper_portfolio_report(
         symbol = str(row.get("symbol", "")).strip().upper()
         if not symbol:
             raise ValueError("open position symbol is required")
-        shares = _positive(row.get("shares"), f"{symbol}.shares")
-        entry_price = _positive(row.get("entry_price"), f"{symbol}.entry_price")
+        original_shares = _positive(row.get("shares"), f"{symbol}.shares")
+        original_entry_price = _positive(row.get("entry_price"), f"{symbol}.entry_price")
         cost_basis = _nonnegative(row.get("cost_basis"), f"{symbol}.cost_basis")
-        price_date, current_price = _latest_completed_close(data_dir / f"{symbol}.csv", valuation_date)
+        entry_date = _parse_date(row.get("entry_date"), f"{symbol}.entry_date")
+
+        price_date, current_price, split_factor, price_source = _latest_completed_adjusted_close(
+            data_dir / f"{symbol}.csv",
+            valuation_date,
+            entry_date=entry_date,
+            max_price_age_days=max_price_age_days,
+        )
+
+        shares = round(original_shares * split_factor, 12)
+        entry_price = round(original_entry_price / split_factor, 12)
+        normalized_cost_basis = round(shares * entry_price, 2)
+        if abs(normalized_cost_basis - cost_basis) > 0.02:
+            raise ValueError(
+                f"{symbol} split normalization does not preserve cost basis: "
+                f"stored={cost_basis}, normalized={normalized_cost_basis}"
+            )
+        if split_factor != 1.0:
+            warnings.append(
+                f"{symbol} position normalized for corporate action factor {split_factor:g}"
+            )
+
         market_value = round(shares * current_price, 2)
         unrealized = round(market_value - cost_basis, 2)
         unrealized_percent = round((unrealized / cost_basis) * 100.0, 6) if cost_basis else 0.0
         valued.append(
             ValuedPaperPosition(
                 symbol=symbol,
-                entry_date=str(row.get("entry_date", "")),
+                entry_date=entry_date.isoformat(),
                 entry_price=entry_price,
                 shares=shares,
                 cost_basis=cost_basis,
@@ -113,6 +141,8 @@ def build_paper_portfolio_report(
                 unrealized_pnl_percent=unrealized_percent,
                 allocation_percent=_nonnegative(row.get("allocation_percent", 0.0), f"{symbol}.allocation_percent"),
                 active_strategy=str(row.get("active_strategy", "Strategy A")),
+                split_adjustment_factor=split_factor,
+                price_source=price_source,
                 status="OPEN",
             )
         )
@@ -170,21 +200,29 @@ def build_and_write_paper_portfolio_report(
     output_dir: Path | None = None,
     account_capital: float,
     as_of: date | None = None,
+    max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
 ) -> PaperPortfolioReport:
     report = build_paper_portfolio_report(
         ledger_dir=ledger_dir,
         data_dir=data_dir,
         account_capital=account_capital,
         as_of=as_of,
+        max_price_age_days=max_price_age_days,
     )
     write_paper_portfolio_outputs(output_dir or ledger_dir, report)
     return report
 
 
-def _latest_completed_close(path: Path, as_of: date) -> tuple[date, float]:
+def _latest_completed_adjusted_close(
+    path: Path,
+    as_of: date,
+    *,
+    entry_date: date,
+    max_price_age_days: int,
+) -> tuple[date, float, float, str]:
     if not path.exists():
         raise FileNotFoundError(f"market data missing: {path}")
-    latest: tuple[date, float] | None = None
+    rows: list[tuple[date, float, float | None]] = []
     with path.open(newline="", encoding="utf-8-sig") as source:
         reader = csv.DictReader(source)
         if not reader.fieldnames:
@@ -192,14 +230,56 @@ def _latest_completed_close(path: Path, as_of: date) -> tuple[date, float]:
         names = {name.strip().lower().replace("_", " "): name for name in reader.fieldnames}
         if "date" not in names or "close" not in names:
             raise ValueError(f"market data must contain Date and Close: {path}")
+        adj_name = names.get("adj close")
+        seen: dict[date, tuple[float, float | None]] = {}
         for row in reader:
-            bar_date = date.fromisoformat(str(row[names["date"]]).strip())
+            bar_date = date.fromisoformat(str(row[names["date"]]).strip()[:10])
             close = _positive(row[names["close"]], f"{path.name}.{bar_date}.Close")
-            if bar_date <= as_of and (latest is None or bar_date > latest[0]):
-                latest = (bar_date, close)
-    if latest is None:
+            adjusted = None
+            if adj_name and str(row.get(adj_name, "")).strip() != "":
+                adjusted = _positive(row[adj_name], f"{path.name}.{bar_date}.Adj Close")
+            current = (close, adjusted)
+            if bar_date in seen and seen[bar_date] != current:
+                raise ValueError(f"conflicting duplicate market-data date: {path}:{bar_date}")
+            seen[bar_date] = current
+        rows = [(day, values[0], values[1]) for day, values in sorted(seen.items()) if day <= as_of]
+
+    if not rows:
         raise ValueError(f"no completed bars available: {path}")
-    return latest
+    latest_date, latest_close, latest_adjusted = rows[-1]
+    age_days = (as_of - latest_date).days
+    if age_days > max_price_age_days:
+        raise ValueError(
+            f"stale market data for {path.stem}: latest={latest_date}, as_of={as_of}, age_days={age_days}"
+        )
+
+    current_price = latest_adjusted if latest_adjusted is not None else latest_close
+    price_source = "ADJ_CLOSE" if latest_adjusted is not None else "CLOSE"
+
+    entry_candidates = [row for row in rows if row[0] <= entry_date]
+    if not entry_candidates:
+        raise ValueError(f"no market-data bar on or before entry date for {path.stem}: {entry_date}")
+    _, entry_close, entry_adjusted = entry_candidates[-1]
+    split_factor = 1.0
+    if entry_adjusted is not None:
+        ratio = entry_close / entry_adjusted
+        nearest = round(ratio)
+        if nearest >= 1 and math.isclose(ratio, nearest, rel_tol=0.0, abs_tol=0.02):
+            split_factor = float(nearest)
+        elif math.isclose(ratio, 1.0, rel_tol=0.0, abs_tol=0.02):
+            split_factor = 1.0
+        else:
+            raise ValueError(
+                f"unsupported corporate-action adjustment ratio for {path.stem}: {ratio:.8f}"
+            )
+    return latest_date, round(current_price, 12), split_factor, price_source
+
+
+def _parse_date(value: Any, field: str) -> date:
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except ValueError as exc:
+        raise ValueError(f"{field} must be ISO date") from exc
 
 
 def _positive(value: Any, field: str) -> float:
