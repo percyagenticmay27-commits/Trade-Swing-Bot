@@ -25,7 +25,7 @@ class StubClient:
 
 def _ledger(tmp_path: Path) -> Path:
     ledger = tmp_path / "ledger"
-    ledger.mkdir()
+    ledger.mkdir(parents=True, exist_ok=True)
     (ledger / "open_positions.json").write_text(json.dumps({"positions": [
         {"symbol": "SOXL", "entry_date": "2026-06-22", "entry_price": 100.0, "shares": 10.0, "cost_basis": 1000.0, "allocation_percent": 22.2222, "active_strategy": "Strategy A"},
         {"symbol": "TQQQ", "entry_date": "2026-06-22", "entry_price": 50.0, "shares": 10.0, "cost_basis": 500.0, "allocation_percent": 11.1111, "active_strategy": "Strategy A"},
