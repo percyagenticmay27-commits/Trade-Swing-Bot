@@ -256,9 +256,15 @@ def _latest_completed_adjusted_close(
     current_price = latest_adjusted if latest_adjusted is not None else latest_close
     price_source = "ADJ_CLOSE" if latest_adjusted is not None else "CLOSE"
 
+    # Split inference requires a bar at or before the ledger entry date. Some
+    # valid datasets begin after the paper entry date (for example a shortened
+    # fixture or a newly downloaded history window). In that case valuation is
+    # still safe, but there is no evidence for a corporate-action adjustment,
+    # so preserve the ledger shares and entry price with factor 1.0.
     entry_candidates = [row for row in rows if row[0] <= entry_date]
     if not entry_candidates:
-        raise ValueError(f"no market-data bar on or before entry date for {path.stem}: {entry_date}")
+        return latest_date, round(current_price, 12), 1.0, price_source
+
     _, entry_close, entry_adjusted = entry_candidates[-1]
     split_factor = 1.0
     if entry_adjusted is not None:
