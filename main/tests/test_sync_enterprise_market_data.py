@@ -100,7 +100,7 @@ def test_latest_bar_must_match_status_evidence(tmp_path):
     status = results / "enterprise_market_data_status.json"
     _write_json(contract, _contract())
     _write_json(status, _status(latest="2026-08-04"))
-    _write_csv(results / "enterprise_market_data_history" / "SOXL.csv", latest="2026-08-01")
+    _write_csv(results / "enterprise_market_data_history" / "SOXL.csv", latest="2026-08-02")
     _write_csv(results / "enterprise_market_data_history" / "TQQQ.csv")
 
     with pytest.raises(MarketDataUnavailable, match="latest bar does not match"):
