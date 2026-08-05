@@ -17,11 +17,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
-from swing_trade_bot.enterprise_market_data_client import (
-    CONTRACT_VERSION,
-    EnterpriseMarketDataClient,
-    MarketDataUnavailable,
-)
+from swing_trade_bot.enterprise_market_data_client import CONTRACT_VERSION, MarketDataUnavailable
 from swing_trade_bot.enterprise_paper_portfolio_manager import write_blocked_state
 
 
@@ -69,10 +65,24 @@ def _history_payload(record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return record if "latest_bar_date" in record else None
 
 
-def _export_source(contract_path: Path, contract: Mapping[str, Any], symbol: str) -> Path:
+def _history_exports(contract: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the declared export contract without requiring a legacy flag.
+
+    Version 1.0 deployments may declare an export through directory/pattern
+    fields and omit ``enabled``. An explicit ``enabled: false`` still disables
+    the export. This is contract compatibility only; it does not relax any
+    history freshness or validation rule.
+    """
     exports = contract.get("history_exports")
-    if not isinstance(exports, Mapping) or not bool(exports.get("enabled", False)):
+    if not isinstance(exports, Mapping):
+        raise MarketDataUnavailable("Enterprise history exports are not declared")
+    if "enabled" in exports and exports.get("enabled") is not True:
         raise MarketDataUnavailable("Enterprise history exports are not enabled")
+    return exports
+
+
+def _export_source(contract_path: Path, contract: Mapping[str, Any], symbol: str) -> Path:
+    exports = _history_exports(contract)
     directory = str(exports.get("directory", "")).strip()
     pattern = str(exports.get("csv_pattern", "{symbol}.csv")).strip()
     if not directory or not pattern:
@@ -81,6 +91,7 @@ def _export_source(contract_path: Path, contract: Mapping[str, Any], symbol: str
         filename = pattern.format(symbol=symbol.upper())
     except (KeyError, ValueError) as exc:
         raise MarketDataUnavailable("Enterprise history csv_pattern is invalid") from exc
+
     root = contract_path.parent.resolve()
     export_dir = Path(directory)
     if not export_dir.is_absolute():
@@ -88,6 +99,7 @@ def _export_source(contract_path: Path, contract: Mapping[str, Any], symbol: str
     export_dir = export_dir.resolve()
     if root != export_dir and root not in export_dir.parents:
         raise MarketDataUnavailable("Enterprise history export directory escapes the evidence root")
+
     source = (export_dir / filename).resolve()
     if export_dir != source.parent:
         raise MarketDataUnavailable("Enterprise history export filename escapes the export directory")
@@ -105,6 +117,7 @@ def _validate_export(path: Path, symbol: str, expected_latest: str) -> None:
         required = ("date", "open", "high", "low", "close", "volume")
         if any(field not in names for field in required):
             raise MarketDataUnavailable(f"{symbol} Enterprise history export is missing required columns")
+
         previous: date | None = None
         latest = ""
         count = 0
@@ -127,6 +140,7 @@ def _validate_export(path: Path, symbol: str, expected_latest: str) -> None:
             previous = bar_date
             latest = bar_date.isoformat()
             count += 1
+
     if count == 0:
         raise MarketDataUnavailable(f"{symbol} Enterprise history export contains no bars")
     if not expected_latest or latest != expected_latest:
@@ -138,10 +152,7 @@ def _atomic_copy(source: Path, destination: Path) -> Path:
     fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
     try:
         with source.open("rb") as src, os.fdopen(fd, "wb") as dst:
-            while True:
-                chunk = src.read(1024 * 1024)
-                if not chunk:
-                    break
+            while chunk := src.read(1024 * 1024):
                 dst.write(chunk)
             dst.flush()
             os.fsync(dst.fileno())
@@ -168,6 +179,7 @@ def sync_exported_history(
     version = str(contract.get("contract_version") or contract.get("schema_version") or contract.get("version") or "")
     if version != CONTRACT_VERSION:
         raise MarketDataUnavailable(f"Enterprise market-data contract version {version or 'MISSING'} is unsupported")
+
     status = _read_object(status_path)
     strategy = _find_strategy(status, strategy_id)
     strategy_status = str(strategy.get("status", "")).upper()
@@ -189,6 +201,7 @@ def sync_exported_history(
                 raise MarketDataUnavailable(message)
             warnings.append(message)
             return
+
         latest = str(payload.get("latest_bar_date", "")).strip()
         source = _export_source(contract_path, contract, target)
         try:
@@ -228,14 +241,14 @@ def main() -> int:
     parser.add_argument("--optional-symbol", action="append", default=[])
     args = parser.parse_args()
     try:
-        status = sync_exported_history(
+        result = sync_exported_history(
             contract_path=Path(args.contract_path),
             status_path=Path(args.status_path),
             output_dir=Path(args.output_dir),
             required_symbols=args.required_symbol,
             optional_symbols=args.optional_symbol,
         )
-        print(json.dumps(status, indent=2, sort_keys=True))
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except MarketDataUnavailable as exc:
         path = write_blocked_state(Path("results/paper_ledger"), exc)
