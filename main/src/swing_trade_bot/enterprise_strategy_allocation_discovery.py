@@ -47,13 +47,13 @@ def _finite_nonnegative(value: object) -> float | None:
     return number
 
 
-def _allocation_from_record(
+def _allocation_field_from_record(
     record: Mapping[str, Any],
     *,
     strategy_id: str,
     allocation_fields: Sequence[str],
     schema_path: str,
-) -> float:
+) -> tuple[float, str]:
     for field in allocation_fields:
         if field in record:
             allocated = _finite_nonnegative(record.get(field))
@@ -61,25 +61,24 @@ def _allocation_from_record(
                 raise ValueError(
                     f"{schema_path}[{strategy_id!r}].{field} must be finite and nonnegative"
                 )
-            return allocated
+            return allocated, field
     raise ValueError(
         f"{schema_path}[{strategy_id!r}] is missing a supported allocation field: "
         + ", ".join(allocation_fields)
     )
 
 
-def _allocation_from_records(
+def _matching_record(
     records: object,
     *,
     strategy_id: str,
-    allocation_fields: Sequence[str],
     schema_path: str,
-) -> float | None:
+) -> tuple[Mapping[str, Any], int] | None:
     if not isinstance(records, list):
         return None
     matches = [
-        item
-        for item in records
+        (item, index)
+        for index, item in enumerate(records)
         if isinstance(item, Mapping)
         and str(item.get("strategy_id", "")).strip() == strategy_id
     ]
@@ -87,12 +86,7 @@ def _allocation_from_records(
         raise ValueError(f"{schema_path} record for {strategy_id!r} is required")
     if len(matches) > 1:
         raise ValueError(f"{schema_path} contains duplicate {strategy_id!r} records")
-    return _allocation_from_record(
-        matches[0],
-        strategy_id=strategy_id,
-        allocation_fields=allocation_fields,
-        schema_path=schema_path,
-    )
+    return matches[0]
 
 
 def _nested_strategy_kpi_candidates(
@@ -102,14 +96,7 @@ def _nested_strategy_kpi_candidates(
     path: str = "$",
     depth: int = 0,
 ) -> list[tuple[int, str, Mapping[str, Any]]]:
-    """Find exact strategy records in nested AI CIO evidence containers.
-
-    The AI CIO evidence artifact can wrap ``strategy_kpis`` beneath repeated
-    ``strategies -> artifacts -> payload -> registry_declared_strategy_evidence``
-    structures.  We collect only exact ``strategy_id`` records and later use the
-    shallowest matching evidence, which represents the current published layer
-    rather than deeper embedded history.
-    """
+    """Find exact strategy records in nested AI CIO evidence containers."""
     matches: list[tuple[int, str, Mapping[str, Any]]] = []
     if isinstance(value, Mapping):
         strategy_kpis = value.get("strategy_kpis")
@@ -119,9 +106,7 @@ def _nested_strategy_kpi_candidates(
                     isinstance(item, Mapping)
                     and str(item.get("strategy_id", "")).strip() == strategy_id
                 ):
-                    matches.append(
-                        (depth, f"{path}.strategy_kpis[{index}]", item)
-                    )
+                    matches.append((depth, f"{path}.strategy_kpis[{index}]", item))
         for key, child in value.items():
             if key == "strategy_kpis":
                 continue
@@ -146,37 +131,111 @@ def _nested_strategy_kpi_candidates(
     return matches
 
 
-def _allocation_from_nested_ai_cio_evidence(
+def resolve_strategy_allocation_evidence(
     payload: Mapping[str, Any],
+    strategy_id: str = STRATEGY_ID,
     *,
-    strategy_id: str,
-    allocation_fields: Sequence[str],
-) -> float | None:
-    candidates = _nested_strategy_kpi_candidates(payload, strategy_id=strategy_id)
-    if not candidates:
-        return None
+    allocation_fields: Sequence[str] = ALLOCATION_FIELDS,
+) -> dict[str, Any]:
+    """Resolve allocation plus exact schema and JSON-path provenance.
 
-    shallowest_depth = min(depth for depth, _, _ in candidates)
-    shallowest = [item for item in candidates if item[0] == shallowest_depth]
-    resolved = [
-        (
-            path,
-            _allocation_from_record(
+    Resolution order is deterministic:
+    1. Direct AI CIO evidence ``payload.strategy_kpis[]``.
+    2. Shallowest nested AI CIO evidence containing ``strategy_kpis[]``.
+    3. Current registry ``strategy_plugins[]``.
+    4. Legacy ``strategy_allocations[strategy_id]``.
+    """
+    evidence_payload = payload.get("payload")
+    strategy_kpis = (
+        evidence_payload.get("strategy_kpis")
+        if isinstance(evidence_payload, Mapping)
+        else None
+    )
+    direct = _matching_record(
+        strategy_kpis,
+        strategy_id=strategy_id,
+        schema_path="payload.strategy_kpis",
+    )
+    if direct is not None:
+        record, index = direct
+        record_path = f"$.payload.strategy_kpis[{index}]"
+        allocated, field = _allocation_field_from_record(
+            record,
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path=record_path,
+        )
+        return {
+            "allocated_capital": allocated,
+            "allocation_evidence_schema": "payload.strategy_kpis",
+            "allocation_source_json_path": f"{record_path}.{field}",
+            "allocation_field": field,
+        }
+
+    candidates = _nested_strategy_kpi_candidates(payload, strategy_id=strategy_id)
+    if candidates:
+        shallowest_depth = min(depth for depth, _, _ in candidates)
+        shallowest = [item for item in candidates if item[0] == shallowest_depth]
+        resolved: list[tuple[str, float, str]] = []
+        for _, record_path, record in shallowest:
+            allocated, field = _allocation_field_from_record(
                 record,
                 strategy_id=strategy_id,
                 allocation_fields=allocation_fields,
-                schema_path=path,
-            ),
+                schema_path=record_path,
+            )
+            resolved.append((record_path, allocated, field))
+        distinct_values = {allocation for _, allocation, _ in resolved}
+        if len(distinct_values) > 1:
+            paths = ", ".join(path for path, _, _ in resolved)
+            raise ValueError(
+                f"Conflicting nested AI CIO allocation evidence for {strategy_id!r}: {paths}"
+            )
+        record_path, allocated, field = resolved[0]
+        return {
+            "allocated_capital": allocated,
+            "allocation_evidence_schema": "nested.payload.strategy_kpis",
+            "allocation_source_json_path": f"{record_path}.{field}",
+            "allocation_field": field,
+        }
+
+    plugins = _matching_record(
+        payload.get("strategy_plugins"),
+        strategy_id=strategy_id,
+        schema_path="strategy_plugins",
+    )
+    if plugins is not None:
+        record, index = plugins
+        record_path = f"$.strategy_plugins[{index}]"
+        allocated, field = _allocation_field_from_record(
+            record,
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path=record_path,
         )
-        for _, path, record in shallowest
-    ]
-    distinct_values = {allocation for _, allocation in resolved}
-    if len(distinct_values) > 1:
-        paths = ", ".join(path for path, _ in resolved)
-        raise ValueError(
-            f"Conflicting nested AI CIO allocation evidence for {strategy_id!r}: {paths}"
-        )
-    return resolved[0][1]
+        return {
+            "allocated_capital": allocated,
+            "allocation_evidence_schema": "strategy_plugins",
+            "allocation_source_json_path": f"{record_path}.{field}",
+            "allocation_field": field,
+        }
+
+    legacy = payload.get("strategy_allocations")
+    if isinstance(legacy, Mapping):
+        allocated = _finite_nonnegative(legacy.get(strategy_id))
+        if allocated is None:
+            raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
+        return {
+            "allocated_capital": allocated,
+            "allocation_evidence_schema": "strategy_allocations",
+            "allocation_source_json_path": f"$.strategy_allocations.{strategy_id}",
+            "allocation_field": strategy_id,
+        }
+
+    raise ValueError(
+        "Enterprise allocation evidence must contain direct or nested strategy_kpis, "
+        "strategy_plugins, or strategy_allocations"
+    )
 
 
 def resolve_strategy_allocation(
@@ -185,59 +244,13 @@ def resolve_strategy_allocation(
     *,
     allocation_fields: Sequence[str] = ALLOCATION_FIELDS,
 ) -> float:
-    """Resolve authoritative strategy allocation from supported Enterprise schemas.
-
-    Resolution order is deterministic:
-    1. Direct AI CIO evidence ``payload.strategy_kpis[]`` record.
-    2. Nested AI CIO evidence artifact containing ``strategy_kpis[]``.
-    3. Current registry ``strategy_plugins[]`` record.
-    4. Legacy ``strategy_allocations[strategy_id]`` mapping.
-
-    Stock-level ``portfolio_allocations.json`` data is intentionally unsupported.
-    """
-    evidence_payload = payload.get("payload")
-    strategy_kpis = (
-        evidence_payload.get("strategy_kpis")
-        if isinstance(evidence_payload, Mapping)
-        else None
-    )
-    allocated = _allocation_from_records(
-        strategy_kpis,
-        strategy_id=strategy_id,
-        allocation_fields=allocation_fields,
-        schema_path="payload.strategy_kpis",
-    )
-    if allocated is not None:
-        return allocated
-
-    allocated = _allocation_from_nested_ai_cio_evidence(
+    """Resolve the authoritative numeric strategy allocation."""
+    evidence = resolve_strategy_allocation_evidence(
         payload,
-        strategy_id=strategy_id,
+        strategy_id,
         allocation_fields=allocation_fields,
     )
-    if allocated is not None:
-        return allocated
-
-    allocated = _allocation_from_records(
-        payload.get("strategy_plugins"),
-        strategy_id=strategy_id,
-        allocation_fields=allocation_fields,
-        schema_path="strategy_plugins",
-    )
-    if allocated is not None:
-        return allocated
-
-    legacy = payload.get("strategy_allocations")
-    if isinstance(legacy, Mapping):
-        allocated = _finite_nonnegative(legacy.get(strategy_id))
-        if allocated is None:
-            raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
-        return allocated
-
-    raise ValueError(
-        "Enterprise allocation evidence must contain direct or nested strategy_kpis, "
-        "strategy_plugins, or strategy_allocations"
-    )
+    return float(evidence["allocated_capital"])
 
 
 def discover_strategy_allocations_file(
