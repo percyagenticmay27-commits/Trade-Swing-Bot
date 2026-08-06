@@ -22,7 +22,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.3"
+MODULE_VERSION = "2.1.4"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -45,6 +45,11 @@ ARTIFACT_SPECS = (
     ("closed_positions", "CLOSED_POSITIONS", "paper_ledger/closed_positions.json"),
     ("paper_performance", "PERFORMANCE_ANALYTICS", "paper_ledger/paper_performance.json"),
 )
+
+_LEGACY_ALLOCATION_VALIDATION_ERRORS = {
+    "allocation_source must identify accepted allocation evidence",
+    "allocation provenance source must match allocation_source",
+}
 
 
 def _artifact_contract(results_dir: Path) -> list[dict[str, Any]]:
@@ -181,17 +186,19 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
     provenance = payload.get("allocation_provenance")
     provenance_is_mapping = isinstance(provenance, Mapping)
 
-    # The v2 validator understands only the historical source labels. Validate
-    # the shared v2 contract through a normalized copy while preserving the
-    # exact v2.1 provenance and source values in the published payload.
+    # Reuse the v2 validator for the shared paper-only contract. Its two
+    # allocation-source checks are historical compatibility checks and are
+    # replaced below by stricter v2.1 provenance validation. This prevents the
+    # write path from rejecting valid, fully traced AI CIO evidence while all
+    # safety, portfolio, capability, and execution prohibitions remain active.
     legacy_payload = dict(payload)
     legacy_payload["kpi_contract_version"] = "2.0"
-    if provenance_is_mapping:
-        legacy_payload["allocation_source"] = "STRATEGY_ALLOCATIONS"
-        legacy_provenance = dict(provenance)
-        legacy_provenance["allocation_source"] = "STRATEGY_ALLOCATIONS"
-        legacy_payload["allocation_provenance"] = legacy_provenance
-    errors = list(validate_enterprise_strategy_kpis(legacy_payload))
+    legacy_errors = validate_enterprise_strategy_kpis(legacy_payload)
+    errors = [
+        error
+        for error in legacy_errors
+        if error not in _LEGACY_ALLOCATION_VALIDATION_ERRORS
+    ]
 
     if payload.get("strategy_id") != STRATEGY_ID:
         errors.append("strategy_id must be SWING-001")
@@ -214,6 +221,8 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
 
         provenance_source = provenance.get("allocation_source")
         payload_source = payload.get("allocation_source")
+        if not isinstance(payload_source, str) or not payload_source.strip():
+            errors.append("allocation_source must identify accepted allocation evidence")
         if not isinstance(provenance_source, str) or not provenance_source.strip():
             errors.append("allocation_provenance allocation_source is required")
         if provenance_source != payload_source:
@@ -261,7 +270,10 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
 
 
 def write_enterprise_strategy_kpis_v21(payload: Mapping[str, Any], output_path: str | Path) -> Path:
-    errors = validate_enterprise_strategy_kpis_v21(payload)
+    # Validate the exact immutable payload that will be serialized. The write
+    # path does not normalize, rewrite, or discard provenance fields.
+    output_payload = dict(payload)
+    errors = validate_enterprise_strategy_kpis_v21(output_payload)
     if errors:
         raise ValueError("Invalid Swing Enterprise KPI v2.1 evidence: " + "; ".join(errors))
     path = Path(output_path)
@@ -269,7 +281,7 @@ def write_enterprise_strategy_kpis_v21(payload: Mapping[str, Any], output_path: 
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(dict(payload), handle, indent=2, sort_keys=True)
+            json.dump(output_payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
