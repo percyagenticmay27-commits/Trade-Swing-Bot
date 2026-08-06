@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher"
-MODULE_VERSION = "2.0.0"
+MODULE_VERSION = "2.0.1"
 SCHEMA_VERSION = "2.0"
 KPI_CONTRACT_VERSION = "2.0"
 STRATEGY_ID = "SWING-001"
@@ -71,6 +71,11 @@ def _nonnegative(value: object) -> float | None:
     return number if number is not None and number >= 0 else None
 
 
+def _positive(value: object) -> float | None:
+    number = _finite(value)
+    return number if number is not None and number > 0 else None
+
+
 def _find_numeric(payload: Mapping[str, Any] | None, keys: Sequence[str], *, signed: bool = False) -> float | None:
     if not payload:
         return None
@@ -92,10 +97,40 @@ def _strategy_allocations_mapping(payload: Mapping[str, Any]) -> Mapping[str, An
 
 
 def resolve_strategy_allocation(strategy_allocations: Mapping[str, Any], strategy_id: str = STRATEGY_ID) -> float:
-    allocated = _nonnegative(_strategy_allocations_mapping(strategy_allocations).get(strategy_id))
+    allocated = _positive(_strategy_allocations_mapping(strategy_allocations).get(strategy_id))
     if allocated is None:
-        raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
+        raise ValueError(f"strategy_allocations[{strategy_id!r}] must be a positive finite number")
     return allocated
+
+
+def _resolve_allocated_capital(
+    *,
+    strategy_allocations: Mapping[str, Any] | None,
+    allocated_capital: object | None,
+) -> tuple[float, str]:
+    registry_value = (
+        resolve_strategy_allocation(strategy_allocations)
+        if strategy_allocations is not None
+        else None
+    )
+    legacy_value = _positive(allocated_capital) if allocated_capital is not None else None
+    if allocated_capital is not None and legacy_value is None:
+        raise ValueError("allocated_capital must be a positive finite number")
+    if registry_value is None and legacy_value is None:
+        raise ValueError(
+            "SWING-001 allocation evidence is required via "
+            "strategy_allocations or allocated_capital"
+        )
+    if registry_value is not None and legacy_value is not None:
+        if abs(registry_value - legacy_value) > 0.01:
+            raise ValueError(
+                "Conflicting SWING-001 allocation evidence: "
+                "strategy_allocations and allocated_capital must agree"
+            )
+        return registry_value, "STRATEGY_ALLOCATIONS"
+    if registry_value is not None:
+        return registry_value, "STRATEGY_ALLOCATIONS"
+    return float(legacy_value), "ALLOCATED_CAPITAL"
 
 
 def _require_safe_source(payload: Mapping[str, Any] | None, name: str) -> None:
@@ -192,7 +227,8 @@ def _list_count(payload: Mapping[str, Any] | None, keys: Sequence[str]) -> int |
 def build_enterprise_strategy_kpis(
     results_dir: str | Path = "results",
     *,
-    strategy_allocations: Mapping[str, Any],
+    strategy_allocations: Mapping[str, Any] | None = None,
+    allocated_capital: object | None = None,
     strategy_allocations_source: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(results_dir)
@@ -210,7 +246,10 @@ def build_enterprise_strategy_kpis(
     ):
         _require_safe_source(payload, name)
 
-    allocated = resolve_strategy_allocation(strategy_allocations)
+    allocated, allocation_source = _resolve_allocated_capital(
+        strategy_allocations=strategy_allocations,
+        allocated_capital=allocated_capital,
+    )
     warnings: list[str] = []
     ledger = _validated_portfolio(portfolio, allocated)
 
@@ -279,7 +318,7 @@ def build_enterprise_strategy_kpis(
         "plugin_id": STRATEGY_ID,
         "strategy_name": "Trade Swing Bot",
         "allocated_capital": round(allocated, 2),
-        "allocation_source": "STRATEGY_ALLOCATIONS",
+        "allocation_source": allocation_source,
         "strategy_allocations_source": str(strategy_allocations_source) if strategy_allocations_source else None,
         "portfolio_value": round(float(portfolio_value), 2),
         "portfolio_value_source": portfolio_value_source,
@@ -334,8 +373,8 @@ def validate_enterprise_strategy_kpis(payload: Mapping[str, Any]) -> tuple[str, 
         errors.append("strategy_id must be SWING-001")
     if payload.get("kpi_contract_version") != KPI_CONTRACT_VERSION:
         errors.append("kpi_contract_version must be 2.0")
-    if payload.get("allocation_source") != "STRATEGY_ALLOCATIONS":
-        errors.append("allocation_source must be STRATEGY_ALLOCATIONS")
+    if payload.get("allocation_source") not in {"STRATEGY_ALLOCATIONS", "ALLOCATED_CAPITAL"}:
+        errors.append("allocation_source must identify accepted allocation evidence")
     if payload.get("evidence_status") not in {"AVAILABLE", "PARTIAL", "REGISTRY_ONLY"}:
         errors.append("unsupported evidence_status")
     for field in ("allocated_capital", "portfolio_value"):
