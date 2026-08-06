@@ -22,7 +22,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.2"
+MODULE_VERSION = "2.1.3"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -178,33 +178,46 @@ def build_enterprise_strategy_kpis_v21(
 
 
 def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    errors = list(validate_enterprise_strategy_kpis({**payload, "kpi_contract_version": "2.0"}))
+    provenance = payload.get("allocation_provenance")
+    provenance_is_mapping = isinstance(provenance, Mapping)
+
+    # The v2 validator understands only the historical source labels. Validate
+    # the shared v2 contract through a normalized copy while preserving the
+    # exact v2.1 provenance and source values in the published payload.
+    legacy_payload = dict(payload)
+    legacy_payload["kpi_contract_version"] = "2.0"
+    if provenance_is_mapping:
+        legacy_payload["allocation_source"] = "STRATEGY_ALLOCATIONS"
+        legacy_provenance = dict(provenance)
+        legacy_provenance["allocation_source"] = "STRATEGY_ALLOCATIONS"
+        legacy_payload["allocation_provenance"] = legacy_provenance
+    errors = list(validate_enterprise_strategy_kpis(legacy_payload))
 
     if payload.get("strategy_id") != STRATEGY_ID:
         errors.append("strategy_id must be SWING-001")
     if payload.get("kpi_contract_version") != KPI_CONTRACT_VERSION:
         errors.append("kpi_contract_version must be 2.1")
 
-    provenance = payload.get("allocation_provenance")
-    provenance_is_valid = isinstance(provenance, Mapping)
-    if not provenance_is_valid:
+    if not provenance_is_mapping:
         errors.append("allocation_provenance must be an object")
     else:
         required_fields = (
             "allocated_capital",
             "allocation_source",
             "allocation_evidence_schema",
+            "allocation_source_json_path",
             "allocation_field",
         )
         for field in required_fields:
-            if field not in provenance:
+            if field not in provenance or provenance.get(field) in (None, ""):
                 errors.append(f"allocation_provenance missing required field: {field}")
 
         provenance_source = provenance.get("allocation_source")
-        if provenance_source not in {"STRATEGY_ALLOCATIONS", "ALLOCATED_CAPITAL"}:
-            errors.append(
-                "allocation_provenance allocation_source must identify accepted allocation evidence"
-            )
+        payload_source = payload.get("allocation_source")
+        if not isinstance(provenance_source, str) or not provenance_source.strip():
+            errors.append("allocation_provenance allocation_source is required")
+        if provenance_source != payload_source:
+            errors.append("allocation provenance source must match allocation_source")
 
         provenance_capital = provenance.get("allocated_capital")
         payload_capital = payload.get("allocated_capital")
@@ -214,13 +227,6 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
             capital_matches = False
         if not capital_matches:
             errors.append("allocation_provenance allocated_capital must match allocated_capital")
-
-    # The v2 validator predates allocation_provenance. When the complete v2.1
-    # provenance object is valid, its evidence source supersedes the legacy
-    # allocation_source-only error without weakening any other v2 validation.
-    if provenance_is_valid:
-        legacy_source_error = "allocation_source must identify accepted allocation evidence"
-        errors = [error for error in errors if error != legacy_source_error]
 
     for section in (
         "portfolio",
