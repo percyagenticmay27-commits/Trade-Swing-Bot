@@ -1,8 +1,9 @@
 """Discover and resolve authoritative Enterprise strategy allocation evidence.
 
-The Dividend-hosted AI CIO owns total strategy capital.  This module only reads
-its registry and never writes to the external repository.  Swing security-level
-portfolio allocations are deliberately excluded as an Enterprise capital source.
+The Dividend-hosted AI CIO owns total strategy capital. This module reads its
+strategy-level evidence only and never writes to the external repository. Swing
+security-level portfolio allocations are deliberately excluded as an Enterprise
+capital source.
 """
 from __future__ import annotations
 
@@ -16,7 +17,9 @@ STRATEGY_ID = "SWING-001"
 DEFAULT_AI_CIO_REPOSITORY = Path(
     os.environ.get("AI_CIO_REPOSITORY", "/home/tradebot/Trade-Dividend-Bot")
 )
-DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH = Path("config/enterprise_strategy_registry.json")
+DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH = Path(
+    "results/enterprise_registry_strategy_evidence.json"
+)
 ALLOCATION_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "allocation_amount",
@@ -44,13 +47,42 @@ def _finite_nonnegative(value: object) -> float | None:
     return number
 
 
+def _allocation_from_record(
+    record: Mapping[str, Any],
+    *,
+    strategy_id: str,
+    allocation_fields: Sequence[str],
+    schema_path: str,
+) -> float:
+    for field in allocation_fields:
+        if field in record:
+            allocated = _finite_nonnegative(record.get(field))
+            if allocated is None:
+                raise ValueError(
+                    f"{schema_path}[{strategy_id!r}].{field} must be finite and nonnegative"
+                )
+            return allocated
+    raise ValueError(
+        f"{schema_path}[{strategy_id!r}] is missing a supported allocation field: "
+        + ", ".join(allocation_fields)
+    )
+
+
 def resolve_strategy_allocation(
     payload: Mapping[str, Any],
     strategy_id: str = STRATEGY_ID,
     *,
     allocation_fields: Sequence[str] = ALLOCATION_FIELDS,
 ) -> float:
-    """Resolve legacy mappings or the current AI CIO strategy_plugins registry."""
+    """Resolve authoritative strategy allocation from supported Enterprise schemas.
+
+    Resolution order is deterministic:
+    1. Legacy ``strategy_allocations[strategy_id]`` mapping.
+    2. Current registry ``strategy_plugins[]`` record.
+    3. AI CIO evidence ``payload.strategy_kpis[]`` record.
+
+    Stock-level ``portfolio_allocations.json`` data is intentionally unsupported.
+    """
     legacy = payload.get("strategy_allocations")
     if isinstance(legacy, Mapping):
         allocated = _finite_nonnegative(legacy.get(strategy_id))
@@ -61,7 +93,8 @@ def resolve_strategy_allocation(
     plugins = payload.get("strategy_plugins")
     if isinstance(plugins, list):
         matches = [
-            item for item in plugins
+            item
+            for item in plugins
             if isinstance(item, Mapping)
             and str(item.get("strategy_id", "")).strip() == strategy_id
         ]
@@ -69,22 +102,44 @@ def resolve_strategy_allocation(
             raise ValueError(f"strategy_plugins record for {strategy_id!r} is required")
         if len(matches) > 1:
             raise ValueError(f"strategy_plugins contains duplicate {strategy_id!r} records")
-        record = matches[0]
-        for field in allocation_fields:
-            if field in record:
-                allocated = _finite_nonnegative(record.get(field))
-                if allocated is None:
-                    raise ValueError(
-                        f"strategy_plugins[{strategy_id!r}].{field} must be finite and nonnegative"
-                    )
-                return allocated
-        raise ValueError(
-            f"strategy_plugins[{strategy_id!r}] is missing a supported allocation field: "
-            + ", ".join(allocation_fields)
+        return _allocation_from_record(
+            matches[0],
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path="strategy_plugins",
+        )
+
+    evidence_payload = payload.get("payload")
+    strategy_kpis = (
+        evidence_payload.get("strategy_kpis")
+        if isinstance(evidence_payload, Mapping)
+        else None
+    )
+    if isinstance(strategy_kpis, list):
+        matches = [
+            item
+            for item in strategy_kpis
+            if isinstance(item, Mapping)
+            and str(item.get("strategy_id", "")).strip() == strategy_id
+        ]
+        if not matches:
+            raise ValueError(
+                f"payload.strategy_kpis record for {strategy_id!r} is required"
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                f"payload.strategy_kpis contains duplicate {strategy_id!r} records"
+            )
+        return _allocation_from_record(
+            matches[0],
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path="payload.strategy_kpis",
         )
 
     raise ValueError(
-        "Enterprise allocation evidence must contain strategy_allocations or strategy_plugins"
+        "Enterprise allocation evidence must contain strategy_allocations, "
+        "strategy_plugins, or payload.strategy_kpis"
     )
 
 
@@ -94,7 +149,7 @@ def discover_strategy_allocations_file(
     ai_cio_repository: str | Path = DEFAULT_AI_CIO_REPOSITORY,
     registry_relative_path: str | Path = DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
 ) -> Path:
-    """Return the explicit source or discover the Dividend-hosted AI CIO registry."""
+    """Return an explicit source or the Dividend-hosted AI CIO evidence artifact."""
     if explicit_path is not None:
         source = Path(explicit_path).expanduser().resolve()
         if not source.is_file():
@@ -104,14 +159,14 @@ def discover_strategy_allocations_file(
     repository = Path(ai_cio_repository).expanduser().resolve()
     relative = Path(registry_relative_path)
     if relative.is_absolute():
-        raise ValueError("AI CIO registry path must be relative to the AI CIO repository")
+        raise ValueError("AI CIO evidence path must be relative to the AI CIO repository")
     source = (repository / relative).resolve()
     try:
         source.relative_to(repository)
     except ValueError as exc:
-        raise ValueError("AI CIO registry path escapes the AI CIO repository") from exc
+        raise ValueError("AI CIO evidence path escapes the AI CIO repository") from exc
     if not source.is_file():
-        raise FileNotFoundError(f"AI CIO strategy registry not found: {source}")
+        raise FileNotFoundError(f"AI CIO strategy evidence not found: {source}")
     return source
 
 
