@@ -68,6 +68,33 @@ def _allocation_from_record(
     )
 
 
+def _allocation_from_records(
+    records: object,
+    *,
+    strategy_id: str,
+    allocation_fields: Sequence[str],
+    schema_path: str,
+) -> float | None:
+    if not isinstance(records, list):
+        return None
+    matches = [
+        item
+        for item in records
+        if isinstance(item, Mapping)
+        and str(item.get("strategy_id", "")).strip() == strategy_id
+    ]
+    if not matches:
+        raise ValueError(f"{schema_path} record for {strategy_id!r} is required")
+    if len(matches) > 1:
+        raise ValueError(f"{schema_path} contains duplicate {strategy_id!r} records")
+    return _allocation_from_record(
+        matches[0],
+        strategy_id=strategy_id,
+        allocation_fields=allocation_fields,
+        schema_path=schema_path,
+    )
+
+
 def resolve_strategy_allocation(
     payload: Mapping[str, Any],
     strategy_id: str = STRATEGY_ID,
@@ -77,12 +104,36 @@ def resolve_strategy_allocation(
     """Resolve authoritative strategy allocation from supported Enterprise schemas.
 
     Resolution order is deterministic:
-    1. Legacy ``strategy_allocations[strategy_id]`` mapping.
+    1. Authoritative AI CIO evidence ``payload.strategy_kpis[]`` record.
     2. Current registry ``strategy_plugins[]`` record.
-    3. AI CIO evidence ``payload.strategy_kpis[]`` record.
+    3. Legacy ``strategy_allocations[strategy_id]`` mapping.
 
     Stock-level ``portfolio_allocations.json`` data is intentionally unsupported.
     """
+    evidence_payload = payload.get("payload")
+    strategy_kpis = (
+        evidence_payload.get("strategy_kpis")
+        if isinstance(evidence_payload, Mapping)
+        else None
+    )
+    allocated = _allocation_from_records(
+        strategy_kpis,
+        strategy_id=strategy_id,
+        allocation_fields=allocation_fields,
+        schema_path="payload.strategy_kpis",
+    )
+    if allocated is not None:
+        return allocated
+
+    allocated = _allocation_from_records(
+        payload.get("strategy_plugins"),
+        strategy_id=strategy_id,
+        allocation_fields=allocation_fields,
+        schema_path="strategy_plugins",
+    )
+    if allocated is not None:
+        return allocated
+
     legacy = payload.get("strategy_allocations")
     if isinstance(legacy, Mapping):
         allocated = _finite_nonnegative(legacy.get(strategy_id))
@@ -90,56 +141,9 @@ def resolve_strategy_allocation(
             raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
         return allocated
 
-    plugins = payload.get("strategy_plugins")
-    if isinstance(plugins, list):
-        matches = [
-            item
-            for item in plugins
-            if isinstance(item, Mapping)
-            and str(item.get("strategy_id", "")).strip() == strategy_id
-        ]
-        if not matches:
-            raise ValueError(f"strategy_plugins record for {strategy_id!r} is required")
-        if len(matches) > 1:
-            raise ValueError(f"strategy_plugins contains duplicate {strategy_id!r} records")
-        return _allocation_from_record(
-            matches[0],
-            strategy_id=strategy_id,
-            allocation_fields=allocation_fields,
-            schema_path="strategy_plugins",
-        )
-
-    evidence_payload = payload.get("payload")
-    strategy_kpis = (
-        evidence_payload.get("strategy_kpis")
-        if isinstance(evidence_payload, Mapping)
-        else None
-    )
-    if isinstance(strategy_kpis, list):
-        matches = [
-            item
-            for item in strategy_kpis
-            if isinstance(item, Mapping)
-            and str(item.get("strategy_id", "")).strip() == strategy_id
-        ]
-        if not matches:
-            raise ValueError(
-                f"payload.strategy_kpis record for {strategy_id!r} is required"
-            )
-        if len(matches) > 1:
-            raise ValueError(
-                f"payload.strategy_kpis contains duplicate {strategy_id!r} records"
-            )
-        return _allocation_from_record(
-            matches[0],
-            strategy_id=strategy_id,
-            allocation_fields=allocation_fields,
-            schema_path="payload.strategy_kpis",
-        )
-
     raise ValueError(
-        "Enterprise allocation evidence must contain strategy_allocations, "
-        "strategy_plugins, or payload.strategy_kpis"
+        "Enterprise allocation evidence must contain payload.strategy_kpis, "
+        "strategy_plugins, or strategy_allocations"
     )
 
 
