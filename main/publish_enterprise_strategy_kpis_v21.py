@@ -31,7 +31,9 @@ def publish(
         ai_cio_repository=ai_cio_repository,
         registry_relative_path=ai_cio_registry_relative_path,
     )
-    allocation_evidence = resolve_strategy_allocation_evidence(registry, STRATEGY_ID)
+    allocation_evidence = dict(
+        resolve_strategy_allocation_evidence(registry, STRATEGY_ID)
+    )
     allocated = float(allocation_evidence["allocated_capital"])
 
     # The existing KPI engine receives its validated compatibility shape. The
@@ -43,19 +45,55 @@ def publish(
         strategy_allocations=normalized,
         strategy_allocations_source=allocation_path,
     )
-    payload.update(
+
+    # Replace the normalized compatibility provenance with the authoritative
+    # external AI CIO provenance. Keep the top-level fields and nested object
+    # synchronized from one source of truth so the write-time validator receives
+    # the same allocation source in both locations.
+    allocation_provenance = dict(allocation_evidence)
+    allocation_provenance.update(
         {
+            "allocated_capital": allocated,
             "allocation_source": "AI_CIO_ENTERPRISE_EVIDENCE",
             "allocation_source_path": str(allocation_path.resolve()),
-            "allocation_source_json_path": allocation_evidence[
-                "allocation_source_json_path"
-            ],
-            "allocation_evidence_schema": allocation_evidence[
-                "allocation_evidence_schema"
-            ],
-            "allocation_field": allocation_evidence["allocation_field"],
         }
     )
+
+    payload.update(
+        {
+            "allocated_capital": allocated,
+            "allocation_source": allocation_provenance["allocation_source"],
+            "allocation_source_path": allocation_provenance[
+                "allocation_source_path"
+            ],
+            "allocation_source_json_path": allocation_provenance[
+                "allocation_source_json_path"
+            ],
+            "allocation_evidence_schema": allocation_provenance[
+                "allocation_evidence_schema"
+            ],
+            "allocation_field": allocation_provenance["allocation_field"],
+            "allocation_provenance": allocation_provenance,
+        }
+    )
+
+    # Keep every duplicated dashboard/portfolio provenance view synchronized.
+    if isinstance(payload.get("portfolio"), dict):
+        payload["portfolio"]["allocated_capital"] = allocated
+        payload["portfolio"]["allocation_provenance"] = dict(
+            allocation_provenance
+        )
+    if isinstance(payload.get("dashboard_sections"), dict):
+        payload["dashboard_sections"]["allocation_provenance"] = dict(
+            allocation_provenance
+        )
+        dashboard_portfolio = payload["dashboard_sections"].get("portfolio")
+        if isinstance(dashboard_portfolio, dict):
+            dashboard_portfolio["allocated_capital"] = allocated
+            dashboard_portfolio["allocation_provenance"] = dict(
+                allocation_provenance
+            )
+
     payload["artifact_contract"] = sorted(
         payload["artifact_contract"], key=lambda row: row["artifact_id"]
     )
