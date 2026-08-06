@@ -46,6 +46,101 @@ def test_ai_cio_strategy_evidence_schema() -> None:
     assert resolve_strategy_allocation(payload) == 4500.0
 
 
+def test_nested_ai_cio_registry_evidence_schema() -> None:
+    payload = {
+        "strategies": [
+            {
+                "strategy_id": "SWING-001",
+                "artifacts": [
+                    {
+                        "payload": {
+                            "registry_declared_strategy_evidence": [
+                                {
+                                    "artifacts": [
+                                        {
+                                            "payload": {
+                                                "strategy_kpis": [
+                                                    {
+                                                        "strategy_id": "DIVIDEND-001",
+                                                        "allocated_capital": 5000.0,
+                                                    },
+                                                    {
+                                                        "strategy_id": "SWING-001",
+                                                        "allocated_capital": 4500.0,
+                                                    },
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ],
+            }
+        ]
+    }
+    assert resolve_strategy_allocation(payload) == 4500.0
+
+
+def test_nested_ai_cio_evidence_prefers_shallowest_current_layer() -> None:
+    payload = {
+        "strategies": [
+            {
+                "artifacts": [
+                    {
+                        "payload": {
+                            "strategy_kpis": [
+                                {"strategy_id": "SWING-001", "allocated_capital": 4500.0}
+                            ],
+                            "registry_declared_strategy_evidence": [
+                                {
+                                    "artifacts": [
+                                        {
+                                            "payload": {
+                                                "strategy_kpis": [
+                                                    {
+                                                        "strategy_id": "SWING-001",
+                                                        "allocated_capital": 5000.0,
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    assert resolve_strategy_allocation(payload) == 4500.0
+
+
+def test_conflicting_nested_current_evidence_fails_clearly() -> None:
+    payload = {
+        "artifacts": [
+            {
+                "payload": {
+                    "strategy_kpis": [
+                        {"strategy_id": "SWING-001", "allocated_capital": 4500.0}
+                    ]
+                }
+            },
+            {
+                "payload": {
+                    "strategy_kpis": [
+                        {"strategy_id": "SWING-001", "allocated_capital": 4600.0}
+                    ]
+                }
+            },
+        ]
+    }
+    with pytest.raises(ValueError, match="Conflicting nested AI CIO allocation evidence"):
+        resolve_strategy_allocation(payload)
+
+
 def test_ai_cio_evidence_uses_exact_strategy_record() -> None:
     payload = {
         "payload": {
@@ -143,7 +238,7 @@ def test_no_hard_coded_4500() -> None:
 
 
 def test_stock_level_portfolio_allocations_are_not_enterprise_source() -> None:
-    with pytest.raises(ValueError, match="payload.strategy_kpis"):
+    with pytest.raises(ValueError, match="strategy_kpis"):
         resolve_strategy_allocation(
             {"allocations": [{"symbol": "SOXL", "allocation_amount": 2500}]}
         )
