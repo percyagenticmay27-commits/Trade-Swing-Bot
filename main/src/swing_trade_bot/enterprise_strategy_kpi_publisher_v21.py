@@ -22,7 +22,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.0"
+MODULE_VERSION = "2.1.1"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -100,8 +100,10 @@ def build_enterprise_strategy_kpis_v21(
             "Optional evidence unavailable: " + ", ".join(sorted(missing_optional_artifacts))
         )
 
+    allocation_provenance = dict(base.get("allocation_provenance", {}))
     portfolio_section = {
         "allocated_capital": base.get("allocated_capital"),
+        "allocation_provenance": allocation_provenance,
         "portfolio_value": base.get("portfolio_value"),
         "portfolio_value_source": base.get("portfolio_value_source"),
         "cash_balance": base.get("cash_balance"),
@@ -145,12 +147,14 @@ def build_enterprise_strategy_kpis_v21(
             "module_name": MODULE_NAME,
             "module_version": MODULE_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "allocation_provenance": allocation_provenance,
             "portfolio": portfolio_section,
             "holdings": holdings_section,
             "performance_summary": performance_section,
             "strategy_intelligence": strategy_intelligence_section,
             "trade_history": trade_history_section,
             "dashboard_sections": {
+                "allocation_provenance": allocation_provenance,
                 "portfolio": portfolio_section,
                 "holdings": holdings_section,
                 "performance": performance_section,
@@ -179,6 +183,9 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
         errors.append("strategy_id must be SWING-001")
     if payload.get("kpi_contract_version") != KPI_CONTRACT_VERSION:
         errors.append("kpi_contract_version must be 2.1")
+    provenance = payload.get("allocation_provenance")
+    if not isinstance(provenance, Mapping):
+        errors.append("allocation_provenance must be an object")
     for section in ("portfolio", "holdings", "performance_summary", "strategy_intelligence", "trade_history", "dashboard_sections"):
         if not isinstance(payload.get(section), Mapping):
             errors.append(f"{section} must be an object")
