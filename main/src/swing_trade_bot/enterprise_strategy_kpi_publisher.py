@@ -15,8 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .enterprise_strategy_allocation_discovery import (
+    resolve_strategy_allocation_evidence,
+)
+
 MODULE_NAME = "enterprise_strategy_kpi_publisher"
-MODULE_VERSION = "2.0.1"
+MODULE_VERSION = "2.0.2"
 SCHEMA_VERSION = "2.0"
 KPI_CONTRACT_VERSION = "2.0"
 STRATEGY_ID = "SWING-001"
@@ -91,15 +95,11 @@ def _find_numeric(payload: Mapping[str, Any] | None, keys: Sequence[str], *, sig
     return None
 
 
-def _strategy_allocations_mapping(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-    nested = payload.get("strategy_allocations")
-    return nested if isinstance(nested, Mapping) else payload
-
-
 def resolve_strategy_allocation(strategy_allocations: Mapping[str, Any], strategy_id: str = STRATEGY_ID) -> float:
-    allocated = _positive(_strategy_allocations_mapping(strategy_allocations).get(strategy_id))
+    evidence = resolve_strategy_allocation_evidence(strategy_allocations, strategy_id)
+    allocated = _positive(evidence.get("allocated_capital"))
     if allocated is None:
-        raise ValueError(f"strategy_allocations[{strategy_id!r}] must be a positive finite number")
+        raise ValueError(f"Enterprise allocation for {strategy_id!r} must be a positive finite number")
     return allocated
 
 
@@ -107,12 +107,18 @@ def _resolve_allocated_capital(
     *,
     strategy_allocations: Mapping[str, Any] | None,
     allocated_capital: object | None,
-) -> tuple[float, str]:
-    registry_value = (
-        resolve_strategy_allocation(strategy_allocations)
-        if strategy_allocations is not None
-        else None
-    )
+    strategy_allocations_source: str | Path | None,
+) -> tuple[float, str, dict[str, Any]]:
+    registry_evidence: dict[str, Any] | None = None
+    registry_value: float | None = None
+    if strategy_allocations is not None:
+        registry_evidence = dict(
+            resolve_strategy_allocation_evidence(strategy_allocations, STRATEGY_ID)
+        )
+        registry_value = _positive(registry_evidence.get("allocated_capital"))
+        if registry_value is None:
+            raise ValueError("Resolved SWING-001 allocation must be a positive finite number")
+
     legacy_value = _positive(allocated_capital) if allocated_capital is not None else None
     if allocated_capital is not None and legacy_value is None:
         raise ValueError("allocated_capital must be a positive finite number")
@@ -127,10 +133,27 @@ def _resolve_allocated_capital(
                 "Conflicting SWING-001 allocation evidence: "
                 "strategy_allocations and allocated_capital must agree"
             )
-        return registry_value, "STRATEGY_ALLOCATIONS"
+
     if registry_value is not None:
-        return registry_value, "STRATEGY_ALLOCATIONS"
-    return float(legacy_value), "ALLOCATED_CAPITAL"
+        provenance = dict(registry_evidence or {})
+        provenance["allocated_capital"] = registry_value
+        provenance["allocation_source"] = "STRATEGY_ALLOCATIONS"
+        provenance["allocation_source_path"] = (
+            str(Path(strategy_allocations_source).resolve())
+            if strategy_allocations_source is not None
+            else None
+        )
+        return registry_value, "STRATEGY_ALLOCATIONS", provenance
+
+    value = float(legacy_value)
+    return value, "ALLOCATED_CAPITAL", {
+        "allocated_capital": value,
+        "allocation_source": "ALLOCATED_CAPITAL",
+        "allocation_source_path": None,
+        "allocation_source_json_path": "$.allocated_capital",
+        "allocation_evidence_schema": "allocated_capital",
+        "allocation_field": "allocated_capital",
+    }
 
 
 def _require_safe_source(payload: Mapping[str, Any] | None, name: str) -> None:
@@ -246,9 +269,10 @@ def build_enterprise_strategy_kpis(
     ):
         _require_safe_source(payload, name)
 
-    allocated, allocation_source = _resolve_allocated_capital(
+    allocated, allocation_source, allocation_provenance = _resolve_allocated_capital(
         strategy_allocations=strategy_allocations,
         allocated_capital=allocated_capital,
+        strategy_allocations_source=strategy_allocations_source,
     )
     warnings: list[str] = []
     ledger = _validated_portfolio(portfolio, allocated)
@@ -308,7 +332,7 @@ def build_enterprise_strategy_kpis(
     if win_rate is None:
         warnings.append("Win rate is not reportable until decided closed paper trades exist.")
 
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "kpi_contract_version": KPI_CONTRACT_VERSION,
         "module_name": MODULE_NAME,
@@ -365,6 +389,12 @@ def build_enterprise_strategy_kpis(
         "governance_review_required": True,
         "direct_database_writes": False,
     }
+    for key, value in allocation_provenance.items():
+        if key == "allocated_capital":
+            continue
+        payload[key] = value
+    payload["allocation_provenance"] = dict(allocation_provenance)
+    return payload
 
 
 def validate_enterprise_strategy_kpis(payload: Mapping[str, Any]) -> tuple[str, ...]:
@@ -375,6 +405,20 @@ def validate_enterprise_strategy_kpis(payload: Mapping[str, Any]) -> tuple[str, 
         errors.append("kpi_contract_version must be 2.0")
     if payload.get("allocation_source") not in {"STRATEGY_ALLOCATIONS", "ALLOCATED_CAPITAL"}:
         errors.append("allocation_source must identify accepted allocation evidence")
+    provenance = payload.get("allocation_provenance")
+    if not isinstance(provenance, Mapping):
+        errors.append("allocation_provenance must be an object")
+    else:
+        if _positive(provenance.get("allocated_capital")) is None:
+            errors.append("allocation_provenance.allocated_capital must be positive")
+        if provenance.get("allocation_source") != payload.get("allocation_source"):
+            errors.append("allocation provenance source must match allocation_source")
+        if not provenance.get("allocation_evidence_schema"):
+            errors.append("allocation provenance schema is required")
+        if not provenance.get("allocation_source_json_path"):
+            errors.append("allocation provenance JSON path is required")
+        if not provenance.get("allocation_field"):
+            errors.append("allocation provenance field is required")
     if payload.get("evidence_status") not in {"AVAILABLE", "PARTIAL", "REGISTRY_ONLY"}:
         errors.append("unsupported evidence_status")
     for field in ("allocated_capital", "portfolio_value"):
