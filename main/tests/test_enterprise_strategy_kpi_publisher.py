@@ -43,25 +43,34 @@ def test_accepts_strategy_allocations_mapping(tmp_path):
         tmp_path,
         strategy_allocations={"strategy_allocations": {"SWING-001": 10000}},
     )
+
     assert payload["allocated_capital"] == 10000.0
     assert payload["allocation_source"] == "STRATEGY_ALLOCATIONS"
+    assert payload["allocation_evidence_schema"] == "strategy_allocations"
+    assert payload["allocation_field"] == "SWING-001"
+    assert payload["allocation_source_json_path"] == "$.strategy_allocations.SWING-001"
+    assert payload["allocation_provenance"]["allocated_capital"] == 10000.0
+    assert payload["allocation_provenance"]["allocation_source"] == "STRATEGY_ALLOCATIONS"
 
 
 def test_matching_allocation_inputs_are_accepted(tmp_path):
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 10000},
+        strategy_allocations={"strategy_allocations": {"SWING-001": 10000}},
         allocated_capital=10000,
     )
+
     assert payload["allocated_capital"] == 10000.0
     assert payload["allocation_source"] == "STRATEGY_ALLOCATIONS"
+    assert payload["allocation_provenance"]["allocated_capital"] == 10000.0
+    assert payload["allocation_provenance"]["allocation_source_json_path"] == "$.strategy_allocations.SWING-001"
 
 
 def test_conflicting_allocation_inputs_fail_clearly(tmp_path):
     with pytest.raises(ValueError, match="Conflicting SWING-001 allocation evidence"):
         build_enterprise_strategy_kpis(
             tmp_path,
-            strategy_allocations={"SWING-001": 10000},
+            strategy_allocations={"strategy_allocations": {"SWING-001": 10000}},
             allocated_capital=9000,
         )
 
@@ -98,7 +107,9 @@ def test_atomic_writer_publishes_valid_json(tmp_path):
     output = write_enterprise_strategy_kpis(payload, tmp_path / "enterprise_strategy_kpis.json")
     assert output.exists()
     assert not (tmp_path / "enterprise_strategy_kpis.json.tmp").exists()
-    assert json.loads(output.read_text(encoding="utf-8"))["strategy_id"] == "SWING-001"
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert written["strategy_id"] == "SWING-001"
+    assert "allocation_provenance" in written
 
 
 @pytest.mark.parametrize(
