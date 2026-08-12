@@ -29,36 +29,39 @@ Authoritative external handoff reviewed on 2026-08-12: `SWING_BOT_TO_AI_CIO_IMPL
 - Swing evidence root: `/home/tradebot/Trade-Swing-Bot/main/results/`
 - AI CIO host: `/home/tradebot/Trade-Dividend-Bot`
 
-## Audit completed in this chat
+## Completed development in this implementation pass
 
-### Registration
+### External registration contract aligned
 
-The current `configs/swing_strategy_service_registration.json` was inspected on branch `feature/swing-phase2-enterprise-market-data`.
+`configs/swing_strategy_service_registration.json` was updated to the current AI CIO repository-root contract.
 
-Confirmed:
+Completed:
 
-- `strategy_id`, `plugin_id`, and `service_id` are `SWING-001`.
-- `paper_trade_mode=true`.
-- `advisory_only=true`.
-- `live_trading_enabled=false`.
-- `broker_execution_enabled=false`.
-- `capital_movement_enabled=false`.
-- `automatic_activation_allowed=false`.
-- `direct_database_writes=false`.
-- The registration declares 12 AI CIO dashboard capabilities/artifacts.
+- Added `repository_root=/home/tradebot/Trade-Swing-Bot/main`.
+- Converted declared dashboard artifact paths from absolute paths to paths relative to `repository_root`.
+- Converted manifest/presentation references to repository-relative paths.
+- Added explicit `order_placement_enabled=false` safety lock.
+- Preserved `paper_trade_mode=true`, `advisory_only=true`, `live_trading_enabled=false`, `broker_execution_enabled=false`, `capital_movement_enabled=false`, `automatic_activation_allowed=false`, and `direct_database_writes=false`.
+- Registration version advanced to `1.5`.
+- Added `tests/test_swing_strategy_service_registration_contract.py` to verify repository root, exact relative publication surface, path containment, and safety locks.
 
-Gap found:
+### Canonical KPI opportunity-quality path aligned
 
-- The new AI CIO handoff says artifact paths should be relative to `repository_root`, but the current registration stores absolute paths and does not currently declare `repository_root`. This must be reconciled carefully with the receiving contract before changing the registration.
+`src/swing_trade_bot/enterprise_strategy_kpi_publisher_v21.py` was updated so its Opportunity Quality evidence path agrees with both the daily cycle and current AI CIO registration.
 
-### Existing unified daily cycle
+Completed:
 
-`src/swing_trade_bot/swing_daily_cycle.py` already exists and already implements a substantial portion of the required unified paper-cycle architecture.
+- Replaced internal `opportunity_quality.json` expectation with `opportunity_quality_report.json`.
+- `strategy_intelligence.opportunity_quality_evidence` now loads from `opportunity_quality_report.json`.
+- KPI module version advanced to `2.1.5`.
+- Added regression coverage proving `opportunity_quality_report.json` is recognized in the KPI artifact contract and evidence section.
 
-Confirmed existing behavior:
+## Existing unified daily cycle confirmed
 
-- paper-only/advisory safety configuration validation;
-- atomic JSON publication through the local filesystem integration helper;
+`src/swing_trade_bot/swing_daily_cycle.py` already implements a substantial part of the target architecture:
+
+- paper-only/advisory safety config validation;
+- atomic JSON publication;
 - atomic text publication with flush, `fsync`, and `os.replace`;
 - committee runtime evidence and decision trace generation;
 - Opportunity Quality generation;
@@ -70,27 +73,9 @@ Confirmed existing behavior:
 - readiness/validation/acceptance/freeze processing;
 - registration publication only after readiness.
 
-The existing server launcher `run_swing_bot_cycle.py` is also confirmed. It runs the Swing daily cycle and, only after a successful cycle, publishes Enterprise KPI v2.1 evidence. This is the leading candidate for the real systemd `ExecStart`; do not invent another launcher without evidence that this one is unsuitable.
-
-### Existing Enterprise KPI publisher
-
-`src/swing_trade_bot/enterprise_strategy_kpi_publisher_v21.py` already provides:
-
-- `SWING-001` KPI v2.1 construction;
-- allocation provenance preservation;
-- paper/broker/capital safety constants;
-- atomic KPI writes using a same-directory temporary file, flush, `fsync`, and `os.replace`;
-- dashboard sections for portfolio, holdings, performance, watchlist, opportunity quality, and trade history;
-- an artifact contract for several underlying Swing evidence files.
-
-Important mismatch found:
-
-- Its internal `ARTIFACT_SPECS` currently references `opportunity_quality.json`, while the current AI CIO registration/handoff declares `opportunity_quality_report.json`.
-- Its internal artifact contract focuses on KPI underlying evidence and is not identical to the 12-artifact external registration contract. Do not assume these two contracts are interchangeable.
+`run_swing_bot_cycle.py` remains the leading authoritative server launcher candidate. It runs the Swing daily cycle and publishes Enterprise KPI v2.1 only after the cycle succeeds. Do not invent another launcher without evidence that this one is unsuitable.
 
 ## Current declared AI CIO publication surface
-
-The registration currently declares:
 
 1. `results/enterprise_strategy_kpis.json`
 2. `results/executive_dashboard.json`
@@ -105,7 +90,7 @@ The registration currently declares:
 11. `results/stock_performance_report.json`
 12. `results/weekly_stock_report.json`
 
-## Gap analysis after first repository audit
+## Producer mapping status
 
 ### Already wired into the unified cycle
 
@@ -115,22 +100,22 @@ The registration currently declares:
 - `results/weekly_stock_report.json`
 - `results/executive_dashboard.json`
 - `results/monthly_command_center.json`
-- `results/enterprise_strategy_kpis.json` is published by `run_swing_bot_cycle.py` after a successful daily cycle.
+- `results/enterprise_strategy_kpis.json` via `run_swing_bot_cycle.py` after successful cycle completion.
 
-### Used as an input / expected to exist
+### Used as input / freshness still must be proven
 
 - `results/portfolio_allocations.json`
 - `results/watchlist_report.json`
 
-These require producer/freshness verification. The unified cycle currently consumes them but the audited section does not prove that it refreshes them during the same completed cycle.
+The audited daily-cycle path consumes these files, but current evidence does not yet prove that both are refreshed during the same completed cycle.
 
-### Declared but producer still needs to be located/verified
+### Declared producer still unresolved
 
 - `results/market_data_refresh_status.json`
 - `results/portfolio_risk.json`
 - `results/position_lifecycle.json`
 
-Do not create placeholder evidence. Locate an authentic existing producer first. If the capability is unsupported, the correct fix is to remove the declaration rather than fabricate data.
+Do not create placeholders. Locate an authentic producer. If a capability is unsupported, remove the declaration instead of fabricating evidence.
 
 ## Implementation tasks
 
@@ -142,23 +127,24 @@ Status: **IN PROGRESS**
 - [x] Inspect Swing service registration.
 - [x] Inspect unified Swing daily cycle.
 - [x] Inspect Enterprise KPI v2.1 publisher.
-- [x] Confirm existing authoritative launcher candidate: `run_swing_bot_cycle.py`.
+- [x] Confirm authoritative launcher candidate: `run_swing_bot_cycle.py`.
 - [ ] Locate the producer for `portfolio_allocations.json` and prove it refreshes in the same cycle.
 - [ ] Locate the producer for `watchlist_report.json` and prove it refreshes in the same cycle.
 - [ ] Locate the producer for `market_data_refresh_status.json`.
 - [ ] Locate the producer for `portfolio_risk.json`.
 - [ ] Locate the producer for `position_lifecycle.json`.
-- [ ] Compare every registration declaration against a real producer and remove unsupported declarations rather than creating placeholders.
+- [ ] Compare every declaration against a real producer and remove unsupported declarations rather than creating placeholders.
 
 ### Task B — Reconcile the external registration contract
 
-Status: **NOT STARTED**
+Status: **IMPLEMENTED — SERVER VALIDATION PENDING**
 
-- [ ] Add/verify `repository_root=/home/tradebot/Trade-Swing-Bot/main` if required by the current receiving contract.
-- [ ] Reconcile current absolute artifact paths with the handoff requirement for paths relative to `repository_root`.
-- [ ] Preserve all paper/advisory safety locks.
-- [ ] Keep registration capability declarations synchronized with genuinely generated artifacts.
-- [ ] Add regression tests for registration path resolution and safety locks.
+- [x] Add `repository_root=/home/tradebot/Trade-Swing-Bot/main`.
+- [x] Convert registered dashboard artifact paths to paths relative to `repository_root`.
+- [x] Preserve and extend paper/advisory safety locks, including explicit order-placement disablement.
+- [x] Add regression tests for path resolution contract and safety locks.
+- [ ] Confirm the AI CIO host accepts the updated registration after DigitalOcean pull/validation.
+- [ ] Keep capability declarations synchronized with producer findings from Task A.
 
 ### Task C — Same-cycle unified publication
 
@@ -174,30 +160,31 @@ Status: **PARTIALLY IMPLEMENTED**
 
 ### Task D — Canonical KPI alignment
 
-Status: **PARTIALLY IMPLEMENTED**
+Status: **IN PROGRESS**
 
 - [x] KPI v2.1 publisher exists.
 - [x] Allocation provenance is preserved.
 - [x] KPI writes are atomic.
-- [ ] Reconcile `opportunity_quality.json` vs `opportunity_quality_report.json` in the KPI artifact specification.
-- [ ] Verify `$4,500.00` comes from governed allocation evidence and is not silently redefined by Swing.
+- [x] Reconcile `opportunity_quality_report.json` with the external registration contract.
+- [x] Add KPI regression coverage for the registered Opportunity Quality filename.
+- [ ] Verify `$4,500.00` comes from governed allocation evidence and is not silently redefined by Swing in the full daily cycle.
 - [ ] Verify unknown performance values remain null/not reported.
 - [ ] Verify allocation is never used as realized P&L or inferred performance.
 - [ ] Verify watchlist count exactly matches the current published watchlist.
-- [ ] Add/extend KPI regression tests for the new AI CIO handoff contract.
 
 ### Task E — Required Swing regression QA
 
-Status: **NOT STARTED FOR THIS HANDOFF**
+Status: **STARTED**
 
-Add/verify tests proving:
-
+- [x] Registration repository-root and relative-path contract test added.
+- [x] Registration safety-lock test added.
+- [x] KPI Opportunity Quality artifact-path test added.
 - [ ] every supported declared artifact is generated by a successful paper cycle;
 - [ ] every declared JSON parses;
-- [ ] ownership is `SWING-001` where the artifact schema carries strategy ownership;
+- [ ] ownership is `SWING-001` where the schema carries strategy ownership;
 - [ ] missing optional metrics remain unavailable/null rather than zero;
-- [ ] paper-only and broker-disabled flags cannot be relaxed;
-- [ ] publisher writes are atomic;
+- [ ] paper-only and broker-disabled flags cannot be relaxed across the complete publication surface;
+- [ ] publisher writes are atomic across the complete surface;
 - [ ] same-cycle reruns are deterministic/idempotent where appropriate;
 - [ ] governed allocation remains `$4,500.00` and is not performance;
 - [ ] watchlist count matches the published watchlist;
@@ -228,7 +215,15 @@ After Swing publication succeeds:
 - [ ] confirm governed allocation remains `$4,500.00`;
 - [ ] confirm evidence paths resolve under `/home/tradebot/Trade-Swing-Bot/main/results/`;
 - [ ] confirm watchlist/portfolio/opportunity/risk/lifecycle/performance displays use actual Swing evidence;
-- [ ] inspect remaining `SWING-001` missing-artifact warnings and fix the Swing producer/registration rather than suppressing AI CIO warnings.
+- [ ] inspect remaining `SWING-001` missing-artifact warnings and fix Swing producer/registration rather than suppressing AI CIO warnings.
+
+## Commits from this implementation pass
+
+- `80386f7baaca9dab327fc2af0d93e77fe1e21cc8` — initial AI CIO implementation decision/task tracker.
+- `112741fa7af15253da5dcfb04bee665e9016d457` — align registration with repository-root/relative-path contract.
+- `89bbd0ddaebcc014a8369baa42ebf26b5ec28fd5` — align KPI Opportunity Quality artifact filename.
+- `b20814d7317932438391d26f87e7d48f1e54e049` — KPI contract regression test.
+- `3fff72b136cc698ede27d476c41ad77e6ac1e4e8` — registration contract regression tests.
 
 ## Evidence required before declaring integration complete
 
