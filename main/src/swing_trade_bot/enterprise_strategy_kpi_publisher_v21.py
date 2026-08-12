@@ -22,7 +22,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.4"
+MODULE_VERSION = "2.1.5"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -36,7 +36,7 @@ DIRECT_DATABASE_WRITES = False
 ARTIFACT_SPECS = (
     ("portfolio_allocations", "PORTFOLIO_ALLOCATIONS", "portfolio_allocations.json"),
     ("executive_dashboard", "EXECUTIVE_DASHBOARD", "executive_dashboard.json"),
-    ("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality.json"),
+    ("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality_report.json"),
     ("watchlist", "WATCHLIST", "watchlist_report.json"),
     ("paper_portfolio_summary", "PAPER_PORTFOLIO_SUMMARY", "paper_ledger/paper_portfolio_summary.json"),
     ("paper_portfolio_positions", "PAPER_HOLDINGS", "paper_ledger/paper_portfolio_positions.json"),
@@ -92,7 +92,7 @@ def build_enterprise_strategy_kpis_v21(
     trade_history = _load_optional(root, "paper_ledger/managed_trade_history.json")
     closed_positions = _load_optional(root, "paper_ledger/closed_positions.json")
     executive = _load_optional(root, "executive_dashboard.json")
-    opportunity = _load_optional(root, "opportunity_quality.json")
+    opportunity = _load_optional(root, "opportunity_quality_report.json")
     watchlist = _load_optional(root, "watchlist_report.json")
 
     artifacts = _artifact_contract(root)
@@ -186,11 +186,6 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
     provenance = payload.get("allocation_provenance")
     provenance_is_mapping = isinstance(provenance, Mapping)
 
-    # Reuse the v2 validator for the shared paper-only contract. Its two
-    # allocation-source checks are historical compatibility checks and are
-    # replaced below by stricter v2.1 provenance validation. This prevents the
-    # write path from rejecting valid, fully traced AI CIO evidence while all
-    # safety, portfolio, capability, and execution prohibitions remain active.
     legacy_payload = dict(payload)
     legacy_payload["kpi_contract_version"] = "2.0"
     legacy_errors = validate_enterprise_strategy_kpis(legacy_payload)
@@ -270,8 +265,6 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
 
 
 def write_enterprise_strategy_kpis_v21(payload: Mapping[str, Any], output_path: str | Path) -> Path:
-    # Validate the exact immutable payload that will be serialized. The write
-    # path does not normalize, rewrite, or discard provenance fields.
     output_payload = dict(payload)
     errors = validate_enterprise_strategy_kpis_v21(output_payload)
     if errors:
