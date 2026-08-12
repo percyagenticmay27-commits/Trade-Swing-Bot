@@ -82,9 +82,10 @@ def test_refresh_uses_mapped_signal_symbols_and_writes_only_inside_swing_reposit
     assert not (tmp_path / "results" / "market_data_refresh_status.json.tmp").exists()
 
 
-def test_module_has_no_dividend_repository_dependency():
-    source = Path("src/swing_trade_bot/swing_market_data_refresh.py").read_text(encoding="utf-8")
-    assert "/home/tradebot/Trade-Dividend-Bot" not in source
+def test_module_has_no_dividend_or_robinhood_execution_dependency():
+    source = Path("src/swing_trade_bot/swing_market_data_refresh.py").read_text(encoding="utf-8").lower()
+    assert "/home/tradebot/trade-dividend-bot" not in source
     assert "sync_enterprise_market_data" not in source
-    assert "robinhood" in source.lower()
-    assert "robinhood_market_data_enabled\": False" not in source
+    assert "robin_stocks" not in source
+    assert "login(" not in source
+    assert "place_order" not in source
