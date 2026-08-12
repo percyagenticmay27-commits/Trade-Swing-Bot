@@ -42,11 +42,19 @@ class MarketDataProviderChain:
     def __init__(self, providers: Sequence[MarketDataProvider]) -> None:
         if not providers:
             raise ValueError("at least one market-data provider is required")
+        names = [provider.provider_name for provider in providers]
+        if len(names) != len(set(names)):
+            raise ValueError("market-data provider names must be unique")
         self._providers = tuple(providers)
 
     @property
     def provider_name(self) -> str:
-        return "YFINANCE->ROBINHOOD_AGENT_READ_ONLY->PRIOR_LOCAL_CSV"
+        names = [provider.provider_name for provider in self._providers]
+        return "->".join((*names, "PRIOR_LOCAL_CSV"))
+
+    @property
+    def provider_names(self) -> tuple[str, ...]:
+        return tuple(provider.provider_name for provider in self._providers)
 
     def fetch_daily_bars(
         self,
