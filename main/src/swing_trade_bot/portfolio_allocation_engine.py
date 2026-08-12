@@ -9,12 +9,16 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
+import tempfile
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 
+STRATEGY_ID = "SWING-001"
 LEVEL_CAPS = {
     "HIGH": 0.25,
     "MEDIUM": 0.15,
@@ -82,9 +86,9 @@ class PortfolioAllocationEngine:
     def allocate(self, candidates: Sequence[PortfolioCandidate]) -> PortfolioAllocationReport:
         """Return capped allocation percentages plus SGOV reserve.
 
-Better opportunity rank increases the raw allocation weight, subject to confidence,
-position, theme, and paper-only risk caps.
-"""
+        Better opportunity rank increases the raw allocation weight, subject to
+        confidence and paper-only position caps.
+        """
         live_candidates = [
             candidate
             for candidate in candidates
@@ -186,7 +190,7 @@ def build_candidates(
 
 
 def write_portfolio_reports(output_dir: Path, report: PortfolioAllocationReport) -> tuple[Path, Path]:
-    """Write portfolio_allocations.csv and portfolio_allocations.json."""
+    """Atomically write portfolio_allocations.csv and portfolio_allocations.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "portfolio_allocations.csv"
     json_path = output_dir / "portfolio_allocations.json"
@@ -203,30 +207,71 @@ def write_portfolio_reports(output_dir: Path, report: PortfolioAllocationReport)
             "cash_equivalent": CASH_EQUIVALENT_SYMBOL,
         },
     ]
-    with csv_path.open("w", newline="", encoding="utf-8") as output:
-        writer = csv.DictWriter(output, fieldnames=list(PORTFOLIO_COLUMNS))
-        writer.writeheader()
-        writer.writerows(rows)
-    json_path.write_text(
-        json.dumps(
-            {
-                "paper_trade_mode": True,
-                "monthly_rebalance": True,
-                "max_position_allocation": MAX_POSITION_ALLOCATION,
-                "rank_controls_relative_allocation": True,
-                "theme_allocation_limit_enabled": False,
-                "strategy_assignment_boost_enabled": False,
-                "historical_return_weighting_enabled": False,
-                "cash_allocation": report.cash_allocation,
-                "sgov_allocation": report.sgov_allocation,
-                "allocations": rows,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    _atomic_csv(csv_path, list(PORTFOLIO_COLUMNS), rows)
+    _atomic_json(
+        json_path,
+        {
+            "strategy_id": STRATEGY_ID,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "paper_trade_mode": True,
+            "advisory_only": True,
+            "live_trading_enabled": False,
+            "broker_execution_enabled": False,
+            "order_placement_enabled": False,
+            "capital_movement_enabled": False,
+            "monthly_rebalance": True,
+            "max_position_allocation": MAX_POSITION_ALLOCATION,
+            "rank_controls_relative_allocation": True,
+            "theme_allocation_limit_enabled": False,
+            "strategy_assignment_boost_enabled": False,
+            "historical_return_weighting_enabled": False,
+            "cash_allocation": report.cash_allocation,
+            "sgov_allocation": report.sgov_allocation,
+            "allocations": rows,
+        },
     )
     return csv_path, json_path
+
+
+def _atomic_csv(path: Path, fields: list[str], rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as output:
+            writer = csv.DictWriter(output, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(dict(payload), output, indent=2, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def format_portfolio_table(report: PortfolioAllocationReport) -> str:
