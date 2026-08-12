@@ -66,6 +66,31 @@ def test_v21_publishes_dashboard_sections_and_artifact_contract(tmp_path):
     assert all(row["required"] is False for row in payload["artifact_contract"])
 
 
+def test_v21_uses_registered_opportunity_quality_report_filename(tmp_path):
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write(
+        tmp_path / "opportunity_quality_report.json",
+        {
+            "strategy_id": "SWING-001",
+            "opportunity_quality_score": 77.5,
+            "paper_trade_mode": True,
+        },
+    )
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    row = next(
+        item for item in payload["artifact_contract"]
+        if item["artifact_id"] == "opportunity_quality"
+    )
+    assert row["relative_path"] == "opportunity_quality_report.json"
+    assert row["available"] is True
+    assert payload["strategy_intelligence"]["opportunity_quality_evidence"]["strategy_id"] == "SWING-001"
+
+
 def test_v21_optional_missing_evidence_is_disclosed_not_fabricated(tmp_path):
     _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
     payload = publisher.build_enterprise_strategy_kpis_v21(
@@ -86,7 +111,6 @@ def test_v21_atomic_publication(tmp_path):
         tmp_path,
         strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
     )
-    # Artifact contract order is deterministic by the declared contract tuple.
     payload["artifact_contract"] = sorted(payload["artifact_contract"], key=lambda row: row["artifact_id"])
     output = tmp_path / "enterprise_strategy_kpis.json"
     published = publisher.write_enterprise_strategy_kpis_v21(payload, output)
