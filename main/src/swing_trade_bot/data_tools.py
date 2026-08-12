@@ -9,11 +9,13 @@ from datetime import date
 from pathlib import Path
 
 from .config import StrategyConfig
+from .market_symbol_mapping import known_inception_date
 
 
 REQUIRED_COLUMNS = ("date", "open", "high", "low", "close", "volume")
 REQUIRED_SYMBOLS = (*StrategyConfig().symbols, "SPY", "QQQ")
 MINIMUM_BARS = 252
+MINIMUM_SIGNAL_BARS = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +28,7 @@ class SymbolValidation:
     row_count: int = 0
     start_date: date | None = None
     end_date: date | None = None
+    required_bars: int = MINIMUM_BARS
     invalid_rows: tuple[str, ...] = ()
 
     @property
@@ -33,9 +36,35 @@ class SymbolValidation:
         return self.exists and not self.invalid_rows
 
 
-def validate_data_directory(data_dir: Path) -> list[SymbolValidation]:
+def required_bars_for_symbol(symbol: str, *, as_of: date | None = None) -> int:
+    """Return a listing-age-aware minimum without weakening indicator evidence.
+
+    Mature securities retain the historical 252-bar requirement.  A verified
+    newer fund is allowed to have fewer rows only because those sessions did
+    not exist yet; at least 50 completed daily observations are still required.
+    A small five-session allowance accounts for exchange holidays while keeping
+    stale multi-week files invalid.
+    """
+    inception = known_inception_date(symbol)
+    if inception is None:
+        return MINIMUM_BARS
+    today = as_of or date.today()
+    if today <= inception:
+        return MINIMUM_SIGNAL_BARS
+    approximate_sessions = max(0, int((today - inception).days * 5 / 7) - 5)
+    return max(MINIMUM_SIGNAL_BARS, min(MINIMUM_BARS, approximate_sessions))
+
+
+def validate_data_directory(data_dir: Path, *, as_of: date | None = None) -> list[SymbolValidation]:
     """Validate required OHLCV CSV files for every strategy and benchmark symbol."""
-    return [_validate_symbol_csv(symbol, data_dir / f"{symbol}.csv") for symbol in REQUIRED_SYMBOLS]
+    return [
+        _validate_symbol_csv(
+            symbol,
+            data_dir / f"{symbol}.csv",
+            required_bars=required_bars_for_symbol(symbol, as_of=as_of),
+        )
+        for symbol in REQUIRED_SYMBOLS
+    ]
 
 
 def format_validation_summary(results: list[SymbolValidation]) -> str:
@@ -48,8 +77,8 @@ def format_validation_summary(results: list[SymbolValidation]) -> str:
         f"Missing files: {', '.join(missing) if missing else 'none'}",
         f"Invalid symbols: {', '.join(result.symbol for result in invalid) if invalid else 'none'}",
         "",
-        "Symbol  Rows  Start Date  End Date    Status",
-        "------  ----  ----------  ----------  ------",
+        "Symbol  Rows  Required  Start Date  End Date    Status",
+        "------  ----  --------  ----------  ----------  ------",
     ]
     for result in results:
         start = result.start_date.isoformat() if result.start_date else "-"
@@ -61,8 +90,8 @@ def format_validation_summary(results: list[SymbolValidation]) -> str:
         else:
             status = "OK"
         lines.append(
-            f"{result.symbol.ljust(6)}  {str(result.row_count).rjust(4)}  {start.ljust(10)}  "
-            f"{end.ljust(10)}  {status}"
+            f"{result.symbol.ljust(6)}  {str(result.row_count).rjust(4)}  "
+            f"{str(result.required_bars).rjust(8)}  {start.ljust(10)}  {end.ljust(10)}  {status}"
         )
     if invalid:
         lines.append("")
@@ -83,9 +112,9 @@ def main() -> None:
     raise SystemExit(0 if all(result.is_valid for result in results) else 1)
 
 
-def _validate_symbol_csv(symbol: str, path: Path) -> SymbolValidation:
+def _validate_symbol_csv(symbol: str, path: Path, *, required_bars: int = MINIMUM_BARS) -> SymbolValidation:
     if not path.exists():
-        return SymbolValidation(symbol=symbol, path=path, exists=False)
+        return SymbolValidation(symbol=symbol, path=path, exists=False, required_bars=required_bars)
 
     invalid_rows: list[str] = []
     parsed_dates: list[date] = []
@@ -100,6 +129,7 @@ def _validate_symbol_csv(symbol: str, path: Path) -> SymbolValidation:
                 path=path,
                 exists=True,
                 row_count=0,
+                required_bars=required_bars,
                 invalid_rows=tuple(invalid_rows),
             )
 
@@ -114,8 +144,8 @@ def _validate_symbol_csv(symbol: str, path: Path) -> SymbolValidation:
                     invalid_rows.append(f"row {row_number}: date is not chronological")
                 previous_date = parsed_date
 
-    if row_count < MINIMUM_BARS:
-        invalid_rows.append(f"file: expected at least {MINIMUM_BARS} rows, found {row_count}")
+    if row_count < required_bars:
+        invalid_rows.append(f"file: expected at least {required_bars} rows, found {row_count}")
 
     return SymbolValidation(
         symbol=symbol,
@@ -124,6 +154,7 @@ def _validate_symbol_csv(symbol: str, path: Path) -> SymbolValidation:
         row_count=row_count,
         start_date=parsed_dates[0] if parsed_dates else None,
         end_date=parsed_dates[-1] if parsed_dates else None,
+        required_bars=required_bars,
         invalid_rows=tuple(invalid_rows),
     )
 
