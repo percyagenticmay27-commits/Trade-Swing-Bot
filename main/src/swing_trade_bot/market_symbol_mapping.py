@@ -1,6 +1,6 @@
 """Authoritative symbol-purpose mapping for Swing market evidence.
 
-Trade/valuation symbols remain the actual paper-traded security.  Signal and
+Trade/valuation symbols remain the actual paper-traded security. Signal and
 earnings symbols may point at a verified underlying when a leveraged single-
 stock ETF does not have enough native history for technical/earnings evidence.
 No mapping is inferred from ticker spelling.
@@ -20,8 +20,6 @@ class MarketSymbolMapping:
     inception_date: date | None = None
 
 
-# Verified issuer relationships only.  Basket/index products remain self-mapped
-# unless an explicit strategy-specific signal proxy is approved later.
 _MAPPINGS: dict[str, MarketSymbolMapping] = {
     "BEX": MarketSymbolMapping(
         trade_symbol="BEX",
@@ -55,7 +53,6 @@ _MAPPINGS: dict[str, MarketSymbolMapping] = {
 
 
 def get_market_symbol_mapping(symbol: str) -> MarketSymbolMapping:
-    """Return explicit mapping or a conservative self-map for ordinary symbols."""
     normalized = symbol.strip().upper()
     if not normalized:
         raise ValueError("symbol is required")
@@ -71,11 +68,6 @@ def get_market_symbol_mapping(symbol: str) -> MarketSymbolMapping:
 
 
 def resolve_symbol(symbol: str, purpose: str) -> str:
-    """Resolve a symbol for VALUATION, TECHNICAL_SIGNAL, or EARNINGS purpose.
-
-    Explicitly unmapped technical/earnings purposes fail closed instead of
-    guessing a similarly named ticker or exchange suffix.
-    """
     mapping = get_market_symbol_mapping(symbol)
     purpose_key = purpose.strip().upper()
     if purpose_key in {"TRADE", "TRADE_SYMBOL"}:
@@ -93,6 +85,24 @@ def resolve_symbol(symbol: str, purpose: str) -> str:
     raise ValueError(f"unsupported market-data purpose: {purpose}")
 
 
+def required_signal_symbols(
+    trade_symbols: tuple[str, ...],
+    *,
+    benchmarks: tuple[str, ...] = ("SPY", "QQQ"),
+) -> tuple[str, ...]:
+    """Return deduplicated technical-evidence symbols for the daily gate.
+
+    A trade symbol with no verified single underlying remains its own required
+    history source instead of receiving a guessed proxy.
+    """
+    ordered: list[str] = []
+    for trade_symbol in (*trade_symbols, *benchmarks):
+        mapping = get_market_symbol_mapping(trade_symbol)
+        resolved = mapping.signal_symbol or mapping.trade_symbol
+        if resolved not in ordered:
+            ordered.append(resolved)
+    return tuple(ordered)
+
+
 def known_inception_date(symbol: str) -> date | None:
-    """Return verified fund inception date when configured."""
     return get_market_symbol_mapping(symbol).inception_date
