@@ -13,12 +13,14 @@ import json
 import math
 import os
 import tempfile
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from swing_trade_bot.enterprise_market_data_client import CONTRACT_VERSION, MarketDataUnavailable
 from swing_trade_bot.enterprise_paper_portfolio_manager import write_blocked_state
+
+STRATEGY_ID = "SWING-001"
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -28,6 +30,28 @@ def _read_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise MarketDataUnavailable(f"Expected JSON object: {path}")
     return payload
+
+
+def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> Path:
+    """Atomically publish JSON so external readers never observe partial data."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(dict(payload), handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+    return path
 
 
 def _find_strategy(status: Mapping[str, Any], strategy_id: str) -> Mapping[str, Any]:
@@ -173,7 +197,8 @@ def sync_exported_history(
     output_dir: Path,
     required_symbols: list[str],
     optional_symbols: list[str],
-    strategy_id: str = "SWING-001",
+    strategy_id: str = STRATEGY_ID,
+    canonical_status_path: Path | None = None,
 ) -> dict[str, Any]:
     contract = _read_object(contract_path)
     version = str(contract.get("contract_version") or contract.get("schema_version") or contract.get("version") or "")
@@ -221,15 +246,44 @@ def sync_exported_history(
 
     result = {
         "strategy_id": strategy_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "READY" if not warnings else "WARNING",
+        "source_status": strategy_status,
+        "contract_source_path": str(contract_path.resolve()),
+        "status_source_path": str(status_path.resolve()),
         "normalized_history_files": written,
+        "required_symbols": list(dict.fromkeys(symbol.upper() for symbol in required_symbols)),
+        "optional_symbols": list(dict.fromkeys(symbol.upper() for symbol in optional_symbols)),
         "warnings": warnings,
+        "paper_trade_mode": True,
+        "advisory_only": True,
+        "live_trading_enabled": False,
+        "broker_execution_enabled": False,
+        "order_placement_enabled": False,
+        "capital_movement_enabled": False,
+        "market_data_dependent_publication_allowed": True,
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "sync_status.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    _atomic_write_json(output_dir / "sync_status.json", result)
+    if canonical_status_path is not None:
+        _atomic_write_json(canonical_status_path, result)
     return result
+
+
+def _blocked_status_payload(error: Exception) -> dict[str, Any]:
+    return {
+        "strategy_id": STRATEGY_ID,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "status": "BLOCKED",
+        "reason": str(error),
+        "warnings": [],
+        "paper_trade_mode": True,
+        "advisory_only": True,
+        "live_trading_enabled": False,
+        "broker_execution_enabled": False,
+        "order_placement_enabled": False,
+        "capital_movement_enabled": False,
+        "market_data_dependent_publication_allowed": False,
+    }
 
 
 def main() -> int:
@@ -237,9 +291,11 @@ def main() -> int:
     parser.add_argument("--contract-path", default="/home/tradebot/Trade-Dividend-Bot/results/enterprise_market_data_contract.json")
     parser.add_argument("--status-path", default="/home/tradebot/Trade-Dividend-Bot/results/enterprise_market_data_status.json")
     parser.add_argument("--output-dir", default="results/enterprise_market_data")
+    parser.add_argument("--status-output", default="results/market_data_refresh_status.json")
     parser.add_argument("--required-symbol", action="append", default=["SOXL", "TQQQ"])
     parser.add_argument("--optional-symbol", action="append", default=[])
     args = parser.parse_args()
+    canonical_status_path = Path(args.status_output)
     try:
         result = sync_exported_history(
             contract_path=Path(args.contract_path),
@@ -247,12 +303,16 @@ def main() -> int:
             output_dir=Path(args.output_dir),
             required_symbols=args.required_symbol,
             optional_symbols=args.optional_symbol,
+            canonical_status_path=canonical_status_path,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except MarketDataUnavailable as exc:
         path = write_blocked_state(Path("results/paper_ledger"), exc)
-        print(json.dumps({"strategy_id": "SWING-001", "status": "BLOCKED", "artifact": str(path), "reason": str(exc)}, indent=2))
+        blocked = _blocked_status_payload(exc)
+        blocked["artifact"] = str(path)
+        _atomic_write_json(canonical_status_path, blocked)
+        print(json.dumps(blocked, indent=2, sort_keys=True))
         return 2
 
 
