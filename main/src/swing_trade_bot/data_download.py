@@ -71,7 +71,7 @@ def build_historical_data(
     """Download, merge, write, and validate historical OHLCV CSVs.
 
     Provider order is fresh local cache -> Yahoo CSV -> Yahoo Chart -> Stooq ->
-    optional imported historical CSV -> stale local cache.  Stale cache is
+    optional imported historical CSV -> stale local cache. Stale cache is
     reported explicitly and preserves provider errors so publication can fail
     closed rather than pretending old evidence is live.
     """
@@ -95,7 +95,7 @@ def build_historical_data(
         )
         for symbol in symbols
     )
-    validations = validate_data_directory(data_dir, as_of=end)
+    validations = validate_data_directory(data_dir, as_of=end, symbols=symbols)
     return DownloadRun(
         summaries=summaries,
         validation_summary=format_validation_summary(validations),
@@ -283,7 +283,6 @@ def _download_yahoo_chart(symbol: str, start: date, end: date) -> list[OHLCVBar]
 
 
 def _download_stooq(symbol: str, start: date, end: date) -> list[OHLCVBar]:
-    # Stooq's downloadable U.S. daily endpoint uses the verified SYMBOL.US form.
     ticker = f"{symbol.lower()}.us"
     url = f"https://stooq.com/q/d/l/?s={ticker}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
     return _parse_provider_csv(_read_url(url))
@@ -360,7 +359,7 @@ def _summary(
     data_source: str | None = None,
     is_stale: bool = False,
     retrieved_at_utc: str | None = None,
-    error: str | None,
+    error: str | None = None,
 ) -> DownloadSummary:
     return DownloadSummary(
         symbol=symbol,
