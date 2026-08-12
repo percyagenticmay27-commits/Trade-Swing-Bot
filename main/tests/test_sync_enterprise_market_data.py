@@ -75,6 +75,43 @@ def test_sync_reads_export_directory_from_contract(tmp_path):
     assert (output / "sync_status.json").exists()
 
 
+def test_sync_can_publish_canonical_ai_cio_market_data_status(tmp_path):
+    results = tmp_path / "dividend" / "results"
+    contract = results / "enterprise_market_data_contract.json"
+    status = results / "enterprise_market_data_status.json"
+    _write_json(contract, _contract("enterprise_market_data_history"))
+    _write_json(status, _status())
+    _write_csv(results / "enterprise_market_data_history" / "SOXL.csv")
+    _write_csv(results / "enterprise_market_data_history" / "TQQQ.csv")
+
+    swing_results = tmp_path / "swing" / "results"
+    canonical = swing_results / "market_data_refresh_status.json"
+    result = sync_exported_history(
+        contract_path=contract,
+        status_path=status,
+        output_dir=swing_results / "enterprise_market_data",
+        required_symbols=["SOXL", "TQQQ"],
+        optional_symbols=[],
+        canonical_status_path=canonical,
+    )
+
+    stored = json.loads(canonical.read_text(encoding="utf-8"))
+    assert stored == result
+    assert stored["strategy_id"] == "SWING-001"
+    assert stored["status"] == "READY"
+    assert stored["paper_trade_mode"] is True
+    assert stored["advisory_only"] is True
+    assert stored["live_trading_enabled"] is False
+    assert stored["broker_execution_enabled"] is False
+    assert stored["order_placement_enabled"] is False
+    assert stored["capital_movement_enabled"] is False
+    assert stored["market_data_dependent_publication_allowed"] is True
+    assert stored["generated_at"]
+    assert stored["contract_source_path"] == str(contract.resolve())
+    assert stored["status_source_path"] == str(status.resolve())
+    assert not list(canonical.parent.glob(".market_data_refresh_status.json.*.tmp"))
+
+
 def test_stale_history_is_rejected_even_when_export_exists(tmp_path):
     results = tmp_path / "results"
     contract = results / "enterprise_market_data_contract.json"
