@@ -8,8 +8,10 @@ Robinhood, or connect to any brokerage system.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +38,8 @@ LifecycleAction = Literal[
 
 STRATEGY_A: StrategyName = "Strategy A"
 STRATEGY_B: StrategyName = "Strategy B"
+STRATEGY_ID = "SWING-001"
+MODULE_VERSION = "1.3.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,13 +106,8 @@ class LifecycleReview:
         return asdict(self)
 
 
-def review_lifecycle(
-    item: LifecycleInput,
-    *,
-    policy: LifecyclePolicy | None = None,
-) -> LifecycleReview:
+def review_lifecycle(item: LifecycleInput, *, policy: LifecyclePolicy | None = None) -> LifecycleReview:
     """Review one ticker and return its paper lifecycle classification."""
-
     policy = policy or LifecyclePolicy()
     unrealized = _percent_change(item.entry_price, item.current_price)
     drawdown_from_high = _drawdown_from_high(item.highest_price_since_entry, item.current_price)
@@ -144,34 +143,38 @@ def review_lifecycle(
     return LifecycleReview(item.symbol.upper(), item.active_strategy, item.current_state, "closed_research", "archive_research_case", unrealized, drawdown_from_high, item.opportunity_quality_score, item.entry_score, item.market_regime_score, item.thesis_intact, "Research case is closed.")
 
 
-def review_lifecycles(
-    items: Sequence[LifecycleInput],
-    *,
-    policy: LifecyclePolicy | None = None,
-) -> list[LifecycleReview]:
+def review_lifecycles(items: Sequence[LifecycleInput], *, policy: LifecyclePolicy | None = None) -> list[LifecycleReview]:
     """Review multiple ticker lifecycle records."""
-
     policy = policy or LifecyclePolicy()
     return [review_lifecycle(item, policy=policy) for item in items]
 
 
 def write_trade_lifecycle_outputs(output_dir: Path, reviews: Sequence[LifecycleReview]) -> tuple[Path, Path]:
-    """Write JSON and Markdown paper lifecycle reports."""
-
+    """Atomically publish the authentic SWING-001 lifecycle evidence."""
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / "trade_lifecycle_report.json"
     md_path = output_dir / "trade_lifecycle_report.md"
-    json_path.write_text(
-        json.dumps({"paper_trade_mode": True, "version": "1.3", "reviews": [review.row() for review in reviews]}, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    md_path.write_text(format_trade_lifecycle_markdown(reviews), encoding="utf-8")
+    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    payload = {
+        "strategy_id": STRATEGY_ID,
+        "generated_at_utc": generated_at,
+        "paper_trade_mode": True,
+        "advisory_only": True,
+        "live_trading_enabled": False,
+        "broker_execution_enabled": False,
+        "order_placement_enabled": False,
+        "capital_movement_enabled": False,
+        "version": MODULE_VERSION,
+        "review_count": len(reviews),
+        "reviews": [review.row() for review in reviews],
+    }
+    _atomic_write_text(json.dumps(payload, indent=2) + "\n", json_path)
+    _atomic_write_text(format_trade_lifecycle_markdown(reviews), md_path)
     return json_path, md_path
 
 
 def format_trade_lifecycle_markdown(reviews: Sequence[LifecycleReview]) -> str:
     """Render Markdown lifecycle report."""
-
     lines = [
         "# Trade Lifecycle Report",
         "",
@@ -189,12 +192,7 @@ def format_trade_lifecycle_markdown(reviews: Sequence[LifecycleReview]) -> str:
     return "\n".join(lines)
 
 
-def _pre_position_review(
-    item: LifecycleInput,
-    policy: LifecyclePolicy,
-    unrealized: float | None,
-    drawdown_from_high: float | None,
-) -> LifecycleReview:
+def _pre_position_review(item: LifecycleInput, policy: LifecyclePolicy, unrealized: float | None, drawdown_from_high: float | None) -> LifecycleReview:
     if (
         item.opportunity_quality_score >= policy.minimum_quality_score
         and item.entry_score >= policy.minimum_entry_score
@@ -211,12 +209,7 @@ def _pre_position_review(
     return LifecycleReview(item.symbol.upper(), item.active_strategy, item.current_state, state, action, unrealized, drawdown_from_high, item.opportunity_quality_score, item.entry_score, item.market_regime_score, item.thesis_intact, reason)
 
 
-def _position_review(
-    item: LifecycleInput,
-    policy: LifecyclePolicy,
-    unrealized: float | None,
-    drawdown_from_high: float | None,
-) -> LifecycleReview:
+def _position_review(item: LifecycleInput, policy: LifecyclePolicy, unrealized: float | None, drawdown_from_high: float | None) -> LifecycleReview:
     if not item.thesis_intact or item.opportunity_quality_score < policy.minimum_quality_score:
         return LifecycleReview(item.symbol.upper(), item.active_strategy, item.current_state, "review_required", "review_thesis", unrealized, drawdown_from_high, item.opportunity_quality_score, item.entry_score, item.market_regime_score, item.thesis_intact, "Thesis or quality evidence has weakened and requires paper review.")
 
@@ -239,3 +232,19 @@ def _drawdown_from_high(highest_price: float | None, current_price: float | None
     if highest_price is None or current_price is None or highest_price == 0:
         return None
     return ((current_price - highest_price) / highest_price) * 100.0
+
+
+def _atomic_write_text(content: str, destination: Path) -> None:
+    temp = destination.with_name(destination.name + ".tmp")
+    try:
+        with temp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, destination)
+    except Exception:
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
