@@ -56,6 +56,35 @@ Completed:
 - KPI module version advanced to `2.1.5`.
 - Added regression coverage proving `opportunity_quality_report.json` is recognized in the KPI artifact contract and evidence section.
 
+### Canonical market-data refresh status publisher added
+
+The authentic Enterprise history synchronization path was found in `sync_enterprise_market_data.py`. It validates AI CIO normalized market-data status/history, rejects stale or malformed required history, and atomically materializes approved history CSVs inside Swing-owned `results/enterprise_market_data/`.
+
+Completed:
+
+- Added canonical Swing publication of `results/market_data_refresh_status.json`.
+- Preserved internal `results/enterprise_market_data/sync_status.json` for backward compatibility.
+- Canonical status now carries `SWING-001` ownership, generation timestamp, source contract/status paths, required/optional symbols, explicit paper/advisory safety flags, and whether market-data-dependent publication is allowed.
+- Canonical status writes are atomic using same-directory temporary files, flush, `fsync`, and `os.replace`.
+- Blocked/stale Enterprise market data now produces an explicit canonical `BLOCKED` status rather than leaving the declared AI CIO artifact absent.
+- Added regression coverage for the canonical status path, safety locks, provenance paths, and atomic cleanup.
+
+Same-cycle orchestration remains pending: `run_swing_bot_cycle.py`/the unified daily cycle must invoke the authentic market refresh before dependent strategy/report generation without inventing a second market-data path.
+
+### Portfolio allocation producer located and publication hardened
+
+The authentic producer for `results/portfolio_allocations.json` is `src/swing_trade_bot/portfolio_allocation_engine.py`.
+
+Completed:
+
+- Confirmed allocations are rank-driven and do not apply the removed Strategy B boost or historical-return weighting.
+- Preserved all existing allocation calculations and caps.
+- Added `strategy_id=SWING-001`, generation timestamp, advisory status, and explicit live/broker/order/capital safety flags to the JSON evidence.
+- Converted both portfolio allocation CSV and JSON publication to atomic same-directory writes with flush, `fsync`, and `os.replace`.
+- Added regression coverage for Swing ownership, safety metadata, generation timestamp, and temporary-file cleanup.
+
+Same-cycle freshness remains pending: the daily cycle still must explicitly regenerate portfolio allocation evidence from the current confidence/watchlist/strategy-recommendation inputs before downstream Stock Performance/Weekly/Executive reporting.
+
 ## Existing unified daily cycle confirmed
 
 `src/swing_trade_bot/swing_daily_cycle.py` already implements a substantial part of the target architecture:
@@ -92,30 +121,40 @@ Completed:
 
 ## Producer mapping status
 
-### Already wired into the unified cycle
+### Producer located / publication contract aligned
 
-- `results/swing_daily_cycle_report.json`
-- `results/opportunity_quality_report.json`
-- `results/stock_performance_report.json`
-- `results/weekly_stock_report.json`
-- `results/executive_dashboard.json`
-- `results/monthly_command_center.json`
-- `results/enterprise_strategy_kpis.json` via `run_swing_bot_cycle.py` after successful cycle completion.
+- `results/enterprise_strategy_kpis.json` — `run_swing_bot_cycle.py` + Enterprise KPI v2.1 publisher.
+- `results/swing_daily_cycle_report.json` — unified daily cycle.
+- `results/opportunity_quality_report.json` — Opportunity Quality engine, wired into unified cycle.
+- `results/stock_performance_report.json` — Stock Performance producer, wired into unified cycle.
+- `results/weekly_stock_report.json` — Weekly Stock producer, wired into unified cycle.
+- `results/executive_dashboard.json` — Executive Dashboard producer, wired into unified cycle.
+- `results/monthly_command_center.json` — Monthly Command Center producer, wired into unified cycle.
+- `results/market_data_refresh_status.json` — authentic Enterprise market-data synchronization path; canonical publisher now implemented, same-cycle invocation still pending.
+- `results/portfolio_allocations.json` — `portfolio_allocation_engine.py`; publication hardened, same-cycle regeneration still pending.
 
 ### Used as input / freshness still must be proven
 
-- `results/portfolio_allocations.json`
 - `results/watchlist_report.json`
-
-The audited daily-cycle path consumes these files, but current evidence does not yet prove that both are refreshed during the same completed cycle.
 
 ### Declared producer still unresolved
 
-- `results/market_data_refresh_status.json`
 - `results/portfolio_risk.json`
 - `results/position_lifecycle.json`
 
 Do not create placeholders. Locate an authentic producer. If a capability is unsupported, remove the declaration instead of fabricating evidence.
+
+## Newly discovered allocation-governance debt
+
+During producer mapping, existing Phase 2 paper-ledger/Enterprise portfolio modules were found to contain `SWING_ALLOCATION = 4500.0` constants. This predates the current AI CIO governed-allocation contract.
+
+Affected existing modules observed so far include:
+
+- `src/swing_trade_bot/paper_ledger_foundation.py`
+- `src/swing_trade_bot/enterprise_paper_portfolio_manager.py`
+- Phase 2.1 launcher paths that import the ledger constant.
+
+Decision: do not change these casually. The permanent fix must reuse the already-developed Enterprise allocation discovery/provenance path so the governed `$4,500.00` remains current without reintroducing hard-coded Enterprise ownership into Swing. Until that fix is implemented and regression-tested, this remains an explicit Task D blocker.
 
 ## Implementation tasks
 
@@ -128,11 +167,13 @@ Status: **IN PROGRESS**
 - [x] Inspect unified Swing daily cycle.
 - [x] Inspect Enterprise KPI v2.1 publisher.
 - [x] Confirm authoritative launcher candidate: `run_swing_bot_cycle.py`.
-- [ ] Locate the producer for `portfolio_allocations.json` and prove it refreshes in the same cycle.
-- [ ] Locate the producer for `watchlist_report.json` and prove it refreshes in the same cycle.
-- [ ] Locate the producer for `market_data_refresh_status.json`.
-- [ ] Locate the producer for `portfolio_risk.json`.
-- [ ] Locate the producer for `position_lifecycle.json`.
+- [x] Locate producer for `portfolio_allocations.json`.
+- [ ] Wire `portfolio_allocations.json` producer into the same completed daily cycle and prove freshness.
+- [ ] Locate producer for `watchlist_report.json` and prove it refreshes in the same cycle.
+- [x] Locate authentic market-data sync path and implement canonical `market_data_refresh_status.json` publication.
+- [ ] Wire market-data refresh into the unified cycle before dependent report generation.
+- [ ] Locate producer for `portfolio_risk.json`.
+- [ ] Locate producer for `position_lifecycle.json`.
 - [ ] Compare every declaration against a real producer and remove unsupported declarations rather than creating placeholders.
 
 ### Task B — Reconcile the external registration contract
@@ -152,13 +193,16 @@ Status: **PARTIALLY IMPLEMENTED**
 
 - [x] Existing unified cycle architecture is present.
 - [x] Atomic JSON/text publication infrastructure exists.
-- [ ] Ensure market refresh occurs before strategy/report publication.
-- [ ] Ensure portfolio allocations and watchlist are refreshed from authoritative current-cycle data rather than merely consumed from older files.
+- [x] Canonical market-data status writer implemented and made atomic.
+- [x] Portfolio allocation evidence writer made atomic and Swing-owned.
+- [ ] Invoke market refresh before strategy/report publication.
+- [ ] Regenerate portfolio allocations from authoritative current-cycle inputs before downstream reports.
+- [ ] Ensure watchlist is refreshed from authoritative current-cycle data rather than merely consumed from an older file.
 - [ ] Wire every supported declared artifact into the same successful paper cycle.
 - [ ] Ensure required publication failure causes a nonzero cycle exit.
 - [ ] Validate timestamps/freshness and `SWING-001` ownership before final publication.
 
-### Task D — Canonical KPI alignment
+### Task D — Canonical KPI and allocation-governance alignment
 
 Status: **IN PROGRESS**
 
@@ -167,7 +211,8 @@ Status: **IN PROGRESS**
 - [x] KPI writes are atomic.
 - [x] Reconcile `opportunity_quality_report.json` with the external registration contract.
 - [x] Add KPI regression coverage for the registered Opportunity Quality filename.
-- [ ] Verify `$4,500.00` comes from governed allocation evidence and is not silently redefined by Swing in the full daily cycle.
+- [ ] Replace pre-existing hard-coded Phase 2 paper-ledger/portfolio Enterprise allocation ownership with the governed allocation discovery path without changing the governed `$4,500.00` value.
+- [ ] Verify `$4,500.00` comes from governed allocation evidence throughout the full daily cycle.
 - [ ] Verify unknown performance values remain null/not reported.
 - [ ] Verify allocation is never used as realized P&L or inferred performance.
 - [ ] Verify watchlist count exactly matches the current published watchlist.
@@ -179,6 +224,8 @@ Status: **STARTED**
 - [x] Registration repository-root and relative-path contract test added.
 - [x] Registration safety-lock test added.
 - [x] KPI Opportunity Quality artifact-path test added.
+- [x] Canonical market-data refresh status ownership/safety/atomicity test added.
+- [x] Portfolio allocation ownership/safety/atomicity test added.
 - [ ] every supported declared artifact is generated by a successful paper cycle;
 - [ ] every declared JSON parses;
 - [ ] ownership is `SWING-001` where the schema carries strategy ownership;
@@ -188,7 +235,7 @@ Status: **STARTED**
 - [ ] same-cycle reruns are deterministic/idempotent where appropriate;
 - [ ] governed allocation remains `$4,500.00` and is not performance;
 - [ ] watchlist count matches the published watchlist;
-- [ ] stale market data is clearly identified;
+- [x] stale required Enterprise history is rejected by the authentic market-data sync path;
 - [ ] Swing imports no Dividend production code;
 - [ ] Swing writers cannot modify AI CIO host repository paths.
 
@@ -224,6 +271,10 @@ After Swing publication succeeds:
 - `89bbd0ddaebcc014a8369baa42ebf26b5ec28fd5` — align KPI Opportunity Quality artifact filename.
 - `b20814d7317932438391d26f87e7d48f1e54e049` — KPI contract regression test.
 - `3fff72b136cc698ede27d476c41ad77e6ac1e4e8` — registration contract regression tests.
+- `e5e6ae2d78a286bd856429d8b2d3f415dc9351a8` — canonical/atomic market-data refresh status publication.
+- `76cd560fd4f03e2c1d86faa32a3b802975a5c1d4` — canonical market-data status regression coverage.
+- `f1d6e747105146da572cc4e6664d930b8a220209` — harden authentic portfolio allocation evidence publication.
+- `1802cf421e0de90128aec63550debd21ceebdb5e` — portfolio allocation ownership/safety/atomicity regression coverage.
 
 ## Evidence required before declaring integration complete
 
