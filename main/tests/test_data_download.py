@@ -69,7 +69,9 @@ class DataDownloadTests(unittest.TestCase):
 
             written = (Path(data_directory) / "SOXL.csv").read_text(encoding="utf-8")
 
-        self.assertEqual(run.summaries[0].source, "csv")
+        self.assertEqual(run.summaries[0].source, "historical_csv")
+        self.assertEqual(run.summaries[0].data_source, "HISTORICAL_CSV_FALLBACK")
+        self.assertFalse(run.summaries[0].is_stale)
         self.assertIn("2025-01-03", written)
 
     def test_merge_skips_duplicate_dates(self) -> None:
