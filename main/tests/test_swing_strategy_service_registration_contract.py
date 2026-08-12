@@ -11,8 +11,7 @@ EXPECTED_ARTIFACTS = {
     "monthly_command_center": "results/monthly_command_center.json",
     "opportunity_quality": "results/opportunity_quality_report.json",
     "portfolio_allocations": "results/portfolio_allocations.json",
-    "portfolio_risk": "results/portfolio_risk.json",
-    "position_lifecycle": "results/position_lifecycle.json",
+    "position_lifecycle": "results/trade_lifecycle_report.json",
     "stock_performance": "results/stock_performance_report.json",
     "strategy_kpis": "results/enterprise_strategy_kpis.json",
     "watchlist": "results/watchlist_report.json",
@@ -36,6 +35,18 @@ def test_registration_declares_authoritative_repository_root_and_relative_paths(
     assert artifacts == EXPECTED_ARTIFACTS
     assert all(not Path(path).is_absolute() for path in artifacts.values())
     assert all(path.startswith("results/") for path in artifacts.values())
+
+
+def test_registration_does_not_declare_unproduced_portfolio_risk_placeholder():
+    payload = _registration()
+    assert "portfolio_risk" not in payload["capabilities"]
+    assert all(row["artifact_id"] != "portfolio_risk" for row in payload["dashboard_artifacts"])
+
+
+def test_registration_uses_authentic_trade_lifecycle_producer_path():
+    payload = _registration()
+    artifacts = {row["artifact_id"]: row["path"] for row in payload["dashboard_artifacts"]}
+    assert artifacts["position_lifecycle"] == "results/trade_lifecycle_report.json"
 
 
 def test_registration_safety_flags_are_locked_for_paper_only_operation():
