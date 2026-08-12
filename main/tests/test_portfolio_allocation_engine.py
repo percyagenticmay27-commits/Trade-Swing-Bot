@@ -101,7 +101,7 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertEqual(rows[0].theme, "Semiconductors")
         self.assertEqual(rows[0].strategy_return, 22.5)
 
-    def test_report_files_are_written(self) -> None:
+    def test_report_files_are_written_as_swing_owned_paper_evidence(self) -> None:
         with workspace_temp_dir() as directory:
             report = PortfolioAllocationEngine().allocate(
                 [candidate("SOXL", "HIGH", 1, "Semiconductors")]
@@ -110,14 +110,23 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
             with csv_path.open(newline="", encoding="utf-8") as input_file:
                 rows = list(csv.DictReader(input_file))
             payload = json.loads(json_path.read_text(encoding="utf-8"))
+            temporary_files = list(directory.glob(".*.tmp"))
 
         self.assertEqual(rows[-1]["symbol"], "SGOV")
+        self.assertEqual(payload["strategy_id"], "SWING-001")
+        self.assertTrue(payload["generated_at"])
         self.assertTrue(payload["paper_trade_mode"])
+        self.assertTrue(payload["advisory_only"])
+        self.assertFalse(payload["live_trading_enabled"])
+        self.assertFalse(payload["broker_execution_enabled"])
+        self.assertFalse(payload["order_placement_enabled"])
+        self.assertFalse(payload["capital_movement_enabled"])
         self.assertIn("sgov_allocation", payload)
         self.assertTrue(payload["rank_controls_relative_allocation"])
         self.assertFalse(payload["theme_allocation_limit_enabled"])
         self.assertFalse(payload["strategy_assignment_boost_enabled"])
         self.assertFalse(payload["historical_return_weighting_enabled"])
+        self.assertEqual(temporary_files, [])
 
     def test_rebalance_table_includes_reserve(self) -> None:
         report = PortfolioAllocationEngine().allocate([candidate("SOXL", "HIGH", 1, "Semiconductors")])
