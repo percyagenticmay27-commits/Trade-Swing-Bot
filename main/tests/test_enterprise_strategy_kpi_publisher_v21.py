@@ -9,7 +9,7 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _safe_portfolio() -> dict:
+def _safe_portfolio(*, valuation_source: str = "PAPER_LEDGER_MARK_TO_MARKET") -> dict:
     return {
         "paper_trade_mode": True,
         "live_trading_enabled": False,
@@ -17,7 +17,7 @@ def _safe_portfolio() -> dict:
         "order_placement_enabled": False,
         "capital_movement_enabled": False,
         "direct_database_writes": False,
-        "valuation_source": "PAPER_LEDGER_MARK_TO_MARKET",
+        "valuation_source": valuation_source,
         "account_capital": 4500.0,
         "portfolio_value": 4550.0,
         "cash_balance": 2700.0,
@@ -29,26 +29,27 @@ def _safe_portfolio() -> dict:
     }
 
 
+def _positions() -> dict:
+    return {
+        "paper_trade_mode": True,
+        "positions": [
+            {
+                "symbol": "SOXL",
+                "shares": 3.0,
+                "entry_price": 300.0,
+                "current_price": 310.0,
+                "market_value": 930.0,
+                "unrealized_pnl": 30.0,
+                "unrealized_pnl_percent": 3.3333,
+                "active_strategy": "Strategy A",
+            }
+        ],
+    }
+
+
 def test_v21_publishes_dashboard_sections_and_artifact_contract(tmp_path):
     _write(tmp_path / "paper_ledger/paper_portfolio_summary.json", _safe_portfolio())
-    _write(
-        tmp_path / "paper_ledger/paper_portfolio_positions.json",
-        {
-            "paper_trade_mode": True,
-            "positions": [
-                {
-                    "symbol": "SOXL",
-                    "shares": 3.0,
-                    "entry_price": 300.0,
-                    "current_price": 310.0,
-                    "market_value": 930.0,
-                    "unrealized_pnl": 30.0,
-                    "unrealized_pnl_percent": 3.3333,
-                    "active_strategy": "Strategy A",
-                }
-            ],
-        },
-    )
+    _write(tmp_path / "paper_ledger/paper_portfolio_positions.json", _positions())
     _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
 
     payload = publisher.build_enterprise_strategy_kpis_v21(
@@ -64,6 +65,26 @@ def test_v21_publishes_dashboard_sections_and_artifact_contract(tmp_path):
     assert payload["artifact_contract"]
     assert all(Path(row["path"]).is_absolute() for row in payload["artifact_contract"])
     assert all(row["required"] is False for row in payload["artifact_contract"])
+
+
+def test_v21_accepts_split_adjusted_current_paper_portfolio(tmp_path):
+    _write(
+        tmp_path / "paper_ledger/paper_portfolio_summary.json",
+        _safe_portfolio(valuation_source="PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"),
+    )
+    _write(tmp_path / "paper_ledger/paper_portfolio_positions.json", _positions())
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    assert payload["portfolio_value_source"] == "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
+    assert payload["portfolio_value"] == 4550.0
+    assert payload["cash_balance"] == 2700.0
+    assert payload["invested_capital"] == 1800.0
+    assert payload["open_positions"][0]["symbol"] == "SOXL"
 
 
 def test_v21_uses_registered_opportunity_quality_report_filename(tmp_path):
@@ -89,6 +110,48 @@ def test_v21_uses_registered_opportunity_quality_report_filename(tmp_path):
     assert row["relative_path"] == "opportunity_quality_report.json"
     assert row["available"] is True
     assert payload["strategy_intelligence"]["opportunity_quality_evidence"]["strategy_id"] == "SWING-001"
+    assert payload["opportunity_quality"] == 77.5
+
+
+def test_v21_extracts_current_opportunity_quality_from_report_rows(tmp_path):
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write(
+        tmp_path / "opportunity_quality_report.json",
+        {
+            "paper_trade_mode": True,
+            "rows": [
+                {"symbol": "NBIS", "opportunity_quality_score": 15.458},
+                {"symbol": "OTHER", "opportunity_quality_score": 9.0},
+            ],
+        },
+    )
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    assert payload["opportunity_quality"] == 15.458
+    assert payload["dashboard_sections"]["opportunity_quality"]["score"] == 15.458
+
+
+def test_watchlist_win_rate_never_becomes_strategy_win_rate(tmp_path):
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write(
+        tmp_path / "watchlist_report.json",
+        {
+            "paper_trade_mode": True,
+            "rows": [{"underlying_symbol": "NBIS", "win_rate": 45.0}],
+        },
+    )
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    assert payload["win_rate_percent"] is None
+    assert payload["performance_summary"]["win_rate_percent"] is None
 
 
 def test_v21_optional_missing_evidence_is_disclosed_not_fabricated(tmp_path):
