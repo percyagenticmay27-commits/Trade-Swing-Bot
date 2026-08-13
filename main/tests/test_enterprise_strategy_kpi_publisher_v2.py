@@ -30,6 +30,10 @@ def _safe(**values):
     }
 
 
+def _swing_allocation(amount: float = 4500.0) -> dict:
+    return {"strategy_allocations": {"SWING-001": amount}}
+
+
 def _full_results(root: Path) -> None:
     _write(root / "portfolio_allocations.json", {"allocations": []})
     _write(
@@ -98,7 +102,7 @@ def test_v2_publishes_portfolio_holdings_performance_and_strategy_evidence(tmp_p
     _full_results(tmp_path)
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+        strategy_allocations=_swing_allocation(),
     )
 
     assert payload["kpi_contract_version"] == "2.0"
@@ -120,7 +124,7 @@ def test_v2_publishes_portfolio_holdings_performance_and_strategy_evidence(tmp_p
 def test_capabilities_are_deterministic_sorted_and_unique(tmp_path: Path):
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 4500.0},
+        strategy_allocations=_swing_allocation(),
     )
     assert payload["capabilities"] == sorted(set(CAPABILITIES))
 
@@ -129,7 +133,7 @@ def test_missing_optional_analytics_are_disclosed_not_fabricated(tmp_path: Path)
     _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 4500.0},
+        strategy_allocations=_swing_allocation(),
     )
     assert payload["evidence_status"] == "PARTIAL"
     assert payload["win_rate_percent"] is None
@@ -146,7 +150,7 @@ def test_unsafe_performance_evidence_is_rejected(tmp_path: Path):
     with pytest.raises(ValueError, match="unsafe value"):
         build_enterprise_strategy_kpis(
             tmp_path,
-            strategy_allocations={"SWING-001": 4500.0},
+            strategy_allocations=_swing_allocation(),
         )
 
 
@@ -158,7 +162,7 @@ def test_ledger_capital_cannot_use_total_account_capital(tmp_path: Path):
     with pytest.raises(ValueError, match="SWING-001 allocation"):
         build_enterprise_strategy_kpis(
             tmp_path,
-            strategy_allocations={"SWING-001": 4500.0},
+            strategy_allocations=_swing_allocation(),
         )
 
 
@@ -166,7 +170,7 @@ def test_atomic_publication_and_v2_validation(tmp_path: Path):
     _full_results(tmp_path)
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 4500.0},
+        strategy_allocations=_swing_allocation(),
     )
     output = write_enterprise_strategy_kpis(payload, tmp_path / "enterprise_strategy_kpis.json")
     assert output.exists()
@@ -178,7 +182,7 @@ def test_atomic_publication_and_v2_validation(tmp_path: Path):
 def test_unsafe_top_level_safety_values_are_rejected(tmp_path: Path):
     payload = build_enterprise_strategy_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 4500.0},
+        strategy_allocations=_swing_allocation(),
     )
     payload["live_trading_enabled"] = True
     assert "live_trading_enabled must be false" in validate_enterprise_strategy_kpis(payload)
