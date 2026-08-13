@@ -80,6 +80,20 @@ def test_missing_reports_list_rejected() -> None:
     assert any("required_strategy_reports" in error for error in cycle.validate_cycle_config(payload))
 
 
+def test_runtime_refresh_config_requires_relative_input_paths() -> None:
+    payload = _base_config()
+    payload["runtime_evidence_refresh"] = {
+        "enabled": True,
+        "watchlist": {},
+        "portfolio_allocation": {},
+        "paper_ledger": {},
+    }
+    errors = cycle.validate_cycle_config(payload)
+    assert any("watchlist.candidates_path" in error for error in errors)
+    assert any("portfolio_allocation.confidence_path" in error for error in errors)
+    assert any("paper_ledger.ledger_dir" in error for error in errors)
+
+
 def test_atomic_write_text_replaces_existing_file(tmp_path: Path) -> None:
     destination = tmp_path / "report.md"
     destination.write_text("old", encoding="utf-8")
@@ -234,6 +248,123 @@ def test_static_artifact_is_published_atomically(tmp_path: Path, monkeypatch: py
     cycle.run_swing_daily_cycle(tmp_path)
     assert json.loads((tmp_path / "results/swing_plugin_manifest.json").read_text(encoding="utf-8"))["plugin_id"] == "SWING-001"
     assert not (tmp_path / "results/swing_plugin_manifest.json.tmp").exists()
+
+
+def test_strategy_producer_order_builds_quality_before_committees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "results"
+    output.mkdir()
+    calls: list[str] = []
+
+    def quality_inputs(results_dir, path):
+        calls.append("quality_inputs")
+        _write(Path(path), {"paper_trade_mode": True, "entry_score_display_only": True, "rows": [{"symbol": "TOP"}]})
+        return Path(path)
+
+    def quality_report(**kwargs):
+        calls.append("quality_report")
+        _write(output / "opportunity_quality_report.json", {"rows": [{"symbol": "TOP", "opportunity_quality_score": 80, "entry_score": 75, "thesis_intact": True}]})
+
+    def committee(results_dir, path, **kwargs):
+        calls.append("committee_runtime")
+        _write(
+            Path(path),
+            {
+                "evaluation_cycle_id": "CYCLE",
+                "symbol": "TOP",
+                "strategy_id": "STRATEGY_A",
+                "committee_steps": [{"committee_id": "DISCOVERY_COMMITTEE", "sequence": 1, "status": "PASS", "reason_codes": [], "evidence": {}, "source_artifacts": []}],
+                "final_status": "WAIT",
+                "source_artifacts": [],
+                "bias_audit": {},
+            },
+        )
+        return Path(path)
+
+    monkeypatch.setattr(cycle, "build_and_write_opportunity_quality_inputs", quality_inputs)
+    monkeypatch.setattr(cycle, "build_opportunity_quality_report", quality_report)
+    monkeypatch.setattr(cycle, "build_and_write_runtime_evidence", committee)
+    monkeypatch.setattr(cycle, "build_committee_step", lambda **kwargs: kwargs)
+    monkeypatch.setattr(cycle, "build_decision_trace", lambda **kwargs: {"trace": True})
+    monkeypatch.setattr(cycle, "write_decision_trace", lambda payload, path: calls.append("decision_trace") or _write(Path(path), payload))
+    monkeypatch.setattr(cycle, "build_and_write_stock_performance_report", lambda *args, **kwargs: calls.append("stock_performance"))
+    monkeypatch.setattr(cycle, "build_and_write_weekly_stock_report", lambda *args, **kwargs: calls.append("weekly"))
+    monkeypatch.setattr(cycle, "build_executive_dashboard", lambda *args, **kwargs: calls.append("executive"))
+    monkeypatch.setattr(cycle, "build_monthly_command_center", lambda *args, **kwargs: calls.append("monthly"))
+
+    config = _base_config()
+    errors: list[str] = []
+    published: list[str] = []
+    stages: list[str] = []
+    result = cycle._produce_strategy_reports(
+        tmp_path,
+        output,
+        config,
+        "2026-08-13T01:30:26Z",
+        errors,
+        published,
+        lambda name, passed, message: stages.append(name),
+    )
+
+    assert result is True
+    assert errors == []
+    assert calls[:4] == ["quality_inputs", "quality_report", "committee_runtime", "decision_trace"]
+    assert calls.index("stock_performance") > calls.index("decision_trace")
+    assert stages[:4] == ["OPPORTUNITY_QUALITY_INPUTS", "OPPORTUNITY_QUALITY", "COMMITTEE_RUNTIME_EVIDENCE", "COMMITTEE_DECISION_TRACE"]
+
+
+def test_current_runtime_artifacts_are_rebuilt_even_when_old_files_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "results"
+    output.mkdir()
+    _write(output / "opportunity_quality_inputs.json", {"stale": True})
+    _write(output / "trace_evidence.json", {"stale": True})
+    calls = {"quality": 0, "committee": 0}
+
+    def quality_inputs(results_dir, path):
+        calls["quality"] += 1
+        _write(Path(path), {"rows": [{"symbol": "TOP"}]})
+        return Path(path)
+
+    def quality_report(**kwargs):
+        _write(output / "opportunity_quality_report.json", {"rows": [{"symbol": "TOP", "opportunity_quality_score": 10}]})
+
+    def committee(results_dir, path, **kwargs):
+        calls["committee"] += 1
+        _write(
+            Path(path),
+            {
+                "evaluation_cycle_id": "CYCLE",
+                "symbol": "TOP",
+                "strategy_id": "STRATEGY_A",
+                "committee_steps": [{"committee_id": "DISCOVERY_COMMITTEE", "sequence": 1, "status": "PASS", "reason_codes": [], "evidence": {}, "source_artifacts": []}],
+                "final_status": "WAIT",
+                "source_artifacts": [],
+                "bias_audit": {},
+            },
+        )
+        return Path(path)
+
+    monkeypatch.setattr(cycle, "build_and_write_opportunity_quality_inputs", quality_inputs)
+    monkeypatch.setattr(cycle, "build_opportunity_quality_report", quality_report)
+    monkeypatch.setattr(cycle, "build_and_write_runtime_evidence", committee)
+    monkeypatch.setattr(cycle, "build_committee_step", lambda **kwargs: kwargs)
+    monkeypatch.setattr(cycle, "build_decision_trace", lambda **kwargs: {"trace": True})
+    monkeypatch.setattr(cycle, "write_decision_trace", lambda payload, path: _write(Path(path), payload))
+    monkeypatch.setattr(cycle, "build_and_write_stock_performance_report", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cycle, "build_and_write_weekly_stock_report", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cycle, "build_executive_dashboard", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cycle, "build_monthly_command_center", lambda *args, **kwargs: None)
+
+    errors: list[str] = []
+    assert cycle._produce_strategy_reports(
+        tmp_path,
+        output,
+        _base_config(),
+        "2026-08-13T01:30:26Z",
+        errors,
+        [],
+        lambda *args: None,
+    ) is True
+    assert calls == {"quality": 1, "committee": 1}
 
 
 def test_cli_returns_zero_for_complete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
