@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -97,9 +98,35 @@ class PortfolioManager:
         self,
         current_positions: Sequence[CurrentPosition],
         target_allocations: Sequence[TargetAllocation],
+        *,
+        total_portfolio_value: float | None = None,
+        current_cash_reserve: float = 0.0,
     ) -> PortfolioManagerResult:
-        """Generate BUY/SELL/HOLD/MOVE_TO_SGOV actions without execution."""
-        total_value = sum(position.market_value for position in current_positions)
+        """Generate paper-only rebalance recommendations without execution.
+
+        ``total_portfolio_value`` and ``current_cash_reserve`` are optional for
+        backward compatibility. When provided by the marked-to-market paper
+        ledger they make current allocation percentages account-level rather than
+        incorrectly normalizing only across invested positions. Cash reserve is
+        represented only for allocation math; it is never manufactured as a
+        paper holding.
+        """
+        positions_value = sum(position.market_value for position in current_positions)
+        if not math.isfinite(current_cash_reserve) or current_cash_reserve < 0:
+            raise ValueError("current_cash_reserve must be finite and nonnegative")
+        if total_portfolio_value is None:
+            total_value = positions_value
+            reserve_value_for_current = 0.0
+        else:
+            if not math.isfinite(total_portfolio_value) or total_portfolio_value <= 0:
+                raise ValueError("total_portfolio_value must be finite and positive")
+            total_value = float(total_portfolio_value)
+            reserve_value_for_current = float(current_cash_reserve)
+            reconciled = positions_value + reserve_value_for_current
+            if abs(reconciled - total_value) > 0.05:
+                raise ValueError(
+                    "current paper positions plus cash reserve must reconcile to total_portfolio_value"
+                )
         if total_value <= 0:
             raise ValueError("current portfolio market value must be positive")
 
@@ -112,7 +139,13 @@ class PortfolioManager:
         for symbol in symbols:
             current = current_by_symbol.get(symbol)
             target = target_by_symbol.get(symbol, TargetAllocation(symbol, 0.0))
-            current_allocation = 0.0 if current is None else (current.market_value / total_value) * 100.0
+            if current is not None:
+                current_value = current.market_value
+            elif symbol == RESERVE_SYMBOL and total_portfolio_value is not None:
+                current_value = reserve_value_for_current
+            else:
+                current_value = 0.0
+            current_allocation = (current_value / total_value) * 100.0
             target_allocation = target.allocation_percent
             difference = target_allocation - current_allocation
             action = _action_for(symbol, difference, target_allocation, self.tolerance_percent)
@@ -159,11 +192,15 @@ def build_portfolio_manager_report(
     target_portfolio_path: Path,
     output_dir: Path,
     paper_trade_mode: bool = True,
+    total_portfolio_value: float | None = None,
+    current_cash_reserve: float = 0.0,
 ) -> PortfolioManagerResult:
     """Read input CSVs, generate actions, and write outputs."""
     result = PortfolioManager(paper_trade_mode=paper_trade_mode).rebalance(
         read_current_positions(current_portfolio_path),
         read_target_allocations(target_portfolio_path),
+        total_portfolio_value=total_portfolio_value,
+        current_cash_reserve=current_cash_reserve,
     )
     write_manager_outputs(output_dir, result)
     return result
