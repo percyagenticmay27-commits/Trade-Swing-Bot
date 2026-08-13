@@ -7,6 +7,7 @@ modify strategy calculations, place orders, move capital, or import host code.
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -16,13 +17,16 @@ from typing import Any, Mapping
 from .enterprise_strategy_kpi_publisher import (
     DEFAULT_STRATEGY_ALLOCATIONS_PATH,
     STRATEGY_ID,
+    _find_numeric,
+    _holdings,
     _load_json,
+    _require_safe_source,
     build_enterprise_strategy_kpis,
     validate_enterprise_strategy_kpis,
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.5"
+MODULE_VERSION = "2.1.6"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -51,6 +55,11 @@ _LEGACY_ALLOCATION_VALIDATION_ERRORS = {
     "allocation provenance source must match allocation_source",
 }
 
+_ACCEPTED_PORTFOLIO_VALUATION_SOURCES = {
+    "PAPER_LEDGER_MARK_TO_MARKET",
+    "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET",
+}
+
 
 def _artifact_contract(results_dir: Path) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
@@ -76,6 +85,75 @@ def _load_optional(results_dir: Path, relative_path: str) -> dict[str, Any] | No
     return _load_json(results_dir / relative_path)
 
 
+def _finite(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _current_opportunity_score(payload: Mapping[str, Any] | None) -> float | None:
+    direct = _find_numeric(payload, ("opportunity_quality_score", "opportunity_quality", "score"))
+    if direct is not None:
+        return direct
+    rows = payload.get("rows") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list):
+        return None
+    scores: list[float] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        value = _find_numeric(row, ("opportunity_quality_score", "opportunity_quality", "score"))
+        if value is not None:
+            scores.append(value)
+    return max(scores) if scores else None
+
+
+def _apply_current_paper_portfolio(
+    base: dict[str, Any],
+    summary: Mapping[str, Any] | None,
+    positions: Mapping[str, Any] | None,
+    warnings: list[str],
+) -> None:
+    if not summary:
+        return
+    _require_safe_source(summary, "paper_portfolio_summary")
+    valuation_source = str(summary.get("valuation_source", "")).strip()
+    if valuation_source not in _ACCEPTED_PORTFOLIO_VALUATION_SOURCES:
+        return
+
+    allocated = _finite(base.get("allocated_capital"))
+    account_capital = _finite(summary.get("account_capital"))
+    if allocated is None or account_capital is None or abs(allocated - account_capital) > 0.01:
+        raise ValueError("current paper portfolio account_capital must match governed SWING-001 allocation")
+
+    required = {
+        "portfolio_value": _finite(summary.get("portfolio_value")),
+        "cash_balance": _finite(summary.get("cash_balance")),
+        "invested_capital": _finite(summary.get("invested_capital")),
+        "positions_market_value": _finite(summary.get("positions_market_value")),
+        "unrealized_pnl": _finite(summary.get("unrealized_pnl")),
+        "portfolio_return_percent": _finite(summary.get("portfolio_return_percent")),
+    }
+    position_count = summary.get("position_count")
+    if any(value is None for value in required.values()) or not isinstance(position_count, int) or position_count < 0:
+        return
+
+    holdings = _holdings(positions)
+    if positions is not None and len(holdings) != position_count:
+        warnings.append("Detailed holdings count does not match the current paper portfolio position count.")
+
+    base.update(
+        {
+            **required,
+            "position_count": position_count,
+            "open_positions": holdings,
+            "portfolio_value_source": valuation_source,
+        }
+    )
+
+
 def build_enterprise_strategy_kpis_v21(
     results_dir: str | Path = "results",
     *,
@@ -94,6 +172,8 @@ def build_enterprise_strategy_kpis_v21(
     executive = _load_optional(root, "executive_dashboard.json")
     opportunity = _load_optional(root, "opportunity_quality_report.json")
     watchlist = _load_optional(root, "watchlist_report.json")
+    portfolio_summary = _load_optional(root, "paper_ledger/paper_portfolio_summary.json")
+    paper_positions = _load_optional(root, "paper_ledger/paper_portfolio_positions.json")
 
     artifacts = _artifact_contract(root)
     available_artifacts = [item["artifact_id"] for item in artifacts if item["available"]]
@@ -104,6 +184,11 @@ def build_enterprise_strategy_kpis_v21(
         warnings.append(
             "Optional evidence unavailable: " + ", ".join(sorted(missing_optional_artifacts))
         )
+
+    _apply_current_paper_portfolio(base, portfolio_summary, paper_positions, warnings)
+    current_opportunity_score = _current_opportunity_score(opportunity)
+    if current_opportunity_score is not None:
+        base["opportunity_quality"] = current_opportunity_score
 
     allocation_provenance = dict(base.get("allocation_provenance", {}))
     portfolio_section = {
