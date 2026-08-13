@@ -1,38 +1,54 @@
 """Unified paper-only orchestration cycle for Swing Bot CIO publication.
 
-The cycle coordinates existing artifacts and governance modules. It never connects
-with a broker, places orders, moves capital, changes strategy policy, or writes to
-a database. Runtime strategy reports must already be produced by their owning
-engines; this coordinator validates and publishes the CIO contract around them.
+The cycle coordinates existing Swing-owned producers in dependency order. It
+never connects with a broker, places orders, moves capital, changes strategy
+policy, or writes to the AI CIO host. Current runtime evidence is refreshed before
+downstream reports are published so new reports cannot silently consume stale
+watchlist, allocation, committee, or paper-ledger artifacts.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .discovery_engine import (
+    DiscoveryEngine,
+    load_candidates,
+    load_financial_health,
+    load_mentions,
+    write_watchlist_reports,
+)
+from .enterprise_strategy_allocation_discovery import (
+    load_discovered_strategy_allocations,
+    resolve_strategy_allocation_evidence,
+)
+from .executive_dashboard import build_executive_dashboard
+from .monthly_command_center import build_monthly_command_center
+from .opportunity_quality_engine import build_opportunity_quality_report
+from .opportunity_quality_inputs import build_and_write_opportunity_quality_inputs
+from .paper_portfolio_manager import build_and_write_paper_portfolio_report
+from .performance_analytics_engine import build_and_write_performance_analytics_report
+from .portfolio_allocation_engine import build_portfolio_allocation_report
+from .stock_performance_report import build_and_write_stock_performance_report
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
 from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
-from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
 from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
-from .opportunity_quality_engine import build_opportunity_quality_report
-from .opportunity_quality_inputs import build_and_write_opportunity_quality_inputs
-from .stock_performance_report import build_and_write_stock_performance_report
-from .weekly_stock_report import build_and_write_weekly_stock_report
-from .executive_dashboard import build_executive_dashboard
-from .monthly_command_center import build_monthly_command_center
+from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
 from .swing_local_filesystem_integration import (
     atomic_write_json,
     build_local_filesystem_registration,
     validate_integration_config,
 )
+from .trade_history_manager import build_and_write_trade_history_report
+from .weekly_stock_report import build_and_write_weekly_stock_report
 
 MODULE_NAME = "swing_daily_cycle"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.1.0"
 CYCLE_SCHEMA_VERSION = "1.0"
 PLUGIN_ID = "SWING-001"
 
@@ -82,12 +98,40 @@ def validate_cycle_config(payload: Mapping[str, Any]) -> list[str]:
     static = payload.get("static_artifacts")
     if not isinstance(static, Mapping) or not static:
         errors.append("static_artifacts must be a non-empty object")
-    for field in ("validation_config", "acceptance_config", "freeze_config", "local_integration_config", "decision_trace_path", "decision_trace_evidence_path", "opportunity_quality_input_path"):
+    for field in (
+        "validation_config",
+        "acceptance_config",
+        "freeze_config",
+        "local_integration_config",
+        "decision_trace_path",
+        "decision_trace_evidence_path",
+        "opportunity_quality_input_path",
+    ):
         if not isinstance(payload.get(field), str) or not str(payload.get(field)).strip():
             errors.append(f"{field} must be a non-empty relative path")
     reports = payload.get("required_strategy_reports")
     if not isinstance(reports, Sequence) or isinstance(reports, (str, bytes)) or not reports:
         errors.append("required_strategy_reports must be a non-empty list")
+
+    refresh = payload.get("runtime_evidence_refresh")
+    if refresh is not None:
+        if not isinstance(refresh, Mapping):
+            errors.append("runtime_evidence_refresh must be an object")
+        elif refresh.get("enabled") is True:
+            for section_name, fields in {
+                "watchlist": ("candidates_path", "mentions_path", "financial_health_path"),
+                "portfolio_allocation": ("confidence_path", "strategy_recommendations_path"),
+                "paper_ledger": ("ledger_dir", "data_dir"),
+            }.items():
+                section = refresh.get(section_name)
+                if not isinstance(section, Mapping):
+                    errors.append(f"runtime_evidence_refresh.{section_name} must be an object")
+                    continue
+                for field in fields:
+                    if not isinstance(section.get(field), str) or not str(section.get(field)).strip():
+                        errors.append(
+                            f"runtime_evidence_refresh.{section_name}.{field} must be a non-empty relative path"
+                        )
     return errors
 
 
@@ -120,6 +164,165 @@ def _readiness_alias(report: Mapping[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _cycle_date(generated_at: str) -> date:
+    try:
+        return date.fromisoformat(generated_at[:10])
+    except ValueError:
+        return date.today()
+
+
+def _runtime_refresh_config(config: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    value = config.get("runtime_evidence_refresh")
+    if isinstance(value, Mapping) and value.get("enabled") is True:
+        return value
+    return None
+
+
+def _refresh_watchlist(
+    root: Path,
+    output_dir: Path,
+    refresh: Mapping[str, Any],
+    generated_at: str,
+    published: list[str],
+) -> None:
+    section = refresh.get("watchlist")
+    if not isinstance(section, Mapping):
+        raise ValueError("runtime watchlist refresh configuration is unavailable")
+    candidates_path = root / str(section.get("candidates_path", ""))
+    mentions_path = root / str(section.get("mentions_path", ""))
+    financial_health_path = root / str(section.get("financial_health_path", ""))
+    for label, path in (
+        ("candidate state", candidates_path),
+        ("discovery mentions", mentions_path),
+        ("financial health", financial_health_path),
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"Current watchlist {label} input is missing: {path}")
+
+    as_of = _cycle_date(generated_at)
+    rows = DiscoveryEngine(paper_trade_mode=True).evaluate(
+        load_candidates(candidates_path),
+        load_mentions(mentions_path),
+        load_financial_health(financial_health_path),
+        as_of=as_of,
+    )
+    csv_path, json_path = write_watchlist_reports(output_dir, rows)
+    payload = load_json(json_path)
+    payload.update(
+        {
+            "strategy_id": PLUGIN_ID,
+            "generated_at_utc": generated_at,
+            "as_of_date": as_of.isoformat(),
+            "freshness_status": "CURRENT_CYCLE",
+            "source_artifacts": [
+                str(candidates_path.relative_to(root)),
+                str(mentions_path.relative_to(root)),
+                str(financial_health_path.relative_to(root)),
+            ],
+            "candidate_state_source": str(candidates_path.relative_to(root)),
+            "screening_performance_scope": "CANDIDATE_LIFECYCLE_INPUT_NOT_STRATEGY_PERFORMANCE",
+        }
+    )
+    atomic_write_json(payload, json_path)
+    published.extend([str(csv_path), str(json_path)])
+
+
+def _refresh_allocation_and_paper_evidence(
+    root: Path,
+    output_dir: Path,
+    refresh: Mapping[str, Any],
+    generated_at: str,
+    published: list[str],
+) -> None:
+    allocation_cfg = refresh.get("portfolio_allocation")
+    if not isinstance(allocation_cfg, Mapping):
+        raise ValueError("runtime portfolio allocation configuration is unavailable")
+    confidence_path = root / str(allocation_cfg.get("confidence_path", ""))
+    strategy_path = root / str(allocation_cfg.get("strategy_recommendations_path", ""))
+    watchlist_path = output_dir / "watchlist_report.json"
+    for label, path in (
+        ("confidence", confidence_path),
+        ("strategy recommendations", strategy_path),
+        ("watchlist", watchlist_path),
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"Current portfolio allocation {label} input is missing: {path}")
+
+    build_portfolio_allocation_report(
+        confidence_path=confidence_path,
+        watchlist_path=watchlist_path,
+        strategy_recommendations_path=strategy_path,
+        output_dir=output_dir,
+        paper_trade_mode=True,
+    )
+    published.extend([
+        str(output_dir / "portfolio_allocations.csv"),
+        str(output_dir / "portfolio_allocations.json"),
+    ])
+
+    ledger_cfg = refresh.get("paper_ledger")
+    if not isinstance(ledger_cfg, Mapping):
+        raise ValueError("runtime paper ledger configuration is unavailable")
+    ledger_dir = root / str(ledger_cfg.get("ledger_dir", ""))
+    data_dir = root / str(ledger_cfg.get("data_dir", ""))
+    if not (ledger_dir / "open_positions.json").is_file():
+        raise FileNotFoundError(f"Paper open-position state is missing: {ledger_dir / 'open_positions.json'}")
+    if not (ledger_dir / "trade_history.json").is_file():
+        raise FileNotFoundError(f"Paper trade history is missing: {ledger_dir / 'trade_history.json'}")
+
+    allocations_payload, allocation_source_path = load_discovered_strategy_allocations()
+    allocation_evidence = resolve_strategy_allocation_evidence(allocations_payload, PLUGIN_ID)
+    account_capital = float(allocation_evidence["allocated_capital"])
+    if account_capital <= 0:
+        raise ValueError("Governed SWING-001 allocation must be positive")
+
+    max_price_age_days = int(ledger_cfg.get("max_price_age_days", 5))
+    build_and_write_paper_portfolio_report(
+        ledger_dir=ledger_dir,
+        data_dir=data_dir,
+        output_dir=ledger_dir,
+        account_capital=account_capital,
+        as_of=_cycle_date(generated_at),
+        max_price_age_days=max_price_age_days,
+    )
+    summary_path = ledger_dir / "paper_portfolio_summary.json"
+    summary = load_json(summary_path)
+    summary.update(
+        {
+            "strategy_id": PLUGIN_ID,
+            "account_capital_source": "AI_CIO_ENTERPRISE_EVIDENCE",
+            "account_capital_source_path": str(allocation_source_path.resolve()),
+            "account_capital_source_json_path": allocation_evidence.get("allocation_source_json_path"),
+            "account_capital_evidence_schema": allocation_evidence.get("allocation_evidence_schema"),
+        }
+    )
+    atomic_write_json(summary, summary_path)
+    published.extend([
+        str(summary_path),
+        str(ledger_dir / "paper_portfolio_positions.json"),
+    ])
+
+    build_and_write_trade_history_report(
+        trade_history_path=ledger_dir / "trade_history.json",
+        output_dir=ledger_dir,
+    )
+    published.extend([
+        str(ledger_dir / "managed_trade_history.json"),
+        str(ledger_dir / "closed_positions.json"),
+        str(ledger_dir / "trade_history_summary.json"),
+    ])
+
+    build_and_write_performance_analytics_report(
+        ledger_dir=ledger_dir,
+        output_dir=ledger_dir,
+    )
+    published.extend([
+        str(ledger_dir / "paper_performance.json"),
+        str(ledger_dir / "paper_performance.csv"),
+        str(ledger_dir / "paper_performance.md"),
+    ])
+
+
 def _produce_strategy_reports(
     root: Path,
     output_dir: Path,
@@ -129,22 +332,46 @@ def _produce_strategy_reports(
     published: list[str],
     stage: Callable[[str, bool, str], None],
 ) -> bool:
-    """Run authentic report producers in their frozen dependency order."""
+    """Run authentic producers in current-evidence dependency order."""
+    refresh = _runtime_refresh_config(config)
+    try:
+        if refresh is not None:
+            _refresh_watchlist(root, output_dir, refresh, generated_at, published)
+        quality_input_path = root / str(config.get("opportunity_quality_input_path", ""))
+        build_and_write_opportunity_quality_inputs(output_dir, quality_input_path)
+        published.append(str(quality_input_path))
+        stage("OPPORTUNITY_QUALITY_INPUTS", True, "Opportunity Quality inputs were rebuilt from the current ranked watchlist")
+        build_opportunity_quality_report(
+            input_path=quality_input_path,
+            output_dir=output_dir,
+            paper_trade_mode=True,
+        )
+        for suffix in ("csv", "json", "md"):
+            published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
+        stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality was rebuilt before committee evaluation")
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Opportunity Quality input or report production failed: {exc}")
+        stage("OPPORTUNITY_QUALITY_INPUTS", False, "Opportunity Quality input assembly or current watchlist refresh failed safely")
+        stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
+        stage("COMMITTEE_RUNTIME_EVIDENCE", False, "Skipped because current Opportunity Quality did not complete")
+        stage("COMMITTEE_DECISION_TRACE", False, "Skipped because committee runtime evidence did not complete")
+        stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because current runtime evidence did not complete")
+        stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
+        stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
+        stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
 
     evidence_relative = str(config.get("decision_trace_evidence_path", ""))
     evidence_path = root / evidence_relative
     try:
-        if not evidence_path.is_file():
-            build_and_write_runtime_evidence(
-                output_dir,
-                evidence_path,
-                generated_at_utc=generated_at,
-                paper_trade_mode=True,
-            )
-            published.append(str(evidence_path))
-            stage("COMMITTEE_RUNTIME_EVIDENCE", True, "Highest-ranked candidate evidence was produced from current reports")
-        else:
-            stage("COMMITTEE_RUNTIME_EVIDENCE", True, "Existing committee runtime evidence is available")
+        build_and_write_runtime_evidence(
+            output_dir,
+            evidence_path,
+            generated_at_utc=generated_at,
+            paper_trade_mode=True,
+        )
+        published.append(str(evidence_path))
+        stage("COMMITTEE_RUNTIME_EVIDENCE", True, "Committees consumed the current ranked watchlist and freshly generated Opportunity Quality")
         evidence = load_json(evidence_path)
         raw_steps = evidence.get("committee_steps")
         if not isinstance(raw_steps, list) or not raw_steps:
@@ -179,40 +406,20 @@ def _produce_strategy_reports(
         trace_path = root / str(config.get("decision_trace_path", ""))
         write_decision_trace(trace, trace_path)
         published.append(str(trace_path))
-        stage("COMMITTEE_DECISION_TRACE", True, "Authentic committee trace was produced from runtime evidence")
+        stage("COMMITTEE_DECISION_TRACE", True, "Authentic committee trace was produced from current-cycle runtime evidence")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Committee runtime evidence or decision trace production failed: {exc}")
-        if not evidence_path.is_file():
-            stage("COMMITTEE_RUNTIME_EVIDENCE", False, "Committee runtime evidence production failed safely")
+        stage("COMMITTEE_RUNTIME_EVIDENCE", False, "Committee runtime evidence production failed safely")
         stage("COMMITTEE_DECISION_TRACE", False, "Committee trace production failed safely")
-        _mark_skipped_producers(stage, "Opportunity Quality depends on the committee trace")
-        return False
-
-    try:
-        quality_input_path = root / str(config.get("opportunity_quality_input_path", ""))
-        if not quality_input_path.is_file():
-            build_and_write_opportunity_quality_inputs(output_dir, quality_input_path)
-            published.append(str(quality_input_path))
-        stage("OPPORTUNITY_QUALITY_INPUTS", True, "Opportunity Quality inputs were assembled from authentic available evidence")
-        build_opportunity_quality_report(
-            input_path=quality_input_path,
-            output_dir=output_dir,
-            paper_trade_mode=True,
-        )
-        for suffix in ("csv", "json", "md"):
-            published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
-        stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality reports were produced from existing inputs")
-    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"Opportunity Quality input or report production failed: {exc}")
-        stage("OPPORTUNITY_QUALITY_INPUTS", False, "Opportunity Quality input assembly or validation failed safely")
-        stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
-        stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
+        stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because committee evidence did not complete")
         stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
         stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
         stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
         return False
 
     try:
+        if refresh is not None:
+            _refresh_allocation_and_paper_evidence(root, output_dir, refresh, generated_at, published)
         build_and_write_stock_performance_report(
             output_dir / "strategy_comparison.json",
             output_dir / "strategy_recommendations.csv",
@@ -223,10 +430,10 @@ def _produce_strategy_reports(
         )
         for suffix in ("csv", "json", "md"):
             published.append(str(output_dir / f"stock_performance_report.{suffix}"))
-        stage("STOCK_PERFORMANCE_REPORT", True, "Stock Performance reports were produced from existing paper outputs")
+        stage("STOCK_PERFORMANCE_REPORT", True, "Stock Performance consumed current allocation and refreshed paper evidence")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"Stock Performance production failed: {exc}")
-        stage("STOCK_PERFORMANCE_REPORT", False, "Stock Performance production failed safely")
+        errors.append(f"Current allocation, paper evidence, or Stock Performance production failed: {exc}")
+        stage("STOCK_PERFORMANCE_REPORT", False, "Current allocation, paper evidence, or Stock Performance production failed safely")
         stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
         stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
         stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
@@ -253,7 +460,7 @@ def _produce_strategy_reports(
         )
         for suffix in ("csv", "json", "md"):
             published.append(str(output_dir / f"weekly_stock_report.{suffix}"))
-        stage("WEEKLY_STOCK_REPORT", True, "Weekly Stock reports were produced after Stock Performance")
+        stage("WEEKLY_STOCK_REPORT", True, "Weekly Stock reports were produced after current Stock Performance")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Weekly Stock production failed: {exc}")
         stage("WEEKLY_STOCK_REPORT", False, "Weekly Stock production failed safely")
@@ -267,7 +474,7 @@ def _produce_strategy_reports(
             str(output_dir / "executive_dashboard.json"),
             str(output_dir / "executive_dashboard.md"),
         ])
-        stage("EXECUTIVE_DASHBOARD", True, "Executive Dashboard was produced from existing reports")
+        stage("EXECUTIVE_DASHBOARD", True, "Executive Dashboard was produced from current-cycle reports")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Executive Dashboard production failed: {exc}")
         stage("EXECUTIVE_DASHBOARD", False, "Executive Dashboard production failed safely")
@@ -280,7 +487,7 @@ def _produce_strategy_reports(
             str(output_dir / "monthly_command_center.json"),
             str(output_dir / "monthly_command_center.md"),
         ])
-        stage("MONTHLY_COMMAND_CENTER", True, "Monthly Command Center was produced from existing reports")
+        stage("MONTHLY_COMMAND_CENTER", True, "Monthly Command Center was produced from current-cycle reports")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Monthly Command Center production failed: {exc}")
         stage("MONTHLY_COMMAND_CENTER", False, "Monthly Command Center production failed safely")
@@ -294,7 +501,9 @@ def _mark_skipped_producers(
 ) -> None:
     stage("OPPORTUNITY_QUALITY_INPUTS", False, f"Skipped: {reason}")
     stage("OPPORTUNITY_QUALITY", False, f"Skipped: {reason}")
-    stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because Opportunity Quality did not complete")
+    stage("COMMITTEE_RUNTIME_EVIDENCE", False, f"Skipped: {reason}")
+    stage("COMMITTEE_DECISION_TRACE", False, f"Skipped: {reason}")
+    stage("STOCK_PERFORMANCE_REPORT", False, "Skipped because current runtime evidence did not complete")
     stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
     stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
     stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
