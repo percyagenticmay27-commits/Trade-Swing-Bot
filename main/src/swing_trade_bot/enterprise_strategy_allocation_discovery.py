@@ -96,19 +96,27 @@ def _registry_v2_strategy_kpi_artifact(
 ) -> tuple[Mapping[str, Any], str] | None:
     """Return the selected strategy's Registry v2 STRATEGY_KPIS payload.
 
-    Registry v2 wraps each strategy's published artifacts under
-    ``strategies[].artifacts[]``. Selection is semantic (strategy/artifact IDs),
-    never positional, so adding or reordering strategies/artifacts is safe.
+    A ``strategies`` list is also used by older nested evidence fixtures. Treat it
+    as Registry v2 only when it contains semantic strategy identifiers; otherwise
+    let the generic nested strategy_kpis resolver handle the document.
     """
     strategies = payload.get("strategies")
     if not isinstance(strategies, list):
         return None
 
-    matches = [
+    identified = [
         (strategy, index)
         for index, strategy in enumerate(strategies)
         if isinstance(strategy, Mapping)
-        and str(strategy.get("strategy_id", "")).strip() == strategy_id
+        and str(strategy.get("strategy_id", "")).strip()
+    ]
+    if not identified:
+        return None
+
+    matches = [
+        (strategy, index)
+        for strategy, index in identified
+        if str(strategy.get("strategy_id", "")).strip() == strategy_id
     ]
     if not matches:
         raise ValueError(f"strategies record for {strategy_id!r} is required")
