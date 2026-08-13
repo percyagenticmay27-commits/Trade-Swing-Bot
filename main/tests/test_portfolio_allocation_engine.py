@@ -9,6 +9,7 @@ from swing_trade_bot.portfolio_allocation_engine import (
     PortfolioCandidate,
     build_candidates,
     format_portfolio_table,
+    read_watchlist_rows,
     write_portfolio_reports,
 )
 
@@ -100,6 +101,40 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertEqual(rows[0].rank, 2)
         self.assertEqual(rows[0].theme, "Semiconductors")
         self.assertEqual(rows[0].strategy_return, 22.5)
+
+    def test_current_json_watchlist_is_supported_for_runtime_allocation(self) -> None:
+        with workspace_temp_dir() as directory:
+            path = directory / "watchlist_report.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "strategy_id": "SWING-001",
+                        "freshness_status": "CURRENT_CYCLE",
+                        "rows": [
+                            {
+                                "underlying_symbol": "NBIS",
+                                "leveraged_symbol": "NEBX",
+                                "watchlist_status": "WATCHLIST",
+                                "watchlist_rank": 1,
+                                "themes": "AI Infrastructure;Data Centers",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = read_watchlist_rows(path)
+
+        self.assertEqual(list(rows), ["NBIS"])
+        self.assertEqual(rows["NBIS"]["watchlist_rank"], "1")
+        self.assertEqual(rows["NBIS"]["themes"], "AI Infrastructure;Data Centers")
+
+    def test_current_json_watchlist_missing_symbol_fails_clearly(self) -> None:
+        with workspace_temp_dir() as directory:
+            path = directory / "watchlist_report.json"
+            path.write_text(json.dumps({"rows": [{"watchlist_status": "WATCHLIST"}]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "underlying_symbol"):
+                read_watchlist_rows(path)
 
     def test_report_files_are_written_as_swing_owned_paper_evidence(self) -> None:
         with workspace_temp_dir() as directory:
