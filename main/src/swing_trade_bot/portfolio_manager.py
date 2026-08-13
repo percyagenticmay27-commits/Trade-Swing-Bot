@@ -195,7 +195,17 @@ def build_portfolio_manager_report(
     total_portfolio_value: float | None = None,
     current_cash_reserve: float = 0.0,
 ) -> PortfolioManagerResult:
-    """Read input CSVs, generate actions, and write outputs."""
+    """Read inputs, generate actions, and write current paper-only outputs.
+
+    When the current-position CSV is the daily cycle adapter beside
+    ``paper_portfolio_summary.json``, the manager automatically uses the marked-
+    to-market account value and cash balance. Older callers without that summary
+    retain the original invested-position-only behavior.
+    """
+    if total_portfolio_value is None:
+        discovered = _paper_ledger_totals(current_portfolio_path)
+        if discovered is not None:
+            total_portfolio_value, current_cash_reserve = discovered
     result = PortfolioManager(paper_trade_mode=paper_trade_mode).rebalance(
         read_current_positions(current_portfolio_path),
         read_target_allocations(target_portfolio_path),
@@ -204,6 +214,27 @@ def build_portfolio_manager_report(
     )
     write_manager_outputs(output_dir, result)
     return result
+
+
+def _paper_ledger_totals(current_portfolio_path: Path) -> tuple[float, float] | None:
+    summary_path = current_portfolio_path.parent / "paper_portfolio_summary.json"
+    if not summary_path.is_file():
+        return None
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("paper_portfolio_summary.json must contain an object")
+    if payload.get("paper_trade_mode") is not True:
+        raise ValueError("paper_portfolio_summary.paper_trade_mode must be true")
+    try:
+        total = float(payload.get("portfolio_value"))
+        cash = float(payload.get("cash_balance"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("paper portfolio value and cash balance must be numeric") from exc
+    if not math.isfinite(total) or total <= 0:
+        raise ValueError("paper portfolio value must be finite and positive")
+    if not math.isfinite(cash) or cash < 0:
+        raise ValueError("paper cash balance must be finite and nonnegative")
+    return total, cash
 
 
 def read_current_positions(path: Path) -> list[CurrentPosition]:
