@@ -38,7 +38,7 @@ from .portfolio_allocation_engine import build_portfolio_allocation_report
 from .portfolio_manager import build_portfolio_manager_report
 from .stock_performance_report import build_and_write_stock_performance_report
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
-from .swing_cio_milestone_1_freeze import build_freeze_report, render_markdown as render_freeze_markdown
+from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
 from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
@@ -371,7 +371,6 @@ def _refresh_allocation_and_paper_evidence(
             str(output_dir / "portfolio_manager_report.csv"),
         ])
     else:
-        # Do not leave a stale manager report that could be consumed as current.
         stale_manager = output_dir / "portfolio_manager_report.csv"
         if stale_manager.exists():
             stale_manager.unlink()
