@@ -9,6 +9,7 @@ from swing_trade_bot.enterprise_strategy_allocation_discovery import (
     discover_strategy_allocations_file,
     load_discovered_strategy_allocations,
     resolve_strategy_allocation,
+    resolve_strategy_allocation_evidence,
 )
 
 
@@ -44,6 +45,78 @@ def test_ai_cio_strategy_evidence_schema() -> None:
         }
     }
     assert resolve_strategy_allocation(payload) == 4500.0
+
+
+def test_registry_v2_strategy_kpi_artifact_schema() -> None:
+    payload = {
+        "strategies": [
+            {
+                "strategy_id": "SWING-001",
+                "artifacts": [
+                    {"artifact_id": "watchlist", "payload": {"rows": []}},
+                    {
+                        "artifact_id": "strategy_kpis",
+                        "artifact_type": "STRATEGY_KPIS",
+                        "payload": {
+                            "strategy_id": "SWING-001",
+                            "allocated_capital": 4500.0,
+                        },
+                    },
+                ],
+            },
+            {"strategy_id": "dividend", "artifacts": []},
+        ]
+    }
+    evidence = resolve_strategy_allocation_evidence(payload)
+    assert evidence["allocated_capital"] == 4500.0
+    assert evidence["allocation_evidence_schema"] == "strategies.artifacts.strategy_kpis.payload"
+    assert evidence["allocation_source_json_path"] == "$.strategies[0].artifacts[1].payload.allocated_capital"
+
+
+def test_registry_v2_resolution_is_semantic_not_positional() -> None:
+    payload = {
+        "strategies": [
+            {"strategy_id": "dividend", "artifacts": []},
+            {
+                "strategy_id": "SWING-001",
+                "artifacts": [
+                    {"artifact_id": "watchlist", "payload": {}},
+                    {"artifact_id": "executive_dashboard", "payload": {}},
+                    {
+                        "artifact_type": "STRATEGY_KPIS",
+                        "payload": {
+                            "plugin_id": "SWING-001",
+                            "allocated_capital": 3210.75,
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    evidence = resolve_strategy_allocation_evidence(payload)
+    assert evidence["allocated_capital"] == 3210.75
+    assert evidence["allocation_source_json_path"] == "$.strategies[1].artifacts[2].payload.allocated_capital"
+
+
+def test_registry_v2_strategy_kpi_payload_mismatch_fails_closed() -> None:
+    payload = {
+        "strategies": [
+            {
+                "strategy_id": "SWING-001",
+                "artifacts": [
+                    {
+                        "artifact_id": "strategy_kpis",
+                        "payload": {
+                            "strategy_id": "OTHER-001",
+                            "allocated_capital": 4500.0,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="strategy mismatch"):
+        resolve_strategy_allocation(payload)
 
 
 def test_nested_ai_cio_registry_evidence_schema() -> None:
