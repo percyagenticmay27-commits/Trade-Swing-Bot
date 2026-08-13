@@ -1,4 +1,10 @@
-"""Build authentic paper-only committee evidence for the highest-ranked candidate."""
+"""Build authentic paper-only committee evidence for the highest-ranked candidate.
+
+The committee runtime consumes the current ranked watchlist and the authoritative
+Opportunity Quality report produced earlier in the same cycle. Portfolio
+allocation is downstream of committee approval and is therefore not required to
+manufacture or pre-confirm a committee decision.
+"""
 from __future__ import annotations
 
 import csv
@@ -9,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 MODULE_NAME = "swing_committee_runtime_evidence"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.1.0"
 SCHEMA_VERSION = "1.0"
 COMMITTEES = (
     "DISCOVERY_COMMITTEE",
@@ -51,21 +57,17 @@ def build_runtime_evidence(
     if not symbol:
         raise ValueError("Highest-ranked watchlist candidate has no symbol")
 
-    quality_path = root / "opportunity_quality_inputs.json"
-    quality_row = _find_symbol(_optional_rows(quality_path), underlying, leveraged)
-    allocation_path = root / "portfolio_allocations.json"
-    allocation_row = _find_symbol(
-        _rows(_read_json(allocation_path), keys=("allocations", "rows")) if allocation_path.is_file() else [],
-        underlying,
-        leveraged,
-    )
+    quality_report_path = root / "opportunity_quality_report.json"
+    quality_row = _find_symbol(_optional_rows(quality_report_path), underlying, leveraged)
+    quality_inputs_path = root / "opportunity_quality_inputs.json"
+    quality_input_row = _find_symbol(_optional_rows(quality_inputs_path), underlying, leveraged)
     strategy_path = root / "strategy_recommendations.csv"
     strategy_row = _find_symbol(_read_csv(strategy_path) if strategy_path.is_file() else [], underlying, leveraged)
     lifecycle_path = root / "trade_lifecycle_report.json"
     lifecycle_row = _find_symbol(_optional_rows(lifecycle_path, keys=("reviews", "rows")), underlying, leveraged)
 
     strategy_id = _text(strategy_row, "active_strategy", "recommended_strategy", default="STRATEGY_A").upper().replace(" ", "_")
-    sources = ["results/watchlist_report.json"]
+    discovery_sources = ["results/watchlist_report.json"]
     discovery_evidence = {
         "underlying_symbol": underlying,
         "leveraged_symbol": leveraged,
@@ -77,23 +79,39 @@ def build_runtime_evidence(
         "capacity_status": _text(selected, "capacity_status"),
     }
     steps: list[dict[str, Any]] = [
-        _step("DISCOVERY_COMMITTEE", 1, "PASS", ["HIGHEST_EVIDENCE_RANK"], discovery_evidence, sources)
+        _step("DISCOVERY_COMMITTEE", 1, "PASS", ["HIGHEST_EVIDENCE_RANK"], discovery_evidence, discovery_sources)
     ]
 
     opportunity_score = _optional_number(quality_row, "opportunity_quality", "opportunity_quality_score", "final_score")
+    opportunity_sources = list(discovery_sources)
     if opportunity_score is None:
         opportunity_status = "HOLD"
         opportunity_reasons = ["OPPORTUNITY_EVIDENCE_PENDING"]
-        opportunity_evidence: dict[str, Any] = {"score_available": False}
+        opportunity_evidence: dict[str, Any] = {
+            "score_available": False,
+            "score_source": None,
+        }
     else:
         opportunity_status = "PASS" if opportunity_score >= 70.0 else "FAIL"
         opportunity_reasons = ["OPPORTUNITY_THRESHOLD_MET" if opportunity_status == "PASS" else "OPPORTUNITY_THRESHOLD_NOT_MET"]
-        opportunity_evidence = {"score_available": True, "opportunity_quality_score": opportunity_score, "minimum_score": 70.0}
-        sources.append("results/opportunity_quality_inputs.json")
-    steps.append(_step("OPPORTUNITY_COMMITTEE", 2, opportunity_status, opportunity_reasons, opportunity_evidence, sources))
+        opportunity_evidence = {
+            "score_available": True,
+            "opportunity_quality_score": opportunity_score,
+            "minimum_score": 70.0,
+            "score_source": "results/opportunity_quality_report.json",
+        }
+        opportunity_sources.append("results/opportunity_quality_report.json")
+    steps.append(_step("OPPORTUNITY_COMMITTEE", 2, opportunity_status, opportunity_reasons, opportunity_evidence, opportunity_sources))
 
     entry_score = _optional_number(quality_row, "entry_score")
+    if entry_score is None:
+        entry_score = _optional_number(quality_input_row, "entry_score")
     thesis_intact = _optional_bool(quality_row, "thesis_intact")
+    if thesis_intact is None:
+        thesis_intact = _optional_bool(quality_input_row, "thesis_intact")
+    entry_sources = list(opportunity_sources)
+    if quality_inputs_path.is_file():
+        entry_sources.append("results/opportunity_quality_inputs.json")
     if opportunity_status == "FAIL":
         entry_status, entry_reasons = "SKIPPED", ["OPPORTUNITY_REJECTED"]
     elif opportunity_status != "PASS" or entry_score is None or thesis_intact is None:
@@ -101,44 +119,48 @@ def build_runtime_evidence(
     else:
         entry_status = "PASS" if entry_score >= 70.0 and thesis_intact else "FAIL"
         entry_reasons = ["ENTRY_THRESHOLD_MET" if entry_status == "PASS" else "ENTRY_THRESHOLD_NOT_MET"]
-    entry_evidence = {"entry_score": entry_score, "minimum_score": 70.0, "thesis_intact": thesis_intact}
-    steps.append(_step("ENTRY_COMMITTEE", 3, entry_status, entry_reasons, entry_evidence, sources))
+    entry_evidence = {
+        "entry_score": entry_score,
+        "minimum_score": 70.0,
+        "thesis_intact": thesis_intact,
+        "entry_score_source": "results/opportunity_quality_report.json" if _optional_number(quality_row, "entry_score") is not None else ("results/opportunity_quality_inputs.json" if entry_score is not None else None),
+    }
+    steps.append(_step("ENTRY_COMMITTEE", 3, entry_status, entry_reasons, entry_evidence, entry_sources))
 
-    allocation = _optional_number(allocation_row, "allocation_percent", "target_allocation")
     if entry_status == "FAIL" or opportunity_status == "FAIL":
         portfolio_status, portfolio_reasons = "SKIPPED", ["CANDIDATE_NOT_ENTRY_APPROVED"]
     elif entry_status != "PASS":
         portfolio_status, portfolio_reasons = "HOLD", ["ENTRY_APPROVAL_PENDING"]
-    elif allocation is None or allocation <= 0:
-        portfolio_status, portfolio_reasons = "HOLD", ["RANKED_ALLOCATION_PENDING"]
     else:
-        portfolio_status, portfolio_reasons = "PASS", ["RANKED_PAPER_ALLOCATION_PRESENT"]
-        sources.append("results/portfolio_allocations.json")
+        portfolio_status, portfolio_reasons = "PASS", ["RANKED_ALLOCATION_ELIGIBLE"]
     portfolio_evidence = {
-        "allocation_percent": allocation,
+        "allocation_percent": None,
+        "allocation_pending": portfolio_status == "PASS",
         "rank_controls_relative_allocation": True,
         "strategy_boost_applied": False,
         "theme_adjustment_applied": False,
         "historical_return_weighting_applied": False,
     }
-    steps.append(_step("PORTFOLIO_COMMITTEE", 4, portfolio_status, portfolio_reasons, portfolio_evidence, sources))
+    steps.append(_step("PORTFOLIO_COMMITTEE", 4, portfolio_status, portfolio_reasons, portfolio_evidence, entry_sources))
 
+    exit_sources = list(discovery_sources)
     if lifecycle_row:
         exit_status = "REVIEW" if _text(lifecycle_row, "recommended_state", "status").lower() == "review_required" else "HOLD"
-        exit_reasons = ["HELD_POSITION_REVIEWED"]
+        exit_reasons = ["SELECTED_SYMBOL_POSITION_REVIEWED"]
         exit_evidence = dict(lifecycle_row)
-        sources.append("results/trade_lifecycle_report.json")
+        exit_sources.append("results/trade_lifecycle_report.json")
     else:
-        exit_status, exit_reasons, exit_evidence = "NOT_APPLICABLE", ["NO_HELD_POSITION_EVIDENCE"], {}
-    steps.append(_step("EXIT_COMMITTEE", 5, exit_status, exit_reasons, exit_evidence, sources))
+        exit_status, exit_reasons, exit_evidence = "NOT_APPLICABLE", ["NO_SELECTED_SYMBOL_HELD_POSITION_EVIDENCE"], {}
+    steps.append(_step("EXIT_COMMITTEE", 5, exit_status, exit_reasons, exit_evidence, exit_sources))
 
     if portfolio_status == "PASS":
-        final_status = "ALLOCATED"
+        final_status = "ELIGIBLE_FOR_ALLOCATION"
     elif opportunity_status == "FAIL" or entry_status == "FAIL":
         final_status = "REJECTED"
     else:
         final_status = "WAIT"
     generated_at = generated_at_utc or _utc_now()
+    all_sources = sorted({source for step in steps for source in step.get("source_artifacts", [])})
     return {
         "module_name": MODULE_NAME,
         "module_version": MODULE_VERSION,
@@ -150,7 +172,7 @@ def build_runtime_evidence(
         "strategy_id": strategy_id,
         "committee_steps": steps,
         "final_status": final_status,
-        "source_artifacts": sorted(set(sources)),
+        "source_artifacts": all_sources,
         "bias_audit": {
             "sector_bias_applied": False,
             "theme_bias_applied": False,
@@ -249,8 +271,13 @@ def _rank_key(row: Mapping[str, Any]) -> tuple[int, int, float, str]:
 def _find_symbol(rows: Sequence[Mapping[str, Any]], *symbols: str) -> Mapping[str, Any]:
     wanted = {symbol.upper() for symbol in symbols if symbol}
     for row in rows:
-        symbol = _text(row, "symbol", "ticker", "underlying_symbol", "leveraged_symbol").upper()
-        if symbol in wanted:
+        values = {
+            _text(row, "symbol").upper(),
+            _text(row, "ticker").upper(),
+            _text(row, "underlying_symbol").upper(),
+            _text(row, "leveraged_symbol").upper(),
+        } - {""}
+        if values & wanted:
             return row
     return {}
 
