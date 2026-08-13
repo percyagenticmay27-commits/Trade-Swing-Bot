@@ -1,4 +1,9 @@
-"""Assemble frozen Opportunity Quality inputs from existing paper-only evidence."""
+"""Assemble frozen Opportunity Quality inputs from existing paper-only evidence.
+
+Candidate selection is owned by the current ranked watchlist. Opportunity Quality
+inputs must not depend on committee runtime evidence because committees consume
+the resulting Opportunity Quality report later in the same cycle.
+"""
 from __future__ import annotations
 
 import csv
@@ -35,14 +40,9 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
     if not paper_trade_mode:
         raise ValueError("Opportunity Quality inputs require paper_trade_mode=True")
     root = Path(results_dir)
-    evidence_path = root / "swing_committee_runtime_evidence.json"
-    if not evidence_path.is_file():
-        raise FileNotFoundError(f"Runtime evidence is missing: {evidence_path}")
-    evidence = _json(evidence_path)
-    symbol = str(evidence.get("symbol") or evidence.get("underlying_symbol") or "").upper()
-    aliases = {symbol, str(evidence.get("underlying_symbol") or "").upper(), str(evidence.get("leveraged_symbol") or "").upper()} - {""}
-    if not symbol:
-        raise ValueError("Runtime evidence has no selected symbol")
+    symbol, underlying, leveraged = _selected_watchlist_context(root)
+    aliases = {symbol, underlying, leveraged} - {""}
+
     rows: list[tuple[str, Mapping[str, Any]]] = []
     available: list[str] = []
     for name in SOURCES:
@@ -53,6 +53,7 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
         for row in _read_rows(path):
             if _symbol(row) in aliases:
                 rows.append((name, row))
+
     output: dict[str, Any] = {"symbol": symbol}
     provenance: dict[str, str | None] = {}
     for component in COMPONENTS:
@@ -68,12 +69,26 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
                 break
         output[component] = value
         provenance[component] = source
+
+    thesis_intact = None
+    thesis_source = None
+    for name, row in rows:
+        found = _optional_bool(row, "thesis_intact")
+        if found is not None:
+            thesis_intact, thesis_source = found, f"results/{name}"
+            break
+    output["thesis_intact"] = thesis_intact
+    provenance["thesis_intact"] = thesis_source
+
     return {
         "paper_trade_mode": True,
         "missing_evidence_rule": "missing evidence = 0",
         "entry_score_display_only": True,
         "selected_by": "highest evidence rank",
-        "source_artifacts": sorted(set(available + ["results/swing_committee_runtime_evidence.json"])),
+        "selection_source": "results/watchlist_report.json",
+        "selected_underlying_symbol": underlying,
+        "selected_leveraged_symbol": leveraged,
+        "source_artifacts": sorted(set(available)),
         "component_provenance": provenance,
         "rows": [output],
     }
@@ -91,6 +106,22 @@ def write_opportunity_quality_inputs(payload: Mapping[str, Any], output_path: st
 def build_and_write_opportunity_quality_inputs(results_dir: str | Path, output_path: str | Path | None = None) -> Path:
     root = Path(results_dir)
     return write_opportunity_quality_inputs(build_opportunity_quality_inputs(root), output_path or root / "opportunity_quality_inputs.json")
+
+
+def _selected_watchlist_context(root: Path) -> tuple[str, str, str]:
+    watchlist_path = root / "watchlist_report.json"
+    if not watchlist_path.is_file():
+        raise FileNotFoundError(f"Ranked watchlist is missing: {watchlist_path}")
+    candidates = [row for row in _read_rows(watchlist_path) if _candidate_is_active(row)]
+    if not candidates:
+        raise ValueError("Ranked watchlist contains no active candidates")
+    selected = min(candidates, key=_rank_key)
+    underlying = _text(selected, "underlying_symbol", "symbol", "ticker").upper()
+    leveraged = _text(selected, "leveraged_symbol").upper()
+    symbol = underlying or leveraged
+    if not symbol:
+        raise ValueError("Highest-ranked watchlist candidate has no symbol")
+    return symbol, underlying, leveraged
 
 
 def _json(path: Path) -> Any:
@@ -118,6 +149,57 @@ def _symbol(row: Mapping[str, Any]) -> str:
         if row.get(key):
             return str(row[key]).strip().upper()
     return ""
+
+
+def _candidate_is_active(row: Mapping[str, Any]) -> bool:
+    capacity = _text(row, "capacity_status", default="ACTIVE").upper()
+    status = _text(row, "watchlist_status", default="WATCHLIST").upper()
+    return capacity == "ACTIVE" and status != "REMOVED"
+
+
+def _rank_key(row: Mapping[str, Any]) -> tuple[int, int, float, str]:
+    high = _optional_int(row, "high_priority_rank")
+    standard = _optional_int(row, "watchlist_rank")
+    if high is not None:
+        tier, rank = 0, high
+    elif standard is not None:
+        tier, rank = 1, standard
+    else:
+        tier, rank = 2, 999999
+    composite = _number(row, "composite_score") or 0.0
+    return tier, rank, -composite, _text(row, "underlying_symbol", "symbol")
+
+
+def _value(row: Mapping[str, Any], *names: str) -> Any:
+    lowered = {str(key).strip().lower(): value for key, value in row.items()}
+    for name in names:
+        if name.lower() in lowered:
+            return lowered[name.lower()]
+    return None
+
+
+def _text(row: Mapping[str, Any], *names: str, default: str = "") -> str:
+    value = _value(row, *names)
+    return default if value is None else str(value).strip()
+
+
+def _optional_int(row: Mapping[str, Any], *names: str) -> int | None:
+    value = _number(row, *names)
+    return None if value is None else int(value)
+
+
+def _optional_bool(row: Mapping[str, Any], *names: str) -> bool | None:
+    value = _value(row, *names)
+    if value is None or str(value).strip() == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "intact"}:
+        return True
+    if text in {"false", "0", "no", "broken"}:
+        return False
+    return None
 
 
 def _number(row: Mapping[str, Any], *names: str) -> float | None:
