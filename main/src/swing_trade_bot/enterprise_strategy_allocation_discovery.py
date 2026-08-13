@@ -89,6 +89,75 @@ def _matching_record(
     return matches[0]
 
 
+def _registry_v2_strategy_kpi_artifact(
+    payload: Mapping[str, Any],
+    *,
+    strategy_id: str,
+) -> tuple[Mapping[str, Any], str] | None:
+    """Return the selected strategy's Registry v2 STRATEGY_KPIS payload.
+
+    Registry v2 wraps each strategy's published artifacts under
+    ``strategies[].artifacts[]``. Selection is semantic (strategy/artifact IDs),
+    never positional, so adding or reordering strategies/artifacts is safe.
+    """
+    strategies = payload.get("strategies")
+    if not isinstance(strategies, list):
+        return None
+
+    matches = [
+        (strategy, index)
+        for index, strategy in enumerate(strategies)
+        if isinstance(strategy, Mapping)
+        and str(strategy.get("strategy_id", "")).strip() == strategy_id
+    ]
+    if not matches:
+        raise ValueError(f"strategies record for {strategy_id!r} is required")
+    if len(matches) > 1:
+        raise ValueError(f"strategies contains duplicate {strategy_id!r} records")
+
+    strategy, strategy_index = matches[0]
+    artifacts = strategy.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise ValueError(f"$.strategies[{strategy_index}].artifacts is required")
+
+    kpi_artifacts = [
+        (artifact, index)
+        for index, artifact in enumerate(artifacts)
+        if isinstance(artifact, Mapping)
+        and (
+            str(artifact.get("artifact_id", "")).strip().lower() == "strategy_kpis"
+            or str(artifact.get("artifact_type", "")).strip().upper() == "STRATEGY_KPIS"
+        )
+    ]
+    if not kpi_artifacts:
+        return None
+    if len(kpi_artifacts) > 1:
+        raise ValueError(
+            f"$.strategies[{strategy_index}].artifacts contains duplicate STRATEGY_KPIS artifacts"
+        )
+
+    artifact, artifact_index = kpi_artifacts[0]
+    artifact_payload = artifact.get("payload")
+    if not isinstance(artifact_payload, Mapping):
+        raise ValueError(
+            f"$.strategies[{strategy_index}].artifacts[{artifact_index}].payload is required"
+        )
+
+    payload_strategy_id = str(
+        artifact_payload.get("strategy_id", artifact_payload.get("plugin_id", ""))
+    ).strip()
+    if payload_strategy_id and payload_strategy_id != strategy_id:
+        raise ValueError(
+            f"Registry v2 STRATEGY_KPIS payload strategy mismatch: "
+            f"expected {strategy_id!r}, found {payload_strategy_id!r}"
+        )
+
+    return (
+        artifact_payload,
+        f"$.strategies[{strategy_index}].artifacts[{artifact_index}].payload",
+    )
+
+
 def _nested_strategy_kpi_candidates(
     value: object,
     *,
@@ -141,9 +210,10 @@ def resolve_strategy_allocation_evidence(
 
     Resolution order is deterministic:
     1. Direct AI CIO evidence ``payload.strategy_kpis[]``.
-    2. Shallowest nested AI CIO evidence containing ``strategy_kpis[]``.
-    3. Current registry ``strategy_plugins[]``.
-    4. Legacy ``strategy_allocations[strategy_id]``.
+    2. Registry v2 ``strategies[].artifacts[STRATEGY_KPIS].payload``.
+    3. Shallowest nested AI CIO evidence containing ``strategy_kpis[]``.
+    4. Current registry ``strategy_plugins[]``.
+    5. Legacy ``strategy_allocations[strategy_id]``.
     """
     evidence_payload = payload.get("payload")
     strategy_kpis = (
@@ -168,6 +238,22 @@ def resolve_strategy_allocation_evidence(
         return {
             "allocated_capital": allocated,
             "allocation_evidence_schema": "payload.strategy_kpis",
+            "allocation_source_json_path": f"{record_path}.{field}",
+            "allocation_field": field,
+        }
+
+    registry_v2 = _registry_v2_strategy_kpi_artifact(payload, strategy_id=strategy_id)
+    if registry_v2 is not None:
+        record, record_path = registry_v2
+        allocated, field = _allocation_field_from_record(
+            record,
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path=record_path,
+        )
+        return {
+            "allocated_capital": allocated,
+            "allocation_evidence_schema": "strategies.artifacts.strategy_kpis.payload",
             "allocation_source_json_path": f"{record_path}.{field}",
             "allocation_field": field,
         }
@@ -234,7 +320,8 @@ def resolve_strategy_allocation_evidence(
 
     raise ValueError(
         "Enterprise allocation evidence must contain direct or nested strategy_kpis, "
-        "strategy_plugins, or strategy_allocations"
+        "Registry v2 strategies/artifacts STRATEGY_KPIS, strategy_plugins, "
+        "or strategy_allocations"
     )
 
 
