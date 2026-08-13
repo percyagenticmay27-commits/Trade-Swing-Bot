@@ -303,6 +303,9 @@ def read_confidence_rows(path: Path) -> dict[str, dict[str, str]]:
 
 
 def read_watchlist_rows(path: Path) -> dict[str, dict[str, str]]:
+    """Read the authoritative watchlist from either CSV or current JSON report."""
+    if path.suffix.lower() == ".json":
+        return _read_json_by_symbol(path, "underlying_symbol", rows_field="rows")
     return _read_by_symbol(path, "underlying_symbol")
 
 
@@ -334,9 +337,45 @@ def _read_by_symbol(path: Path, symbol_field: str) -> dict[str, dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as input_file:
         rows: dict[str, dict[str, str]] = {}
         for row in csv.DictReader(input_file):
-            symbol = row[symbol_field].strip().upper()
-            rows[symbol] = {key: value for key, value in row.items()}
+            if symbol_field not in row:
+                raise ValueError(f"{path} is missing required column {symbol_field!r}")
+            symbol = str(row.get(symbol_field, "")).strip().upper()
+            if not symbol:
+                continue
+            rows[symbol] = {key: "" if value is None else str(value) for key, value in row.items()}
         return rows
+
+
+def _read_json_by_symbol(
+    path: Path,
+    symbol_field: str,
+    *,
+    rows_field: str,
+) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"Expected JSON object: {path}")
+    raw_rows = payload.get(rows_field)
+    if not isinstance(raw_rows, list):
+        raise ValueError(f"{path} must contain a {rows_field!r} list")
+    rows: dict[str, dict[str, str]] = {}
+    for index, raw_row in enumerate(raw_rows):
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{path} {rows_field}[{index}] must be an object")
+        if symbol_field not in raw_row:
+            raise ValueError(
+                f"{path} {rows_field}[{index}] is missing required field {symbol_field!r}"
+            )
+        symbol = str(raw_row.get(symbol_field, "")).strip().upper()
+        if not symbol:
+            continue
+        rows[symbol] = {
+            str(key): "" if value is None else str(value)
+            for key, value in raw_row.items()
+        }
+    return rows
 
 
 def _raw_rank_weights(candidates: Sequence[PortfolioCandidate]) -> list[float]:
