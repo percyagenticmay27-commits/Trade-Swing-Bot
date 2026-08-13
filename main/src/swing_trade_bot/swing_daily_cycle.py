@@ -9,8 +9,10 @@ watchlist, allocation, committee, or paper-ledger artifacts.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -33,9 +35,10 @@ from .opportunity_quality_inputs import build_and_write_opportunity_quality_inpu
 from .paper_portfolio_manager import build_and_write_paper_portfolio_report
 from .performance_analytics_engine import build_and_write_performance_analytics_report
 from .portfolio_allocation_engine import build_portfolio_allocation_report
+from .portfolio_manager import build_portfolio_manager_report
 from .stock_performance_report import build_and_write_stock_performance_report
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
-from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
+from .swing_cio_milestone_1_freeze import build_freeze_report, render_markdown as render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
 from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
@@ -48,7 +51,7 @@ from .trade_history_manager import build_and_write_trade_history_report
 from .weekly_stock_report import build_and_write_weekly_stock_report
 
 MODULE_NAME = "swing_daily_cycle"
-MODULE_VERSION = "1.1.0"
+MODULE_VERSION = "1.1.1"
 CYCLE_SCHEMA_VERSION = "1.0"
 PLUGIN_ID = "SWING-001"
 
@@ -227,6 +230,55 @@ def _refresh_watchlist(
     published.extend([str(csv_path), str(json_path)])
 
 
+def _write_current_portfolio_csv(positions_path: Path, destination: Path) -> Path:
+    """Adapt current marked-to-market paper holdings for the existing manager.
+
+    This is a read-only evidence adapter. It does not create positions or execute
+    any trade. Rows are derived only from paper_portfolio_positions.json.
+    """
+    payload = load_json(positions_path)
+    if payload.get("paper_trade_mode") is not True:
+        raise ValueError("paper_portfolio_positions.paper_trade_mode must be true")
+    rows = payload.get("positions")
+    if not isinstance(rows, list):
+        raise ValueError("paper_portfolio_positions.json must contain a positions list")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["symbol", "shares", "market_value", "cost_basis"],
+            )
+            writer.writeheader()
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    raise ValueError("paper portfolio position rows must be objects")
+                symbol = str(row.get("symbol", "")).strip().upper()
+                if not symbol:
+                    raise ValueError("paper portfolio position symbol is required")
+                writer.writerow(
+                    {
+                        "symbol": symbol,
+                        "shares": row.get("shares"),
+                        "market_value": row.get("market_value"),
+                        "cost_basis": row.get("cost_basis"),
+                    }
+                )
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, destination)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+    return destination
+
+
 def _refresh_allocation_and_paper_evidence(
     root: Path,
     output_dir: Path,
@@ -286,6 +338,7 @@ def _refresh_allocation_and_paper_evidence(
         max_price_age_days=max_price_age_days,
     )
     summary_path = ledger_dir / "paper_portfolio_summary.json"
+    positions_path = ledger_dir / "paper_portfolio_positions.json"
     summary = load_json(summary_path)
     summary.update(
         {
@@ -297,10 +350,32 @@ def _refresh_allocation_and_paper_evidence(
         }
     )
     atomic_write_json(summary, summary_path)
-    published.extend([
-        str(summary_path),
-        str(ledger_dir / "paper_portfolio_positions.json"),
-    ])
+    published.extend([str(summary_path), str(positions_path)])
+
+    current_portfolio_csv = _write_current_portfolio_csv(
+        positions_path,
+        ledger_dir / "current_portfolio_positions.csv",
+    )
+    positions_payload = load_json(positions_path)
+    if int(positions_payload.get("position_count", 0)) > 0:
+        build_portfolio_manager_report(
+            current_portfolio_path=current_portfolio_csv,
+            target_portfolio_path=output_dir / "portfolio_allocations.csv",
+            output_dir=output_dir,
+            paper_trade_mode=True,
+        )
+        published.extend([
+            str(current_portfolio_csv),
+            str(output_dir / "rebalance_actions.csv"),
+            str(output_dir / "rebalance_actions.json"),
+            str(output_dir / "portfolio_manager_report.csv"),
+        ])
+    else:
+        # Do not leave a stale manager report that could be consumed as current.
+        stale_manager = output_dir / "portfolio_manager_report.csv"
+        if stale_manager.exists():
+            stale_manager.unlink()
+        published.append(str(current_portfolio_csv))
 
     build_and_write_trade_history_report(
         trade_history_path=ledger_dir / "trade_history.json",
