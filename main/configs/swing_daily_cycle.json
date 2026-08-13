@@ -17,6 +17,23 @@
     "swing_strategy_capability_profiles.json": "configs/swing_strategy_capability_profiles.json",
     "swing_committee_governance.json": "configs/swing_committee_governance.json"
   },
+  "runtime_evidence_refresh": {
+    "enabled": true,
+    "watchlist": {
+      "candidates_path": "examples/discovery_candidates.csv",
+      "mentions_path": "results/discovery_mentions.csv",
+      "financial_health_path": "examples/financial_health.csv"
+    },
+    "portfolio_allocation": {
+      "confidence_path": "results/confidence_report.csv",
+      "strategy_recommendations_path": "results/strategy_recommendations.csv"
+    },
+    "paper_ledger": {
+      "ledger_dir": "results/paper_ledger",
+      "data_dir": "data",
+      "max_price_age_days": 5
+    }
+  },
   "validation_config": "configs/swing_cio_validation_suite.json",
   "acceptance_config": "configs/swing_cio_acceptance_test.json",
   "freeze_config": "configs/swing_cio_milestone_1_freeze.json",
