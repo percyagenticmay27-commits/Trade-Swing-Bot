@@ -325,3 +325,102 @@ def test_external_evidence_path_cannot_escape_repository(tmp_path: Path) -> None
             ai_cio_repository=repository,
             registry_relative_path=tmp_path / "outside.json",
         )
+
+
+def _metadata_only_registry() -> dict:
+    return {
+        "strategies": [
+            {
+                "strategy_id": "SWING-001",
+                "artifacts": [
+                    {"artifact_id": "watchlist", "payload": {"rows": []}},
+                    {
+                        "artifact_id": "strategy_kpis",
+                        "artifact_type": "STRATEGY_KPIS",
+                        "available": False,
+                        "declared_path": "results/enterprise_strategy_kpis.json",
+                        "payload": None,
+                    },
+                ],
+            },
+            {"strategy_id": "dividend", "artifacts": []},
+        ]
+    }
+
+
+def test_metadata_only_registry_uses_host_companion_kpi_artifact(tmp_path: Path) -> None:
+    repository = tmp_path / "Trade-Dividend-Bot"
+    _write(repository / "results/enterprise_registry_strategy_evidence.json", _metadata_only_registry())
+    companion = _write(
+        repository / "results/enterprise_strategy_kpis.json",
+        {
+            "strategies": [
+                {"strategy_id": "SWING-001", "allocated_capital": 2876.54},
+                {"strategy_id": "DIVIDEND-001", "allocated_capital": 5000.0},
+            ]
+        },
+    )
+
+    payload, source = load_discovered_strategy_allocations(ai_cio_repository=repository)
+    evidence = resolve_strategy_allocation_evidence(payload, source_path=source)
+
+    assert source == companion.resolve()
+    assert evidence["allocated_capital"] == 2876.54
+    assert evidence["allocation_evidence_schema"] == "strategies.strategy_kpis_companion"
+    assert evidence["allocation_source_json_path"] == "$.strategies[0].allocated_capital"
+    assert evidence["allocation_source_path"] == str(companion.resolve())
+
+
+def test_companion_selects_swing_not_dividend() -> None:
+    payload = {
+        "strategies": [
+            {"strategy_id": "DIVIDEND-001", "allocated_capital": 9999.0},
+            {"strategy_id": "SWING-001", "allocated_capital": 1234.5},
+        ]
+    }
+    assert resolve_strategy_allocation(payload) == 1234.5
+
+
+def test_companion_duplicate_swing_records_fail_closed() -> None:
+    payload = {
+        "strategies": [
+            {"strategy_id": "SWING-001", "allocated_capital": 100.0},
+            {"strategy_id": "SWING-001", "allocated_capital": 200.0},
+        ]
+    }
+    with pytest.raises(ValueError, match="duplicate.*SWING-001"):
+        resolve_strategy_allocation(payload)
+
+
+def test_companion_missing_swing_record_fails_closed() -> None:
+    payload = {
+        "strategies": [
+            {"strategy_id": "DIVIDEND-001", "allocated_capital": 5000.0}
+        ]
+    }
+    with pytest.raises(ValueError, match="SWING-001"):
+        resolve_strategy_allocation(payload)
+
+
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), float("-inf")])
+def test_companion_invalid_allocation_fails_closed(value: float) -> None:
+    payload = {"strategies": [{"strategy_id": "SWING-001", "allocated_capital": value}]}
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        resolve_strategy_allocation(payload)
+
+
+def test_metadata_only_registry_missing_companion_fails_closed(tmp_path: Path) -> None:
+    repository = tmp_path / "Trade-Dividend-Bot"
+    _write(repository / "results/enterprise_registry_strategy_evidence.json", _metadata_only_registry())
+    with pytest.raises(FileNotFoundError, match="companion strategy KPI evidence"):
+        load_discovered_strategy_allocations(ai_cio_repository=repository)
+
+
+def test_companion_path_cannot_escape_host_repository(tmp_path: Path) -> None:
+    repository = tmp_path / "Trade-Dividend-Bot"
+    _write(repository / "results/enterprise_registry_strategy_evidence.json", _metadata_only_registry())
+    with pytest.raises(ValueError, match="relative"):
+        load_discovered_strategy_allocations(
+            ai_cio_repository=repository,
+            kpi_relative_path=tmp_path / "outside.json",
+        )
