@@ -1,0 +1,26 @@
+[Unit]
+Description=Trade Swing Bot Paper-Only Operational Cycle
+Documentation=https://github.com/percyagenticmay27-commits/Trade-Swing-Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradebot
+Group=tradebot
+WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python /home/tradebot/Trade-Swing-Bot/main/run_swing_operational_cycle.py
+TimeoutStartSec=30min
+Nice=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/tradebot/Trade-Swing-Bot/main
+ReadOnlyPaths=/home/tradebot/Trade-Dividend-Bot
+StandardOutput=journal
+StandardError=journal
+
+# Permanent paper-safety boundary: this unit starts only the Swing paper-runtime
+# launcher. It must never invoke broker execution, live orders, or capital moves.
