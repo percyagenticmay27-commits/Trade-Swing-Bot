@@ -20,6 +20,7 @@ DEFAULT_AI_CIO_REPOSITORY = Path(
 DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH = Path(
     "results/enterprise_registry_strategy_evidence.json"
 )
+DEFAULT_AI_CIO_KPI_RELATIVE_PATH = Path("results/enterprise_strategy_kpis.json")
 ALLOCATION_FIELDS: tuple[str, ...] = (
     "allocated_capital",
     "allocation_amount",
@@ -94,11 +95,12 @@ def _registry_v2_strategy_kpi_artifact(
     *,
     strategy_id: str,
 ) -> tuple[Mapping[str, Any], str] | None:
-    """Return the selected strategy's Registry v2 STRATEGY_KPIS payload.
+    """Return an inline Registry v2 STRATEGY_KPIS payload when one exists.
 
-    A ``strategies`` list is also used by older nested evidence fixtures. Treat it
-    as Registry v2 only when it contains semantic strategy identifiers; otherwise
-    let the generic nested strategy_kpis resolver handle the document.
+    Production Registry v2 evidence may declare STRATEGY_KPIS as metadata-only
+    while the authoritative KPI payload is published in the AI CIO companion KPI
+    artifact. A missing/non-object inline payload therefore means "not inline",
+    not malformed allocation evidence.
     """
     strategies = payload.get("strategies")
     if not isinstance(strategies, list):
@@ -126,7 +128,7 @@ def _registry_v2_strategy_kpi_artifact(
     strategy, strategy_index = matches[0]
     artifacts = strategy.get("artifacts")
     if not isinstance(artifacts, list):
-        raise ValueError(f"$.strategies[{strategy_index}].artifacts is required")
+        return None
 
     kpi_artifacts = [
         (artifact, index)
@@ -147,9 +149,7 @@ def _registry_v2_strategy_kpi_artifact(
     artifact, artifact_index = kpi_artifacts[0]
     artifact_payload = artifact.get("payload")
     if not isinstance(artifact_payload, Mapping):
-        raise ValueError(
-            f"$.strategies[{strategy_index}].artifacts[{artifact_index}].payload is required"
-        )
+        return None
 
     payload_strategy_id = str(
         artifact_payload.get("strategy_id", artifact_payload.get("plugin_id", ""))
@@ -164,6 +164,72 @@ def _registry_v2_strategy_kpi_artifact(
         artifact_payload,
         f"$.strategies[{strategy_index}].artifacts[{artifact_index}].payload",
     )
+
+
+def _registry_v2_needs_companion(
+    payload: Mapping[str, Any],
+    *,
+    strategy_id: str,
+) -> bool:
+    """Return True only for an exact metadata-only STRATEGY_KPIS declaration."""
+    strategies = payload.get("strategies")
+    if not isinstance(strategies, list):
+        return False
+    matches = [
+        strategy
+        for strategy in strategies
+        if isinstance(strategy, Mapping)
+        and str(strategy.get("strategy_id", "")).strip() == strategy_id
+    ]
+    if len(matches) != 1:
+        return False
+    artifacts = matches[0].get("artifacts")
+    if not isinstance(artifacts, list):
+        return False
+    kpis = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact, Mapping)
+        and (
+            str(artifact.get("artifact_id", "")).strip().lower() == "strategy_kpis"
+            or str(artifact.get("artifact_type", "")).strip().upper() == "STRATEGY_KPIS"
+        )
+    ]
+    return len(kpis) == 1 and not isinstance(kpis[0].get("payload"), Mapping)
+
+
+def _direct_strategies_allocation_record(
+    payload: Mapping[str, Any],
+    *,
+    strategy_id: str,
+    allocation_fields: Sequence[str],
+) -> tuple[Mapping[str, Any], int] | None:
+    """Resolve the AI CIO companion KPI schema ``strategies[]`` when applicable."""
+    strategies = payload.get("strategies")
+    if not isinstance(strategies, list):
+        return None
+    matches = [
+        (item, index)
+        for index, item in enumerate(strategies)
+        if isinstance(item, Mapping)
+        and str(item.get("strategy_id", "")).strip() == strategy_id
+    ]
+    if not matches:
+        # A strategies[] document that directly carries allocations is authoritative;
+        # fail closed rather than selecting another strategy such as DIVIDEND-001.
+        if any(
+            isinstance(item, Mapping)
+            and any(field in item for field in allocation_fields)
+            for item in strategies
+        ):
+            raise ValueError(f"strategies record for {strategy_id!r} is required")
+        return None
+    if len(matches) > 1:
+        raise ValueError(f"strategies contains duplicate {strategy_id!r} records")
+    record, index = matches[0]
+    if not any(field in record for field in allocation_fields):
+        return None
+    return record, index
 
 
 def _nested_strategy_kpi_candidates(
@@ -208,20 +274,45 @@ def _nested_strategy_kpi_candidates(
     return matches
 
 
+def _evidence_result(
+    *,
+    allocated: float,
+    schema: str,
+    json_path: str,
+    field: str,
+    source_path: str | Path | None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "allocated_capital": allocated,
+        "allocation_evidence_schema": schema,
+        "allocation_source_json_path": json_path,
+        "allocation_field": field,
+    }
+    if source_path is not None:
+        result["allocation_source_path"] = str(Path(source_path).expanduser().resolve())
+    return result
+
+
 def resolve_strategy_allocation_evidence(
     payload: Mapping[str, Any],
     strategy_id: str = STRATEGY_ID,
     *,
     allocation_fields: Sequence[str] = ALLOCATION_FIELDS,
+    source_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Resolve allocation plus exact schema and JSON-path provenance.
+    """Resolve allocation plus exact schema/file/JSON-path provenance.
 
     Resolution order is deterministic:
     1. Direct AI CIO evidence ``payload.strategy_kpis[]``.
-    2. Registry v2 ``strategies[].artifacts[STRATEGY_KPIS].payload``.
-    3. Shallowest nested AI CIO evidence containing ``strategy_kpis[]``.
-    4. Current registry ``strategy_plugins[]``.
-    5. Legacy ``strategy_allocations[strategy_id]``.
+    2. AI CIO companion KPI evidence ``strategies[]`` with direct allocation.
+    3. Inline Registry v2 ``strategies[].artifacts[STRATEGY_KPIS].payload``.
+    4. Shallowest nested AI CIO evidence containing ``strategy_kpis[]``.
+    5. Current registry ``strategy_plugins[]``.
+    6. Legacy ``strategy_allocations[strategy_id]``.
+
+    Metadata-only Registry v2 STRATEGY_KPIS declarations are deliberately not
+    interpreted as allocation values; ``load_discovered_strategy_allocations``
+    resolves those declarations to the host-owned companion KPI artifact.
     """
     evidence_payload = payload.get("payload")
     strategy_kpis = (
@@ -243,12 +334,35 @@ def resolve_strategy_allocation_evidence(
             allocation_fields=allocation_fields,
             schema_path=record_path,
         )
-        return {
-            "allocated_capital": allocated,
-            "allocation_evidence_schema": "payload.strategy_kpis",
-            "allocation_source_json_path": f"{record_path}.{field}",
-            "allocation_field": field,
-        }
+        return _evidence_result(
+            allocated=allocated,
+            schema="payload.strategy_kpis",
+            json_path=f"{record_path}.{field}",
+            field=field,
+            source_path=source_path,
+        )
+
+    companion = _direct_strategies_allocation_record(
+        payload,
+        strategy_id=strategy_id,
+        allocation_fields=allocation_fields,
+    )
+    if companion is not None:
+        record, index = companion
+        record_path = f"$.strategies[{index}]"
+        allocated, field = _allocation_field_from_record(
+            record,
+            strategy_id=strategy_id,
+            allocation_fields=allocation_fields,
+            schema_path=record_path,
+        )
+        return _evidence_result(
+            allocated=allocated,
+            schema="strategies.strategy_kpis_companion",
+            json_path=f"{record_path}.{field}",
+            field=field,
+            source_path=source_path,
+        )
 
     registry_v2 = _registry_v2_strategy_kpi_artifact(payload, strategy_id=strategy_id)
     if registry_v2 is not None:
@@ -259,12 +373,13 @@ def resolve_strategy_allocation_evidence(
             allocation_fields=allocation_fields,
             schema_path=record_path,
         )
-        return {
-            "allocated_capital": allocated,
-            "allocation_evidence_schema": "strategies.artifacts.strategy_kpis.payload",
-            "allocation_source_json_path": f"{record_path}.{field}",
-            "allocation_field": field,
-        }
+        return _evidence_result(
+            allocated=allocated,
+            schema="strategies.artifacts.strategy_kpis.payload",
+            json_path=f"{record_path}.{field}",
+            field=field,
+            source_path=source_path,
+        )
 
     candidates = _nested_strategy_kpi_candidates(payload, strategy_id=strategy_id)
     if candidates:
@@ -286,12 +401,13 @@ def resolve_strategy_allocation_evidence(
                 f"Conflicting nested AI CIO allocation evidence for {strategy_id!r}: {paths}"
             )
         record_path, allocated, field = resolved[0]
-        return {
-            "allocated_capital": allocated,
-            "allocation_evidence_schema": "nested.payload.strategy_kpis",
-            "allocation_source_json_path": f"{record_path}.{field}",
-            "allocation_field": field,
-        }
+        return _evidence_result(
+            allocated=allocated,
+            schema="nested.payload.strategy_kpis",
+            json_path=f"{record_path}.{field}",
+            field=field,
+            source_path=source_path,
+        )
 
     plugins = _matching_record(
         payload.get("strategy_plugins"),
@@ -307,29 +423,31 @@ def resolve_strategy_allocation_evidence(
             allocation_fields=allocation_fields,
             schema_path=record_path,
         )
-        return {
-            "allocated_capital": allocated,
-            "allocation_evidence_schema": "strategy_plugins",
-            "allocation_source_json_path": f"{record_path}.{field}",
-            "allocation_field": field,
-        }
+        return _evidence_result(
+            allocated=allocated,
+            schema="strategy_plugins",
+            json_path=f"{record_path}.{field}",
+            field=field,
+            source_path=source_path,
+        )
 
     legacy = payload.get("strategy_allocations")
     if isinstance(legacy, Mapping):
         allocated = _finite_nonnegative(legacy.get(strategy_id))
         if allocated is None:
             raise ValueError(f"strategy_allocations[{strategy_id!r}] is required")
-        return {
-            "allocated_capital": allocated,
-            "allocation_evidence_schema": "strategy_allocations",
-            "allocation_source_json_path": f"$.strategy_allocations.{strategy_id}",
-            "allocation_field": strategy_id,
-        }
+        return _evidence_result(
+            allocated=allocated,
+            schema="strategy_allocations",
+            json_path=f"$.strategy_allocations.{strategy_id}",
+            field=strategy_id,
+            source_path=source_path,
+        )
 
     raise ValueError(
         "Enterprise allocation evidence must contain direct or nested strategy_kpis, "
-        "Registry v2 strategies/artifacts STRATEGY_KPIS, strategy_plugins, "
-        "or strategy_allocations"
+        "host companion strategies allocation evidence, Registry v2 inline STRATEGY_KPIS, "
+        "strategy_plugins, or strategy_allocations"
     )
 
 
@@ -348,21 +466,8 @@ def resolve_strategy_allocation(
     return float(evidence["allocated_capital"])
 
 
-def discover_strategy_allocations_file(
-    explicit_path: str | Path | None = None,
-    *,
-    ai_cio_repository: str | Path = DEFAULT_AI_CIO_REPOSITORY,
-    registry_relative_path: str | Path = DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
-) -> Path:
-    """Return an explicit source or the Dividend-hosted AI CIO evidence artifact."""
-    if explicit_path is not None:
-        source = Path(explicit_path).expanduser().resolve()
-        if not source.is_file():
-            raise FileNotFoundError(f"Strategy allocation evidence not found: {source}")
-        return source
-
-    repository = Path(ai_cio_repository).expanduser().resolve()
-    relative = Path(registry_relative_path)
+def _contained_repository_path(repository: Path, relative_path: str | Path) -> Path:
+    relative = Path(relative_path)
     if relative.is_absolute():
         raise ValueError("AI CIO evidence path must be relative to the AI CIO repository")
     source = (repository / relative).resolve()
@@ -370,6 +475,24 @@ def discover_strategy_allocations_file(
         source.relative_to(repository)
     except ValueError as exc:
         raise ValueError("AI CIO evidence path escapes the AI CIO repository") from exc
+    return source
+
+
+def discover_strategy_allocations_file(
+    explicit_path: str | Path | None = None,
+    *,
+    ai_cio_repository: str | Path = DEFAULT_AI_CIO_REPOSITORY,
+    registry_relative_path: str | Path = DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
+) -> Path:
+    """Return an explicit source or the Dividend-hosted AI CIO registry artifact."""
+    if explicit_path is not None:
+        source = Path(explicit_path).expanduser().resolve()
+        if not source.is_file():
+            raise FileNotFoundError(f"Strategy allocation evidence not found: {source}")
+        return source
+
+    repository = Path(ai_cio_repository).expanduser().resolve()
+    source = _contained_repository_path(repository, registry_relative_path)
     if not source.is_file():
         raise FileNotFoundError(f"AI CIO strategy evidence not found: {source}")
     return source
@@ -380,10 +503,30 @@ def load_discovered_strategy_allocations(
     *,
     ai_cio_repository: str | Path = DEFAULT_AI_CIO_REPOSITORY,
     registry_relative_path: str | Path = DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
+    kpi_relative_path: str | Path = DEFAULT_AI_CIO_KPI_RELATIVE_PATH,
 ) -> tuple[dict[str, Any], Path]:
+    """Load host-owned allocation evidence without ever writing to the host.
+
+    Explicit paths retain their historical behavior. For normal AI CIO discovery,
+    a metadata-only Registry v2 STRATEGY_KPIS declaration is resolved to the
+    authoritative host companion ``enterprise_strategy_kpis.json`` artifact.
+    """
     source = discover_strategy_allocations_file(
         explicit_path,
         ai_cio_repository=ai_cio_repository,
         registry_relative_path=registry_relative_path,
     )
-    return load_json_object(source), source
+    payload = load_json_object(source)
+    if explicit_path is not None:
+        return payload, source
+
+    if _registry_v2_needs_companion(payload, strategy_id=STRATEGY_ID):
+        repository = Path(ai_cio_repository).expanduser().resolve()
+        companion = _contained_repository_path(repository, kpi_relative_path)
+        if not companion.is_file():
+            raise FileNotFoundError(
+                f"AI CIO companion strategy KPI evidence not found: {companion}"
+            )
+        return load_json_object(companion), companion
+
+    return payload, source
