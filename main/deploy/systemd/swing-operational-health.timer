@@ -1,0 +1,13 @@
+[Unit]
+Description=Monitor Trade Swing Bot Operational Health
+
+[Timer]
+# Check after the scheduled 18:30 America/New_York Swing cycle and again the next morning.
+OnCalendar=Mon..Fri *-*-* 20:15:00 America/New_York
+OnCalendar=Tue..Sat *-*-* 08:00:00 America/New_York
+Persistent=true
+AccuracySec=5min
+Unit=swing-operational-health.service
+
+[Install]
+WantedBy=timers.target
