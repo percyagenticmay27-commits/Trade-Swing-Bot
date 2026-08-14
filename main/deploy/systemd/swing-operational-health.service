@@ -1,0 +1,21 @@
+[Unit]
+Description=Trade Swing Bot Read-Only Operational Health Check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradebot
+Group=tradebot
+WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main
+ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python /home/tradebot/Trade-Swing-Bot/main/run_swing_operational_health.py
+TimeoutStartSec=5min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/tradebot/Trade-Swing-Bot/main/results
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
