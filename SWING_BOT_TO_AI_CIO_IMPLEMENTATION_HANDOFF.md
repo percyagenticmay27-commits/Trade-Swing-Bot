@@ -815,3 +815,29 @@ Correction:
 - No decision mapping, evidence authority, allocation, lifecycle, drawdown, or safety behavior changed.
 
 Rerun the same 37-test KPI integration suite. Registration/output-contract exposure remains blocked until all 37 pass.
+
+
+## DigitalOcean Decision Journal KPI gate passed; discovery contracts exposed
+
+DigitalOcean pulled through `d0c2a43` and reran the focused KPI integration suite:
+
+- Compile: passed, exit code 0.
+- Decision Journal/KPI/Trade Analytics/Alerts/cycle suite: **37 passed in 0.77s**, exit code 0.
+
+Discovery and output-contract commits:
+
+- `207d671` — registration configuration v1.9 declares `decision_journal` and its authoritative JSON artifact.
+- `0e592c3` — registration builder exposes the same capability/artifact; builder module version becomes 2.3.0.
+- `c28460d` — regenerate the committed registration snapshot from the authoritative configuration.
+- `ef310a9` — plugin manifest v1.7 declares the advisory Decision Journal capability and JSON/Markdown report.
+- `9931314` — strict output contract declares Decision Journal JSON and Markdown artifacts.
+- `a2f542f` — registration contract regression recognizes the new authoritative artifact.
+
+No CSV artifact is declared because the journal's nested committee evidence timeline is represented authoritatively in JSON, with Markdown as its human-readable view.
+
+Next gate:
+
+1. Pull through this handoff commit.
+2. Run registration builder/configuration, Registry v2, plugin manifest, output contract, KPI, and Decision Journal tests.
+3. Narrowly update any locked authoritative filename/capability allowlists revealed by that suite; do not weaken generic validation.
+4. After the contract gate passes, run the full repository suite, deployed cycle/KPI publication, and inspect the authentic generated journal before final freeze.
