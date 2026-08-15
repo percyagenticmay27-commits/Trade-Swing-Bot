@@ -531,3 +531,20 @@ Architectural decision:
 - Publish Alerts through the established post-cycle Enterprise KPI command, the same integration pattern used for dedicated Trade Analytics.
 - Do not add a new trading or execution stage.
 - Registration/plugin/output-contract exposure remains pending until the KPI integration regression suite passes.
+
+
+## DigitalOcean KPI gate passed; Alerts contracts exposed
+
+DigitalOcean KPI integration validation:
+
+- Compile: passed, exit code 0.
+- Focused KPI/Alerts/Trade Analytics/cycle suite: **28 passed in 0.73s**, exit code 0.
+
+Contract exposure commits:
+
+- `49a3ea9` / `3047c7b` — Registry v1.8 configuration and published snapshot declare `alerts` and `swing_strategy_alerts_report.json`.
+- `07740d8` / `ef79978` — registration builder exposes the same capability/artifact in deterministic contract order.
+- `492fc25` — plugin manifest declares Authoritative Strategy Alerts and JSON/CSV/Markdown reports.
+- `fd877b4` — strict output contract declares the three Alerts formats.
+
+Next gate is the focused registration, plugin-manifest, output-contract, KPI, and Alerts regression suite. Locked allowlists may require narrow test updates; do not weaken safety or accept unrelated filenames.
