@@ -26,6 +26,10 @@ from swing_trade_bot.swing_strategy_alerts_report import (
     build_swing_strategy_alerts_report,
     write_swing_strategy_alerts_report,
 )
+from swing_trade_bot.swing_decision_journal_report import (
+    build_swing_decision_journal_report,
+    write_swing_decision_journal_report,
+)
 
 
 def publish(
@@ -128,12 +132,22 @@ def publish(
     if isinstance(payload.get("dashboard_sections"), dict):
         payload["dashboard_sections"]["alerts"] = alerts_report
 
+    decision_journal = build_swing_decision_journal_report(
+        root,
+        kpi_payload=payload,
+    )
+    write_swing_decision_journal_report(decision_journal, root)
+    payload["decision_journal"] = decision_journal
+    if isinstance(payload.get("dashboard_sections"), dict):
+        payload["dashboard_sections"]["decisions"] = decision_journal
+
     # The dedicated reports are created by this same atomic publication command.
     # Synchronize artifact availability before validating and writing the KPI
     # contract so consumers never receive a false missing-artifact warning.
     generated_artifact_ids = {
         "swing_trade_analytics_report",
         "swing_strategy_alerts_report",
+        "swing_decision_journal_report",
     }
     for artifact in payload.get("artifact_contract", []):
         if artifact.get("artifact_id") in generated_artifact_ids:
