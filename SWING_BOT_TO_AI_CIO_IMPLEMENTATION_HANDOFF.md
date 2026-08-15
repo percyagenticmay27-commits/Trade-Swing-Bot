@@ -253,7 +253,7 @@ Next Swing development should create and register a dedicated report artifact (r
 
 ## Development update: dedicated Swing Trade Analytics report
 
-Status: **IMPLEMENTED; DIGITALOCEAN VALIDATION PENDING**
+Status: **IMPLEMENTED AND VALIDATED ON DIGITALOCEAN**
 
 Implementation commits:
 
@@ -370,3 +370,44 @@ Closed positions, when authentic evidence exists:
 - Maximum drawdown during the actual trade lifetime
 
 Do not implement portal changes in Trade-Dividend-Bot from this repository.
+
+
+## DigitalOcean validation: Swing Trade Analytics report complete
+
+Status: **IMPLEMENTED AND VALIDATED ON DIGITALOCEAN**
+
+DigitalOcean safely stashed tracked runtime changes, retained untracked authoritative paper evidence, and fast-forwarded from `1e3a973` to `c78bd40`. The refreshed tracked market-data files were then restored selectively; stale generated reports were not restored.
+
+Validation results:
+
+- Production-module `py_compile`: passed.
+- Initial named focused command stopped at collection because `tests/test_swing_plugin_manifest.py` was a stale/nonexistent filename; this was a command-path error, not a product failure.
+- Complete repository test suite: **1027 passed, 1 skipped in 8.42s**, exit code 0.
+- Full Swing operational cycle: **15/15 stages passed**, `cycle_status = COMPLETE`, exit code 0.
+- Enterprise KPI publication: passed, exit code 0.
+- Registration publication: passed.
+- Cycle errors and warnings: none.
+- Paper safety remained locked: `paper_trade_mode = true`, `advisory_only = true`.
+- Strategy identity remained `SWING-001`; the governed $4,500 allocation was not changed.
+
+Generated and verified artifacts:
+
+- `results/swing_trade_analytics_report.json` (3169 bytes)
+- `results/swing_trade_analytics_report.csv` (489 bytes)
+- `results/swing_trade_analytics_report.md` (763 bytes)
+- `results/enterprise_strategy_kpis.json`
+
+Verified authentic report state:
+
+- Open positions: 2
+- Closed positions: 0
+- Max-drawdown policy: `AUTHORITATIVE_POSITION_HISTORY_ONLY`
+- Drawdown inference allowed: `false`
+- SOXL: entry 2026-08-04 at 139.899993896484; current 143.264297485352; unrealized P&L $27.05 / 2.404444%; max drawdown 7.308378%.
+- TQQQ: entry 2026-08-04 at 74.819999694824; current 74.650001525879; unrealized P&L -$1.53 / -0.226667%; max drawdown 3.728951%.
+- Open rows contain no `exit_date` or `exit_price` fields.
+- No closed trade was fabricated.
+
+The dedicated Swing Trade Analytics publication stage is complete. The next consumer-side stage is for the Enterprise AI CIO/jshouseapi.com portal to render this registered `trade_analytics` capability as a Swing-specific Trade Analytics / Position Performance section instead of the Dividend Income layout. That consumer work belongs outside Trade-Swing-Bot and must not change Swing lifecycle calculations or fabricate closed positions.
+
+The retained DigitalOcean stash contains the pre-pull tracked runtime snapshot. It may be kept temporarily as a recovery checkpoint; do not `stash pop` it because that would restore stale generated reports.
