@@ -48,7 +48,8 @@ ARTIFACT_SPECS = (
     ("closed_positions", "CLOSED_POSITIONS", "paper_ledger/closed_positions.json"),
     ("paper_performance", "PERFORMANCE_ANALYTICS", "paper_ledger/paper_performance.json"),
     ("swing_trade_analytics_report", "TRADE_ANALYTICS", "swing_trade_analytics_report.json"),
-    ("swing_strategy_alerts_report", "STRATEGY_ALERTS", "swing_strategy_alerts_report.json"),\n    ("swing_decision_journal_report", "DECISION_JOURNAL", "swing_decision_journal_report.json"),
+    ("swing_strategy_alerts_report", "STRATEGY_ALERTS", "swing_strategy_alerts_report.json"),
+    ("swing_decision_journal_report", "DECISION_JOURNAL", "swing_decision_journal_report.json"),
 )
 
 _LEGACY_ALLOCATION_VALIDATION_ERRORS = {
