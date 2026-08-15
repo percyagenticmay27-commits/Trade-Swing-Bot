@@ -627,3 +627,10 @@ This violated the product decision that absence of closed positions is not itsel
 - `de92188` — regression test locks zero closed trades/reportability disclosures out of Alerts.
 
 Operational cycle/health warnings and errors remain eligible for advisory alerts when current. The expected authentic deployed result is now zero actionable alerts, with KPI disclosures and excluded legacy-dashboard freshness shown separately under evidence warnings.
+
+
+## Alerts disclosure regression assertion correction
+
+Classification suite result: 19 passed, 1 failed. Production classification was correct (`actionable_alert_count = 0`, `alerts = []`). The fixture also correctly disclosed two missing optional sources, so the test's exact total-warning count was too strict.
+
+Commit `f71b16e` now asserts the two required KPI disclosures independently while retaining legitimate optional-source warnings. No production code changed.
