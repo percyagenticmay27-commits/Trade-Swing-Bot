@@ -31,6 +31,7 @@ CAPABILITIES: tuple[str, ...] = (
     "position_lifecycle",
     "stock_performance",
     "strategy_kpis",
+    "trade_analytics",
     "watchlist",
     "weekly_stock_report",
 )
@@ -58,6 +59,7 @@ DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
     _artifact("position_lifecycle", "position_lifecycle", "trade_lifecycle_report.json"),
     _artifact("stock_performance", "stock_performance", "stock_performance_report.json"),
     _artifact("strategy_kpis", "strategy_kpis", "enterprise_strategy_kpis.json"),
+    _artifact("swing_trade_analytics_report", "trade_analytics", "swing_trade_analytics_report.json"),
     _artifact("watchlist", "watchlist", "watchlist_report.json"),
     _artifact("weekly_stock_report", "weekly_stock_report", "weekly_stock_report.json"),
 )
