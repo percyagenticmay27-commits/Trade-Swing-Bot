@@ -923,3 +923,31 @@ Final deployment gate:
 7. Verify KPI `dashboard_sections.decisions` equals the standalone Decision Journal report.
 8. Verify registration v1.9 declares `decision_journal` and the JSON artifact.
 9. Preserve the retained targeted stash until deployment verification completes; do not pop it.
+
+
+## Deployed Decision Journal publication wiring correction
+
+The first real deployment gate produced:
+
+- Full Swing cycle: `COMPLETE`, 15/15 stages, zero errors/warnings, exit code 0.
+- Enterprise KPI command: exit code 0.
+- Decision Journal inspection: failed because `results/swing_decision_journal_report.json` did not exist.
+
+Root cause:
+
+- The artifact contract correctly declared the journal, but the intended edits to `publish_enterprise_strategy_kpis_v21.py` were not present.
+- The command therefore completed normally without importing, building, writing, embedding, or availability-synchronizing the journal.
+- This was a publication wiring defect, not a committee-evidence, cycle, lifecycle, allocation, or safety failure.
+
+Corrections:
+
+- `60ae1bd` — explicitly import/build/write the Decision Journal, publish top-level `decision_journal` and `dashboard_sections.decisions`, and mark its artifact available in the same atomic KPI command.
+- `f1f2e00` — regression lock verifying all five publication wiring points remain present.
+
+Next gate:
+
+1. Pull and compile the corrected publication command.
+2. Run Decision Journal/KPI/Alerts/Trade Analytics/cycle focused tests.
+3. Rerun KPI publication; a full cycle rerun is unnecessary because the just-completed cycle evidence is current and healthy.
+4. Inspect standalone JSON/Markdown, KPI equality, registration, HOLD position decisions, candidate separation, and prohibited BUY/SELL absence.
+5. Rerun the complete repository suite after the new wiring regression before final freeze.
