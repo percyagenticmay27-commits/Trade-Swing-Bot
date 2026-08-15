@@ -124,7 +124,8 @@ class SwingTradeAnalyticsReportTests(unittest.TestCase):
             json_path, csv_path, md_path = write_swing_trade_analytics_report(report, directory)
             stored = json.loads(json_path.read_text(encoding="utf-8"))
             self.assertEqual(stored["report_id"], "SWING-TRADE-ANALYTICS")
-            rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+            with csv_path.open(encoding="utf-8") as source:
+                rows = list(csv.DictReader(source))
             self.assertEqual(len(rows), 2)
             markdown = md_path.read_text(encoding="utf-8")
             self.assertIn("Swing Trade Analytics / Position Performance", markdown)
