@@ -510,3 +510,24 @@ Next gate:
 1. Pull and compile the new module/test.
 2. Run only `test_swing_strategy_alerts_report.py`.
 3. Correct authority-layer failures before integrating it into KPI publication, daily-cycle orchestration, plugin/registration contracts, or portal consumption.
+
+
+## DigitalOcean validation and KPI Alerts integration
+
+Authority-layer validation on DigitalOcean:
+
+- `py_compile`: passed, exit code 0.
+- `test_swing_strategy_alerts_report.py`: **7 passed in 0.38s**, exit code 0.
+
+Integration commits:
+
+- `15d7aef` — allow the alerts builder to consume the in-flight, already validated KPI payload so publication does not depend on an older KPI file.
+- `e2ea029` — declare `swing_strategy_alerts_report.json` in the Enterprise KPI artifact contract; KPI publisher version becomes 2.1.9.
+- `382d836` — generate Alerts JSON/CSV/Markdown during Enterprise KPI publication, embed the report at top-level `alerts` and `dashboard_sections.alerts`, and synchronize artifact availability before the KPI is atomically written.
+
+Architectural decision:
+
+- Preserve the existing 15-stage daily-cycle structure.
+- Publish Alerts through the established post-cycle Enterprise KPI command, the same integration pattern used for dedicated Trade Analytics.
+- Do not add a new trading or execution stage.
+- Registration/plugin/output-contract exposure remains pending until the KPI integration regression suite passes.
