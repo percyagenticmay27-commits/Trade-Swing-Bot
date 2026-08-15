@@ -94,7 +94,13 @@ def enrich_and_archive_closed_trade_excursions(
         except (FileNotFoundError, TypeError, ValueError) as exc:
             warnings.append(f"{closed_id}: closed-trade drawdown unavailable ({exc})")
 
-        if evidence is not None:
+        if evidence is None:
+            if not any(message.startswith(f"{closed_id}:") for message in warnings):
+                warnings.append(
+                    f"{closed_id}: closed-trade drawdown unavailable "
+                    "(authoritative market-data history does not cover the full trade lifetime)"
+                )
+        else:
             values = asdict(evidence)
             values["drawdown_observation_count"] = values.pop("observation_count")
             values["drawdown_source"] = values.pop("source")
