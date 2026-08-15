@@ -548,3 +548,17 @@ Contract exposure commits:
 - `fd877b4` — strict output contract declares the three Alerts formats.
 
 Next gate is the focused registration, plugin-manifest, output-contract, KPI, and Alerts regression suite. Locked allowlists may require narrow test updates; do not weaken safety or accept unrelated filenames.
+
+
+## DigitalOcean Alerts contract retest blocked by generated registration snapshot
+
+The attempted contract pull stopped because local generated `main/results/swing_strategy_service_registration.json` would be overwritten. Compile passed and 109 tests passed, but they ran at old head `53cae63`; they are not validation of Alerts contract commits through `5a93e8b`.
+
+Recovery decision:
+
+- Stash only the conflicting tracked generated registration snapshot.
+- Do not include untracked runtime or paper-ledger evidence.
+- Fast-forward to the Alerts contract commits.
+- Do not restore the stale registration snapshot; current config/publication will regenerate it.
+- Retain the targeted stash until post-publication verification.
+- Rerun the same 109-test contract suite on the corrected head.
