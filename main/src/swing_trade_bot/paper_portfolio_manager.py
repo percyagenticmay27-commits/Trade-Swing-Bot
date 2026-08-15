@@ -17,13 +17,15 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .paper_position_excursion import calculate_long_position_excursion
+
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
 BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 DIRECT_DATABASE_WRITES = False
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 DEFAULT_MAX_PRICE_AGE_DAYS = 5
 
 
@@ -44,6 +46,14 @@ class ValuedPaperPosition:
     split_adjustment_factor: float = 1.0
     price_source: str = "ADJ_CLOSE"
     status: str = "OPEN"
+    max_drawdown_amount: float | None = None
+    max_drawdown_percent: float | None = None
+    max_drawdown_peak_price: float | None = None
+    max_drawdown_peak_date: str | None = None
+    max_drawdown_trough_price: float | None = None
+    max_drawdown_trough_date: str | None = None
+    drawdown_observation_count: int | None = None
+    drawdown_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,8 +114,9 @@ def build_paper_portfolio_report(
         cost_basis = _nonnegative(row.get("cost_basis"), f"{symbol}.cost_basis")
         entry_date = _parse_date(row.get("entry_date"), f"{symbol}.entry_date")
 
+        market_path = data_dir / f"{symbol}.csv"
         price_date, current_price, split_factor, price_source = _latest_completed_adjusted_close(
-            data_dir / f"{symbol}.csv",
+            market_path,
             valuation_date,
             entry_date=entry_date,
             max_price_age_days=max_price_age_days,
@@ -122,6 +133,19 @@ def build_paper_portfolio_report(
         if split_factor != 1.0:
             warnings.append(
                 f"{symbol} position normalized for corporate action factor {split_factor:g}"
+            )
+
+        excursion = calculate_long_position_excursion(
+            market_data_path=market_path,
+            entry_date=entry_date,
+            as_of=valuation_date,
+            normalized_entry_price=entry_price,
+            normalized_shares=shares,
+        )
+        if excursion is None:
+            warnings.append(
+                f"{symbol} max drawdown is not reportable because market-data history "
+                "does not cover the paper entry date"
             )
 
         market_value = round(shares * current_price, 2)
@@ -144,6 +168,14 @@ def build_paper_portfolio_report(
                 split_adjustment_factor=split_factor,
                 price_source=price_source,
                 status="OPEN",
+                max_drawdown_amount=(excursion.max_drawdown_amount if excursion else None),
+                max_drawdown_percent=(excursion.max_drawdown_percent if excursion else None),
+                max_drawdown_peak_price=(excursion.max_drawdown_peak_price if excursion else None),
+                max_drawdown_peak_date=(excursion.max_drawdown_peak_date if excursion else None),
+                max_drawdown_trough_price=(excursion.max_drawdown_trough_price if excursion else None),
+                max_drawdown_trough_date=(excursion.max_drawdown_trough_date if excursion else None),
+                drawdown_observation_count=(excursion.observation_count if excursion else None),
+                drawdown_source=(excursion.source if excursion else None),
             )
         )
 
@@ -256,11 +288,6 @@ def _latest_completed_adjusted_close(
     current_price = latest_adjusted if latest_adjusted is not None else latest_close
     price_source = "ADJ_CLOSE" if latest_adjusted is not None else "CLOSE"
 
-    # Split inference requires a bar at or before the ledger entry date. Some
-    # valid datasets begin after the paper entry date (for example a shortened
-    # fixture or a newly downloaded history window). In that case valuation is
-    # still safe, but there is no evidence for a corporate-action adjustment,
-    # so preserve the ledger shares and entry price with factor 1.0.
     entry_candidates = [row for row in rows if row[0] <= entry_date]
     if not entry_candidates:
         return latest_date, round(current_price, 12), 1.0, price_source
