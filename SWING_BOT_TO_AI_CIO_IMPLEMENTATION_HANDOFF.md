@@ -612,3 +612,18 @@ Complete repository suite after Alerts authority, KPI, registry, plugin, and str
 - Exit code 0
 
 No regression was found in lifecycle, drawdown, trade analytics, operational runtime, registration, schema/output contracts, or paper safety. Final deployment gate is the real cycle/KPI publication and generated Alerts artifact inspection.
+
+
+## Deployed Alerts classification correction
+
+The deployed cycle and publication passed, but artifact inspection found two KPI disclosure warnings had been classified as actionable Alerts:
+
+- Marked-to-market proxy disclosure.
+- Win rate unavailable until authentic closed trades exist.
+
+This violated the product decision that absence of closed positions is not itself an alert. Corrections:
+
+- `4ba257c` — KPI warnings remain evidence disclosures and are not converted into actionable alerts.
+- `de92188` — regression test locks zero closed trades/reportability disclosures out of Alerts.
+
+Operational cycle/health warnings and errors remain eligible for advisory alerts when current. The expected authentic deployed result is now zero actionable alerts, with KPI disclosures and excluded legacy-dashboard freshness shown separately under evidence warnings.
