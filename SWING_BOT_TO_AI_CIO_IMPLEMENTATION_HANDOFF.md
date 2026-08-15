@@ -653,3 +653,27 @@ DigitalOcean classification retest after `f71b16e`:
 - No stale legacy risk flag is actionable.
 
 Because production classification changed after the prior 1034-test run, rerun the complete repository suite once more before final freeze.
+
+
+## Swing Alerts final freeze
+
+Final complete repository suite after the deployed disclosure-classification correction:
+
+- **1035 passed, 1 skipped in 9.14s**
+- Exit code 0
+
+Final authoritative deployed Alerts state:
+
+- Strategy: `SWING-001`
+- Policy: `CURRENT_AUTHORITATIVE_EVIDENCE_ONLY`
+- Actionable alerts: 0
+- Alerts: empty
+- Explicit verified no-actionable-alert message
+- KPI `dashboard_sections.alerts` matches the standalone Alerts report
+- Registration v1.8 declares the `alerts` capability and JSON artifact
+- JSON, CSV, and Markdown artifacts are generated
+- KPI disclosures and excluded stale-dashboard evidence remain separate from actionable alerts
+- Stale legacy reentry, exit, thesis, and repeated theme-cap flags are excluded
+- Paper-only safety and the AI CIO governed $4,500 allocation remain unchanged
+
+Swing-side Alerts publication is complete and frozen. Next work belongs to the Dividend-hosted Enterprise AI CIO consumer: discover the registered Alerts capability/artifact and render actionable alerts separately from evidence disclosures.
