@@ -168,6 +168,69 @@
       "missing_behavior": "WARN"
     },
     {
+      "artifact_id": "swing_strategy_alerts_csv",
+      "path": "results/swing_strategy_alerts_report.csv",
+      "format": "csv",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "required_columns": [
+        "strategy_id",
+        "symbol",
+        "alert_category",
+        "severity",
+        "priority",
+        "status",
+        "message",
+        "recommended_review_action",
+        "evidence_source",
+        "evidence_timestamp",
+        "paper_trade_mode",
+        "advisory_only"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_strategy_alerts_json",
+      "path": "results/swing_strategy_alerts_report.json",
+      "format": "json",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "root_type": "object",
+      "required_fields": [
+        "strategy_id",
+        "paper_trade_mode",
+        "advisory_only",
+        "alert_authority_policy",
+        "actionable_alert_count",
+        "alerts",
+        "evidence_warnings",
+        "source_evaluations"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_strategy_alerts_markdown",
+      "path": "results/swing_strategy_alerts_report.md",
+      "format": "markdown",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "required_sections": [
+        "Swing Strategy Alerts",
+        "Actionable Alerts",
+        "Evidence Warnings"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
       "artifact_id": "swing_trade_analytics_csv",
       "path": "results/swing_trade_analytics_report.csv",
       "format": "csv",
