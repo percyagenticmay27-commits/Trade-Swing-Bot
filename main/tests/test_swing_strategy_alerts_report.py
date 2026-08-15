@@ -66,8 +66,13 @@ def test_kpi_reportability_disclosures_are_not_actionable_alerts(tmp_path: Path)
 
     assert report["actionable_alert_count"] == 0
     assert report["alerts"] == []
-    assert len(report["evidence_warnings"]) == 2
-    assert all(item.startswith("KPI disclosure:") for item in report["evidence_warnings"])
+    disclosures = [
+        item for item in report["evidence_warnings"]
+        if item.startswith("KPI disclosure:")
+    ]
+    assert len(disclosures) == 2
+    assert any("Win rate is not reportable" in item for item in disclosures)
+    assert any("Marked-to-market paper ledger" in item for item in disclosures)
 
 
 def test_current_operational_error_becomes_advisory_alert(tmp_path: Path) -> None:
