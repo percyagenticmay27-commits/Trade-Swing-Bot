@@ -302,6 +302,22 @@ Required next validation on DigitalOcean:
 5. Confirm two open rows, zero closed rows, unchanged SOXL/TQQQ values, no exit fields on open rows, and authoritative drawdown policy.
 6. Run the full 15-stage Swing cycle after focused validation.
 
+## Validation correction: registry contract alignment
+
+First DigitalOcean focused run after the dedicated report implementation:
+
+- Compile: passed, exit code 0
+- Tests: 122 passed, 5 failed, exit code 1
+
+Root causes and corrections:
+
+1. The closed-trade KPI normalizer added `proceeds: null` when older authoritative fixtures did not publish proceeds. Commit `240e700` now omits that optional field when unavailable while retaining authentic proceeds when present.
+2. The authoritative registration builder constants did not yet include the new `trade_analytics` capability/artifact. Commit `cd3dd0a` aligns the builder with the configured Registry v2 contract.
+3. Locked registry contract tests still contained the prior artifact allowlists. Commits `0729cda` and `8c0d61d` add only the new authoritative Swing report filename/artifact.
+4. The committed published registration snapshot still reflected version 1.6. Commit `1d3e163` regenerates it exactly from the authoritative version 1.7 configuration.
+
+No lifecycle, drawdown, allocation, broker, or generated trading evidence was changed. Focused rerun is required before publication/cycle validation.
+
 ## Enterprise report direction
 
 The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
