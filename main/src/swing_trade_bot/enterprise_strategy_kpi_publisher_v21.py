@@ -47,6 +47,7 @@ ARTIFACT_SPECS = (
     ("trade_history_summary", "TRADE_HISTORY_SUMMARY", "paper_ledger/trade_history_summary.json"),
     ("closed_positions", "CLOSED_POSITIONS", "paper_ledger/closed_positions.json"),
     ("paper_performance", "PERFORMANCE_ANALYTICS", "paper_ledger/paper_performance.json"),
+    ("swing_trade_analytics_report", "TRADE_ANALYTICS", "swing_trade_analytics_report.json"),
 )
 
 _LEGACY_ALLOCATION_VALIDATION_ERRORS = {
@@ -208,6 +209,7 @@ def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str,
             "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
             "exit_date": _first_text(row, "exit_date", "closed_date", "sale_date"),
             "exit_price": _first_number(row, "exit_price", "sale_price", "closed_price"),
+            "proceeds": _first_number(row, "proceeds", "exit_value", "sale_value"),
             "realized_pnl": _first_number(row, "realized_pnl", "realized_gain", "profit_loss", signed=True),
             "realized_pnl_percent": _first_number(
                 row,
