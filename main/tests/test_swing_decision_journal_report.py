@@ -91,6 +91,16 @@ def test_json_and_markdown_are_atomic(tmp_path: Path) -> None:
     assert not list(tmp_path.glob("*.tmp"))
 
 
+
+def test_kpi_command_wires_decision_journal_publication() -> None:
+    source = Path("publish_enterprise_strategy_kpis_v21.py").read_text(encoding="utf-8")
+    assert "build_swing_decision_journal_report" in source
+    assert "write_swing_decision_journal_report" in source
+    assert 'payload["decision_journal"] = decision_journal' in source
+    assert 'payload["dashboard_sections"]["decisions"] = decision_journal' in source
+    assert '"swing_decision_journal_report"' in source
+
+
 def test_paper_safety_constants_are_locked() -> None:
     assert PAPER_TRADE_MODE is True
     assert LIVE_TRADING_ENABLED is False
