@@ -22,6 +22,7 @@ DEFAULT_PRESENTATION_PATH = "results/swing_cio_presentation.json"
 ELIGIBLE_STATUSES = {"ONLINE", "ENABLED", "AVAILABLE", "HEALTHY", "READY"}
 
 CAPABILITIES: tuple[str, ...] = (
+    "alerts",
     "daily_cycle_status",
     "executive_dashboard",
     "market_data_status",
@@ -50,6 +51,7 @@ def _artifact(artifact_id: str, artifact_type: str, filename: str) -> dict[str, 
 
 
 DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
+    _artifact("swing_strategy_alerts_report", "alerts", "swing_strategy_alerts_report.json"),
     _artifact("daily_cycle_status", "daily_cycle_status", "swing_daily_cycle_report.json"),
     _artifact("executive_dashboard", "executive_dashboard", "executive_dashboard.json"),
     _artifact("market_data_status", "market_data_status", "market_data_refresh_status.json"),
