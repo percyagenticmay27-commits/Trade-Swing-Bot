@@ -14,6 +14,7 @@ EXPECTED_ARTIFACTS = {
     "position_lifecycle": "results/trade_lifecycle_report.json",
     "stock_performance": "results/stock_performance_report.json",
     "strategy_kpis": "results/enterprise_strategy_kpis.json",
+    "swing_strategy_alerts_report": "results/swing_strategy_alerts_report.json",
     "swing_trade_analytics_report": "results/swing_trade_analytics_report.json",
     "watchlist": "results/watchlist_report.json",
     "weekly_stock_report": "results/weekly_stock_report.json",
