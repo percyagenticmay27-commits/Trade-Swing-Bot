@@ -436,3 +436,26 @@ Decision:
 - Add regression coverage for authentic alerts, zero-alert evaluation, severity/priority preservation, missing evidence disclosure, deduplication, deterministic ordering, atomic output, portal contract fields, and all paper-safety locks.
 
 Before implementation, inspect the existing daily-cycle orchestration and the current runtime availability of Position Intelligence, Profit Protection, Exit Review, lifecycle, operational health, and evidence-authority outputs. Make the smallest architectural extension and do not redesign those engines.
+
+
+## DigitalOcean alert-evidence inspection and freshness decision
+
+Read-only inspection of deployed results found:
+
+- `position_intelligence.json`: missing.
+- `profit_protection_report.json`: last modified 2026-07-30; contains SOXL Strategy B at +34%.
+- `exit_review_report.json`: last modified 2026-07-30; contains SOXL Strategy B at -11%.
+- `trade_lifecycle_report.json`: last modified 2026-07-30; contains SOXL Strategy B at -11%.
+- `operational_health_report.json`: current at 2026-08-15T12:00:00Z; zero warnings and zero errors.
+- `runtime_evidence_authority_audit.json`: PASS; zero warnings and zero errors.
+- `executive_dashboard.json`: current file publication contains ten risk-flag strings, including exit/reentry/thesis attention.
+
+Authority decision:
+
+- The July 30 lifecycle/review files are stale and contradict the current authoritative paper ledger and Trade Analytics evidence. Current SOXL is Strategy A at +2.404444%, not Strategy B at +34% or -11%.
+- These stale reports must not be published as current alerts.
+- The executive-dashboard risk flags cannot be accepted as alert authority until their source lineage and freshness are verified; they may reflect stale optional inputs.
+- Current operational evidence supports zero operational alerts, but this does not yet prove that every current trade-review source was evaluated.
+- The new alerts publisher must enforce source freshness/current-cycle identity and fail closed or disclose unavailable evaluation when required evidence is stale.
+- Alerts must carry evidence source and evidence timestamp/as-of information so the AI CIO consumer can distinguish current actionable alerts from excluded stale evidence.
+- Do not relabel stale data as current and do not translate stale review rows into portal alerts.
