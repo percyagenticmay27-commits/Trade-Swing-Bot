@@ -796,3 +796,22 @@ Correction:
 - No logic, schemas, allocation, lifecycle, drawdown, trade evidence, or safety controls changed.
 
 Rerun the same compile and focused KPI integration suite after pulling `4d1d27b`.
+
+
+## Decision Journal in-flight KPI signature correction
+
+The syntax-corrected DigitalOcean gate compiled and collected 37 tests. Result: **36 passed, 1 failed in 1.05s**.
+
+The only failure was `test_in_flight_kpi_payload_is_used_before_kpi_file_exists`:
+
+- The integration call correctly passed `kpi_payload=payload`.
+- The production journal builder still had its original signature and raised `TypeError: unexpected keyword argument 'kpi_payload'`.
+- The earlier intended signature edit did not match the source text and therefore was not present in the deployed module.
+
+Correction:
+
+- `08e6ee6` — add the optional `kpi_payload` keyword and prefer that validated in-flight mapping over loading the prior KPI file.
+- File-based behavior remains the fallback when no in-flight payload is supplied.
+- No decision mapping, evidence authority, allocation, lifecycle, drawdown, or safety behavior changed.
+
+Rerun the same 37-test KPI integration suite. Registration/output-contract exposure remains blocked until all 37 pass.
