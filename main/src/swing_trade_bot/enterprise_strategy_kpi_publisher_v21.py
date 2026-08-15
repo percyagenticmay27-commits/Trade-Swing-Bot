@@ -209,7 +209,6 @@ def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str,
             "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
             "exit_date": _first_text(row, "exit_date", "closed_date", "sale_date"),
             "exit_price": _first_number(row, "exit_price", "sale_price", "closed_price"),
-            "proceeds": _first_number(row, "proceeds", "exit_value", "sale_value"),
             "realized_pnl": _first_number(row, "realized_pnl", "realized_gain", "profit_loss", signed=True),
             "realized_pnl_percent": _first_number(
                 row,
@@ -225,6 +224,9 @@ def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str,
             "max_drawdown_amount": max_drawdown_amount,
             "max_drawdown_percent": max_drawdown_percent,
         }
+        proceeds = _first_number(row, "proceeds", "exit_value", "sale_value")
+        if proceeds is not None:
+            normalized["proceeds"] = proceeds
         output.append(normalized)
     return sorted(output, key=lambda item: (item["symbol"], str(item.get("exit_date") or "")))
 
