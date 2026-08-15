@@ -5,7 +5,7 @@
   "display_name": "Trade Swing Bot",
   "plugin_type": "STRATEGY_PLUGIN",
   "strategy_class": "SWING_TRADING",
-  "plugin_version": "1.4",
+  "plugin_version": "1.5",
   "repository_name": "Trade-Swing-Bot",
   "repository_role": "INDEPENDENT_STRATEGY_INTELLIGENCE_PLUGIN",
   "lifecycle_status": "QA_FROZEN",
@@ -13,29 +13,187 @@
   "registration_status": "CIO_DISCOVERABLE",
   "generated_by": "swing_cio_plugin_manifest",
   "capabilities": [
-    {"capability_id": "discovery", "display_name": "Opportunity Discovery", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "watchlist", "display_name": "Watchlist Intelligence", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "theme_momentum", "display_name": "Theme Momentum", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "source_confluence", "display_name": "Source Confluence", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "market_intelligence", "display_name": "Market Intelligence", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "market_regime", "display_name": "Market Regime", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "momentum_scoring", "display_name": "Momentum Scoring", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "opportunity_quality", "display_name": "Opportunity Quality", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "portfolio_allocation", "display_name": "Portfolio Allocation Recommendations", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "strategy_assignment", "display_name": "Strategy Assignment", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "position_intelligence", "display_name": "Position Intelligence", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "thesis_monitor", "display_name": "Thesis Monitor", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "historical_archive", "display_name": "Historical Archive", "status": "AVAILABLE", "advisory_only": true},
-    {"capability_id": "executive_reporting", "display_name": "Executive Reporting", "status": "AVAILABLE", "advisory_only": true}
+    {
+      "capability_id": "discovery",
+      "display_name": "Opportunity Discovery",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "executive_reporting",
+      "display_name": "Executive Reporting",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "historical_archive",
+      "display_name": "Historical Archive",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "market_intelligence",
+      "display_name": "Market Intelligence",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "market_regime",
+      "display_name": "Market Regime",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "momentum_scoring",
+      "display_name": "Momentum Scoring",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "opportunity_quality",
+      "display_name": "Opportunity Quality",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "portfolio_allocation",
+      "display_name": "Portfolio Allocation Recommendations",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "position_intelligence",
+      "display_name": "Position Intelligence",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "source_confluence",
+      "display_name": "Source Confluence",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "strategy_assignment",
+      "display_name": "Strategy Assignment",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "theme_momentum",
+      "display_name": "Theme Momentum",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "thesis_monitor",
+      "display_name": "Thesis Monitor",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "trade_analytics",
+      "display_name": "Trade Analytics / Position Performance",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
+    {
+      "capability_id": "watchlist",
+      "display_name": "Watchlist Intelligence",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    }
   ],
   "published_reports": [
-    {"report_id": "strategy_assignments", "name": "Strategy Assignment Report", "owner_module": "strategy_assignment_engine", "required": false, "artifacts": ["results/strategy_assignments.csv", "results/strategy_assignments.json", "results/strategy_assignments.md"], "dashboard_destination": "Strategy Assignment"},
-    {"report_id": "thesis_monitor", "name": "Thesis Monitor Report", "owner_module": "thesis_monitor", "required": false, "artifacts": ["results/thesis_monitor_report.json", "results/thesis_monitor_report.md"], "dashboard_destination": "Thesis Monitor"},
-    {"report_id": "stock_performance", "name": "Stock Performance Report", "owner_module": "stock_performance_report", "required": false, "artifacts": ["results/stock_performance_report.json"], "dashboard_destination": "Performance and Weekly Review"},
-    {"report_id": "weekly_stock", "name": "Weekly Stock Report", "owner_module": "weekly_stock_report", "required": false, "artifacts": ["results/weekly_stock_report.json"], "dashboard_destination": "Performance and Weekly Review"},
-    {"report_id": "executive_dashboard", "name": "Executive Dashboard", "owner_module": "executive_dashboard", "required": false, "artifacts": ["results/executive_dashboard.json", "results/executive_dashboard.md"], "dashboard_destination": "Swing Strategy Overview"},
-    {"report_id": "monthly_command_center", "name": "Monthly Command Center", "owner_module": "monthly_command_center", "required": false, "artifacts": ["results/monthly_command_center.json", "results/monthly_command_center.md"], "dashboard_destination": "Swing Strategy Overview"},
-    {"report_id": "historical_archive", "name": "Historical Archive Manager", "owner_module": "historical_archive_manager", "required": false, "artifacts": ["archive_manager.json", "archive_manager.md", "archive_manager.html"], "dashboard_destination": "Historical Evidence and Archive Health"}
+    {
+      "report_id": "executive_dashboard",
+      "name": "Executive Dashboard",
+      "owner_module": "executive_dashboard",
+      "required": false,
+      "artifacts": [
+        "results/executive_dashboard.json",
+        "results/executive_dashboard.md"
+      ],
+      "dashboard_destination": "Swing Strategy Overview"
+    },
+    {
+      "report_id": "historical_archive",
+      "name": "Historical Archive Manager",
+      "owner_module": "historical_archive_manager",
+      "required": false,
+      "artifacts": [
+        "archive_manager.json",
+        "archive_manager.md",
+        "archive_manager.html"
+      ],
+      "dashboard_destination": "Historical Evidence and Archive Health"
+    },
+    {
+      "report_id": "monthly_command_center",
+      "name": "Monthly Command Center",
+      "owner_module": "monthly_command_center",
+      "required": false,
+      "artifacts": [
+        "results/monthly_command_center.json",
+        "results/monthly_command_center.md"
+      ],
+      "dashboard_destination": "Swing Strategy Overview"
+    },
+    {
+      "report_id": "stock_performance",
+      "name": "Stock Performance Report",
+      "owner_module": "stock_performance_report",
+      "required": false,
+      "artifacts": [
+        "results/stock_performance_report.json"
+      ],
+      "dashboard_destination": "Performance and Weekly Review"
+    },
+    {
+      "report_id": "strategy_assignments",
+      "name": "Strategy Assignment Report",
+      "owner_module": "strategy_assignment_engine",
+      "required": false,
+      "artifacts": [
+        "results/strategy_assignments.csv",
+        "results/strategy_assignments.json",
+        "results/strategy_assignments.md"
+      ],
+      "dashboard_destination": "Strategy Assignment"
+    },
+    {
+      "report_id": "swing_trade_analytics",
+      "name": "Swing Trade Analytics / Position Performance",
+      "owner_module": "swing_trade_analytics_report",
+      "required": false,
+      "artifacts": [
+        "results/swing_trade_analytics_report.json",
+        "results/swing_trade_analytics_report.csv",
+        "results/swing_trade_analytics_report.md"
+      ],
+      "dashboard_destination": "Swing Trade Analytics"
+    },
+    {
+      "report_id": "thesis_monitor",
+      "name": "Thesis Monitor Report",
+      "owner_module": "thesis_monitor",
+      "required": false,
+      "artifacts": [
+        "results/thesis_monitor_report.json",
+        "results/thesis_monitor_report.md"
+      ],
+      "dashboard_destination": "Thesis Monitor"
+    },
+    {
+      "report_id": "weekly_stock",
+      "name": "Weekly Stock Report",
+      "owner_module": "weekly_stock_report",
+      "required": false,
+      "artifacts": [
+        "results/weekly_stock_report.json"
+      ],
+      "dashboard_destination": "Performance and Weekly Review"
+    }
   ],
   "safety": {
     "paper_trade_mode": true,
@@ -51,7 +209,13 @@
     "postgres_required": false
   },
   "compatibility": {
-    "supported_artifact_formats": ["json", "csv", "markdown", "html", "zip"],
+    "supported_artifact_formats": [
+      "json",
+      "csv",
+      "markdown",
+      "html",
+      "zip"
+    ],
     "cio_platform_role": "DESCRIPTIVE_PLUGIN_REGISTRATION",
     "database_owner": "AI_CIO_PLATFORM",
     "direct_database_writes": false,
