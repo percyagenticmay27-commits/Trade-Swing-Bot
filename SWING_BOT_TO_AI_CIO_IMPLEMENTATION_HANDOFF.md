@@ -878,3 +878,26 @@ Correction:
 - No production code, journal authority, allocation, lifecycle, drawdown, execution, or safety behavior changed.
 
 Rerun the same corrected-head 155-test contract suite before proceeding to the full repository gate.
+
+
+## Swing Decision Journal contract gate passed
+
+DigitalOcean pulled the authoritative filename allowlist correction and reran the complete corrected-head Decision Journal contract suite.
+
+Result:
+
+- **155 passed in 0.94s**
+- Exit code 0
+
+Verified contract layers:
+
+- Current-evidence Decision Journal authority and safety behavior.
+- In-flight Enterprise KPI publication integration.
+- Registration configuration v1.9 and generated snapshot equality.
+- Registration builder capability/artifact exposure.
+- Registry v2 deterministic capability and authoritative filename rules.
+- Plugin manifest v1.7 JSON/Markdown report declaration.
+- Strict output contract for JSON and Markdown.
+- Existing schema registry, Trade Analytics, KPI, and paper-safety regressions.
+
+The Decision Journal contract gate is complete. The next gate is the full repository suite. Do not run the real cycle or KPI publication until that suite passes.
