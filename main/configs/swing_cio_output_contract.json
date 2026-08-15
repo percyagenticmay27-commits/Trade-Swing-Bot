@@ -176,7 +176,7 @@
       "schema_version": "1.0",
       "required": false,
       "dashboard_destination": "Swing Alerts",
-      "required_columns": [
+      "columns": [
         "strategy_id",
         "symbol",
         "alert_category",
