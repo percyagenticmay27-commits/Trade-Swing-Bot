@@ -53,6 +53,23 @@ def test_zero_alert_result_discloses_completed_evaluation(tmp_path: Path) -> Non
     assert report["alert_authority_policy"] == "CURRENT_AUTHORITATIVE_EVIDENCE_ONLY"
 
 
+def test_kpi_reportability_disclosures_are_not_actionable_alerts(tmp_path: Path) -> None:
+    _required(tmp_path)
+    payload = json.loads((tmp_path / "enterprise_strategy_kpis.json").read_text())
+    payload["warnings"] = [
+        "Win rate is not reportable until decided closed paper trades exist.",
+        "Marked-to-market paper ledger is unavailable; allocated paper capital is used as a disclosed proxy.",
+    ]
+    _write(tmp_path, "enterprise_strategy_kpis.json", payload)
+
+    report = build_swing_strategy_alerts_report(tmp_path, now=NOW)
+
+    assert report["actionable_alert_count"] == 0
+    assert report["alerts"] == []
+    assert len(report["evidence_warnings"]) == 2
+    assert all(item.startswith("KPI disclosure:") for item in report["evidence_warnings"])
+
+
 def test_current_operational_error_becomes_advisory_alert(tmp_path: Path) -> None:
     _required(tmp_path)
     _write(tmp_path, "operational_health_report.json", {
