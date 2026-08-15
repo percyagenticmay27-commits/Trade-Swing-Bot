@@ -25,7 +25,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.8"
+MODULE_VERSION = "2.1.9"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -48,6 +48,7 @@ ARTIFACT_SPECS = (
     ("closed_positions", "CLOSED_POSITIONS", "paper_ledger/closed_positions.json"),
     ("paper_performance", "PERFORMANCE_ANALYTICS", "paper_ledger/paper_performance.json"),
     ("swing_trade_analytics_report", "TRADE_ANALYTICS", "swing_trade_analytics_report.json"),
+    ("swing_strategy_alerts_report", "STRATEGY_ALERTS", "swing_strategy_alerts_report.json"),
 )
 
 _LEGACY_ALLOCATION_VALIDATION_ERRORS = {
