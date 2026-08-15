@@ -336,6 +336,19 @@ Safety decision:
 - Preserve any authentic generated evidence or unrelated user changes.
 - After the exact dirty paths are classified, use a recoverable stash or commit only if appropriate, then fast-forward and rerun the focused suite.
 
+## Dirty-worktree classification and recovery decision
+
+DigitalOcean status at local head `1e3a973` showed the branch six commits behind origin. Modified tracked files were limited to refreshed market-data CSVs and generated report/registration artifacts. Untracked files were runtime evidence, authentic paper-ledger evidence, enterprise market-data sync evidence, operational reports, and two pre-existing `AI` paths. No source or test file was locally modified.
+
+Recovery decision:
+
+- Stash tracked changes only; do not use `-u`, so untracked authentic/runtime evidence remains present.
+- Fast-forward to the corrected branch.
+- Rerun focused tests before publication.
+- Restore only the five refreshed tracked market-data files from the retained stash before running the full cycle.
+- Do not restore stale tracked generated reports; the cycle will regenerate them from current evidence.
+- Keep the stash until the full cycle and report publication are verified; do not drop it prematurely.
+
 ## Enterprise report direction
 
 The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
