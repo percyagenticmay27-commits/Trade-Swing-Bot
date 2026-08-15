@@ -634,3 +634,22 @@ Operational cycle/health warnings and errors remain eligible for advisory alerts
 Classification suite result: 19 passed, 1 failed. Production classification was correct (`actionable_alert_count = 0`, `alerts = []`). The fixture also correctly disclosed two missing optional sources, so the test's exact total-warning count was too strict.
 
 Commit `f71b16e` now asserts the two required KPI disclosures independently while retaining legitimate optional-source warnings. No production code changed.
+
+
+## Deployed Alerts classification verified
+
+DigitalOcean classification retest after `f71b16e`:
+
+- **20 passed in 0.34s**, exit code 0.
+- Actionable alert count: 0.
+- Alerts: empty list.
+- Explicit message: current authoritative Swing evidence was evaluated and no actionable alerts were found.
+- Evaluation: `COMPLETE_WITH_EVIDENCE_WARNINGS`.
+- KPI Alerts section exactly matches the standalone report.
+- Evidence warnings remain separate:
+  - Mark-to-market proxy KPI disclosure.
+  - Win-rate unavailable until authentic closed trades exist.
+  - Legacy dashboard excluded because timestamp is unavailable.
+- No stale legacy risk flag is actionable.
+
+Because production classification changed after the prior 1034-test run, rerun the complete repository suite once more before final freeze.
