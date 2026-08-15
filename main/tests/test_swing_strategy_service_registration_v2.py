@@ -26,6 +26,7 @@ ALLOWED_REPORT_FILENAMES = {
     "market_data_refresh_status.json",
     "swing_daily_cycle_report.json",
     "enterprise_strategy_kpis.json",
+    "swing_trade_analytics_report.json",
 }
 
 
