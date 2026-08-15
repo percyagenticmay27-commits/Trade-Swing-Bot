@@ -459,3 +459,22 @@ Authority decision:
 - The new alerts publisher must enforce source freshness/current-cycle identity and fail closed or disclose unavailable evaluation when required evidence is stale.
 - Alerts must carry evidence source and evidence timestamp/as-of information so the AI CIO consumer can distinguish current actionable alerts from excluded stale evidence.
 - Do not relabel stale data as current and do not translate stale review rows into portal alerts.
+
+
+## Executive-dashboard alert authority rejected
+
+Further DigitalOcean inspection established that the ten `executive_dashboard.json` and `monthly_command_center.json` risk-flag strings are not authoritative current alerts:
+
+- Neither report publishes a generation/as-of timestamp.
+- Executive Dashboard reports `active_positions = 0`, contradicting the authoritative current paper ledger's two open positions.
+- Its `source_files` confirms consumption of the stale July 30 trade lifecycle, profit protection, reentry, exit review, and thesis-monitor reports.
+- Monthly Command Center copies the same ten flags from Executive Dashboard.
+- The current 15-stage cycle report is clean and timestamped, but it does not validate the freshness of those optional legacy inputs.
+
+Decision:
+
+- Reject all ten legacy dashboard risk flags from the current SWING-001 alerts publication.
+- Do not publish the repeated Unclassified theme-cap flags, reentry-ready flag, exit-review flag, or thesis-attention flag as current.
+- Build alerts from current-cycle, identity-consistent sources only.
+- Publish excluded/stale source details as evidence warnings, separate from actionable strategy alerts.
+- A current report may validly contain zero actionable alerts while still showing evaluation coverage and stale-source exclusions.
