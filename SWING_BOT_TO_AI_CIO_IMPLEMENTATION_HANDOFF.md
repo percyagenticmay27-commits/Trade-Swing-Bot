@@ -841,3 +841,23 @@ Next gate:
 2. Run registration builder/configuration, Registry v2, plugin manifest, output contract, KPI, and Decision Journal tests.
 3. Narrowly update any locked authoritative filename/capability allowlists revealed by that suite; do not weaken generic validation.
 4. After the contract gate passes, run the full repository suite, deployed cycle/KPI publication, and inspect the authentic generated journal before final freeze.
+
+
+## Decision Journal contract retest blocked by local generated registration
+
+The first DigitalOcean contract-gate pull stopped before loading commits `207d671` through `d6fed14` because local generated `main/results/swing_strategy_service_registration.json` would be overwritten.
+
+Observed command results:
+
+- Compile passed on old head `d0c2a43`.
+- 155 tests passed in 0.75s on old head `d0c2a43`.
+- Those 155 passes are useful baseline regression evidence but are **not validation of the new Decision Journal registration/plugin/output contracts**.
+
+Safe recovery decision:
+
+- Stash only the conflicting tracked generated registration snapshot.
+- Do not use `-u`; preserve all untracked runtime and paper-ledger evidence.
+- Fast-forward to the current feature branch.
+- Do not restore the stale registration snapshot; the authoritative configuration/current publication regenerates it.
+- Retain the targeted stash as a recovery checkpoint until the corrected-head contract suite and deployed publication pass.
+- Rerun the identical 155-test contract suite on the corrected head.
