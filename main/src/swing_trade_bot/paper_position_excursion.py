@@ -102,6 +102,72 @@ def calculate_long_position_excursion(
     )
 
 
+def calculate_closed_long_trade_excursion(
+    *,
+    market_data_path: Path,
+    entry_date: date,
+    exit_date: date,
+    entry_price: float,
+    shares: float,
+) -> PositionExcursionEvidence | None:
+    """Return lifetime drawdown for a completed long paper trade.
+
+    Raw FIFO trade history retains the execution-time share count and entry
+    price. When adjusted-close history proves a simple split at entry, normalize
+    those values before reusing the authoritative position excursion engine.
+    Unsupported adjustment ratios fail closed instead of fabricating drawdown.
+    """
+    if exit_date < entry_date:
+        raise ValueError("exit_date cannot precede entry_date")
+    raw_entry = _positive(entry_price, "entry_price")
+    raw_shares = _positive(shares, "shares")
+    factor = _entry_split_factor(market_data_path, entry_date)
+    if factor is None:
+        return None
+    return calculate_long_position_excursion(
+        market_data_path=market_data_path,
+        entry_date=entry_date,
+        as_of=exit_date,
+        normalized_entry_price=raw_entry / factor,
+        normalized_shares=raw_shares * factor,
+    )
+
+
+def _entry_split_factor(path: Path, entry_date: date) -> float | None:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with path.open(newline="", encoding="utf-8-sig") as source:
+        reader = csv.DictReader(source)
+        if not reader.fieldnames:
+            raise ValueError(f"market data has no headers: {path}")
+        names = {name.strip().lower().replace("_", " "): name for name in reader.fieldnames}
+        if "date" not in names or "close" not in names:
+            raise ValueError(f"market data must contain Date and Close: {path}")
+        adj_name = names.get("adj close")
+        candidates: list[tuple[date, float, float | None]] = []
+        for row in reader:
+            day = date.fromisoformat(str(row[names["date"]]).strip()[:10])
+            if day > entry_date:
+                continue
+            close = _positive(row[names["close"]], f"{path.name}.{day}.Close")
+            adjusted = None
+            if adj_name and str(row.get(adj_name, "")).strip() != "":
+                adjusted = _positive(row[adj_name], f"{path.name}.{day}.Adj Close")
+            candidates.append((day, close, adjusted))
+    if not candidates:
+        return None
+    _, close, adjusted = max(candidates, key=lambda item: item[0])
+    if adjusted is None:
+        return 1.0
+    ratio = close / adjusted
+    nearest = round(ratio)
+    if math.isclose(ratio, 1.0, rel_tol=0.0, abs_tol=0.02):
+        return 1.0
+    if nearest >= 1 and math.isclose(ratio, nearest, rel_tol=0.0, abs_tol=0.02):
+        return float(nearest)
+    return None
+
+
 def _completed_mark_prices(path: Path, as_of: date) -> list[tuple[date, float]]:
     if not path.exists():
         raise FileNotFoundError(path)
