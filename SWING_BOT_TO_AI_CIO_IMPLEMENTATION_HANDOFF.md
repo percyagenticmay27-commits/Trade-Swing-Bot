@@ -198,6 +198,59 @@ The expanded focused command collected 35 tests. Every listed test reached `PASS
 
 The captured console text ends immediately after the 35th `PASSED` result, before pytest's summary and shell exit-code line. Treat the individual results as successful focused evidence, but retain the full cycle/KPI publication as the remaining freeze gate.
 
+## Product decision: dedicated Swing Trade Analytics report
+
+The current portal screenshot shows `SWING-001` inside a Dividend-oriented **Income** section with yearly distribution yield, annual income, next ex-date, audit, and distribution evidence. That table is not an appropriate Swing report and must not define the Swing reporting contract.
+
+Decision:
+
+- Swing needs a separate **Trade Analytics / Position Performance** report centered on the lifecycle and performance of paper trades.
+- Do not redesign the frozen drawdown engine.
+- Do not force Swing data into Dividend income/distribution fields.
+- Trade-Swing-Bot must publish the dedicated, consumer-ready Swing evidence artifact.
+- The AI CIO host may later render that artifact as a Swing-specific section, rename/suppress Income for `SWING-001`, or otherwise route by strategy capability. That portal change is outside this repository.
+
+Required open-position columns:
+
+- Symbol
+- Entry Date
+- Entry Price
+- Current Price
+- Shares
+- Cost Basis
+- Current Market Value
+- Unrealized Gain/Loss amount
+- Unrealized Gain/Loss percent
+- Maximum Drawdown amount
+- Maximum Drawdown percent
+- Days Held
+- Active Strategy
+- Status (`OPEN`)
+
+Required closed-position columns when authentic evidence exists:
+
+- Symbol
+- Entry Date and Entry Price
+- Exit Date and Exit/Sale Price
+- Shares and Cost Basis
+- Final Proceeds/Exit Value
+- Realized Gain/Loss amount and percent
+- Maximum Drawdown amount and percent during the actual trade lifetime
+- Holding Days
+- Active Strategy
+- Status (`CLOSED`)
+- Exit Reason
+
+Authority rules:
+
+- Open rows use current marked values and unrealized P&L.
+- Closed rows use actual paper SELL/FIFO lifecycle evidence and realized P&L.
+- Max drawdown is published only from authoritative position history.
+- No exit fields may be fabricated for open positions.
+- No closed row may be fabricated while the authentic ledger remains buy-only.
+
+Next Swing development should create and register a dedicated report artifact (recommended contract name: `swing_trade_analytics_report`; recommended JSON path: `results/swing_trade_analytics_report.json`) derived from the already validated canonical trade analytics evidence. It should not modify Trade-Dividend-Bot.
+
 ## Enterprise report direction
 
 The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
