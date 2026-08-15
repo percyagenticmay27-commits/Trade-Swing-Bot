@@ -177,6 +177,12 @@ def build_swing_strategy_alerts_report(
                 evidence_timestamp=source_stamp,
             ))
         for message in _messages(payload.get("warnings")):
+            if name == "enterprise_strategy_kpis.json":
+                # KPI warnings include reportability and evidence disclosures.
+                # They are not actionable strategy/operational alerts. In
+                # particular, zero closed trades must never create an alert.
+                evidence_warnings.append(f"KPI disclosure: {message}")
+                continue
             alerts.append(_alert(
                 category="OPERATIONAL_EVIDENCE",
                 severity="WARNING",
