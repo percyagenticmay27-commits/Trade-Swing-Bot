@@ -18,6 +18,10 @@ from swing_trade_bot.enterprise_strategy_kpi_publisher_v21 import (
     build_enterprise_strategy_kpis_v21,
     write_enterprise_strategy_kpis_v21,
 )
+from swing_trade_bot.swing_trade_analytics_report import (
+    build_swing_trade_analytics_report,
+    write_swing_trade_analytics_report,
+)
 
 
 def publish(
@@ -108,7 +112,10 @@ def publish(
     payload["artifact_contract"] = sorted(
         payload["artifact_contract"], key=lambda row: row["artifact_id"]
     )
-    return write_enterprise_strategy_kpis_v21(payload, output)
+    kpi_path = write_enterprise_strategy_kpis_v21(payload, output)
+    trade_report = build_swing_trade_analytics_report(payload)
+    write_swing_trade_analytics_report(trade_report, root)
+    return kpi_path
 
 
 def main() -> int:
