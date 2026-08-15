@@ -51,7 +51,6 @@ def _artifact(artifact_id: str, artifact_type: str, filename: str) -> dict[str, 
 
 
 DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
-    _artifact("swing_strategy_alerts_report", "alerts", "swing_strategy_alerts_report.json"),
     _artifact("daily_cycle_status", "daily_cycle_status", "swing_daily_cycle_report.json"),
     _artifact("executive_dashboard", "executive_dashboard", "executive_dashboard.json"),
     _artifact("market_data_status", "market_data_status", "market_data_refresh_status.json"),
@@ -61,6 +60,7 @@ DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
     _artifact("position_lifecycle", "position_lifecycle", "trade_lifecycle_report.json"),
     _artifact("stock_performance", "stock_performance", "stock_performance_report.json"),
     _artifact("strategy_kpis", "strategy_kpis", "enterprise_strategy_kpis.json"),
+    _artifact("swing_strategy_alerts_report", "alerts", "swing_strategy_alerts_report.json"),
     _artifact("swing_trade_analytics_report", "trade_analytics", "swing_trade_analytics_report.json"),
     _artifact("watchlist", "watchlist", "watchlist_report.json"),
     _artifact("weekly_stock_report", "weekly_stock_report", "weekly_stock_report.json"),
