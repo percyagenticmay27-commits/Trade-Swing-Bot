@@ -749,3 +749,33 @@ Next gate:
 3. Run only `tests/test_swing_decision_journal_report.py`.
 4. Inspect any failures against the exact deployed committee trace/runtime shapes; do not weaken freshness, identity, or no-fabrication controls.
 5. Only after the authority layer passes, integrate the report into Enterprise KPI publication and the registered `decision_journal` capability/artifact contracts.
+
+
+## DigitalOcean Decision Journal authority gate passed; KPI integration implemented
+
+DigitalOcean validation at `3751b67`:
+
+- `py_compile`: passed, exit code 0.
+- Focused Decision Journal authority suite: **7 passed in 0.15s**, exit code 0.
+
+Enterprise KPI integration commits:
+
+- `ef8c793` — allow the journal builder to consume the validated in-flight KPI payload during atomic publication.
+- `5aa0985` — declare `swing_decision_journal_report.json` in the Enterprise KPI artifact contract; publisher module version becomes 2.1.10.
+- `707f4ed` — generate Decision Journal JSON/Markdown during KPI publication, expose top-level `decision_journal` and `dashboard_sections.decisions`, and synchronize artifact availability.
+- `b71fd60` — add regression coverage for in-flight KPI publication before the prior KPI file exists.
+
+Architecture remains deliberately narrow:
+
+- Decision Journal uses the same post-cycle Enterprise KPI publication pattern as Trade Analytics and Alerts.
+- Existing 15-stage Swing cycle structure is unchanged.
+- Registration, plugin manifest, and strict output contracts are not yet changed; those remain gated on focused KPI integration validation.
+- `rebalance_actions.json` remains explicitly excluded and no BUY/SELL/exit evidence is created.
+
+Next gate:
+
+1. Pull through this handoff commit.
+2. Compile the Decision Journal, KPI publisher, and publication command.
+3. Run Decision Journal, KPI publisher, Trade Analytics, Alerts, and cycle-publication regressions.
+4. Correct any current-evidence shape or publication validation failures narrowly.
+5. Only after this gate passes, expose the registered `decision_journal` capability and JSON/Markdown artifacts.
