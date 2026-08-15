@@ -118,6 +118,7 @@ def _alert(
 def build_swing_strategy_alerts_report(
     results_dir: str | Path = "results",
     *,
+    kpi_payload: Mapping[str, Any] | None = None,
     now: datetime | None = None,
     max_age_seconds: int = 172800,
 ) -> dict[str, Any]:
@@ -125,7 +126,7 @@ def build_swing_strategy_alerts_report(
     generated = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     generated_text = generated.isoformat().replace("+00:00", "Z")
 
-    kpi = _load(root / "enterprise_strategy_kpis.json")
+    kpi = dict(kpi_payload) if kpi_payload is not None else _load(root / "enterprise_strategy_kpis.json")
     cycle = _load(root / "swing_daily_cycle_report.json")
     health = _load(root / "operational_health_report.json")
     audit = _load(root / "runtime_evidence_authority_audit.json")
