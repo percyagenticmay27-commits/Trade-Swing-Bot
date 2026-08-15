@@ -677,3 +677,26 @@ Final authoritative deployed Alerts state:
 - Paper-only safety and the AI CIO governed $4,500 allocation remain unchanged
 
 Swing-side Alerts publication is complete and frozen. Next work belongs to the Dividend-hosted Enterprise AI CIO consumer: discover the registered Alerts capability/artifact and render actionable alerts separately from evidence disclosures.
+
+
+## Product decision: next development is the Swing Decision Journal
+
+The Enterprise AI CIO portal now consumes the authoritative Swing Alerts report. Zero current actionable alerts is valid and does not depend on a sale; alerts appear only when current authoritative evidence triggers a review.
+
+The remaining empty Swing Decisions tab is a separate publication gap. The current portal reports `Decision Journal status: NOT_REPORTED` even though the Swing cycle already publishes committee decision trace/runtime evidence and current position-management rationale.
+
+Decision:
+
+- The next Swing-owned development is an authoritative Swing Decision Journal report.
+- Do not reuse the Dividend pair-lifecycle data model. Swing decisions are stock/position/candidate decisions.
+- Use the Dividend Decision Journal screenshots only as a presentation reference: compact lifecycle cards, current state/owner, rationale, alternatives, and an evidence timeline.
+- Derive entries only from current-cycle Swing committee trace, committee runtime evidence, current authoritative holdings/owning strategy, watchlist/opportunity evidence, and paper lifecycle evidence that passes freshness/identity reconciliation.
+- Expected decision types may include `HOLD`, `WAITING_FOR_ENTRY`, `ENTRY_REVIEW`, `EXIT_REVIEW`, and other already-produced Swing advisory states. Do not invent BUY/SELL/exit decisions.
+- Current open positions such as SOXL and TQQQ should be able to show their current HOLD decision and strategy-owned rationale when supported by current evidence.
+- Candidate decisions should remain separate from held-position decisions.
+- Reject stale July lifecycle/reentry/exit/thesis fixtures under the same freshness model used by Alerts.
+- Publish a registered `decision_journal` capability/artifact and an Enterprise KPI decision section for host consumption.
+- Preserve SWING-001, the governed $4,500 allocation, and every paper-only safety control.
+- Add regression coverage for current-cycle authority, position/candidate separation, deterministic timeline ordering, stale evidence rejection, zero-decision disclosure, no fabricated BUY/SELL decisions, atomic publication, contract registration, and safety locks.
+
+Before implementation, inspect the exact deployed shapes and timestamps of `swing_committee_decision_trace.json`, `swing_committee_runtime_evidence.json`, paper portfolio positions, opportunity-quality/watchlist evidence, and any current position-management decision source.
