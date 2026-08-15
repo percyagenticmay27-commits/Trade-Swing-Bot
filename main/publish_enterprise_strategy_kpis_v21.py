@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from swing_trade_bot.closed_trade_excursion_archive import (
+    enrich_and_archive_closed_trade_excursions,
+)
 from swing_trade_bot.enterprise_strategy_allocation_discovery import (
     DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
     DEFAULT_AI_CIO_REPOSITORY,
@@ -26,6 +29,14 @@ def publish(
     ai_cio_registry_relative_path: str | Path = DEFAULT_AI_CIO_REGISTRY_RELATIVE_PATH,
 ) -> Path:
     """Discover authoritative AI CIO evidence and publish the Swing KPI artifact."""
+    root = Path(results_dir)
+    closed_positions = root / "paper_ledger/closed_positions.json"
+    if closed_positions.is_file():
+        enrich_and_archive_closed_trade_excursions(
+            closed_positions_path=closed_positions,
+            data_dir=root.resolve().parent / "data",
+        )
+
     registry, allocation_path = load_discovered_strategy_allocations(
         strategy_allocations_file,
         ai_cio_repository=ai_cio_repository,
