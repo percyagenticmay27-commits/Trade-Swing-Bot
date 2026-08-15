@@ -318,6 +318,24 @@ Root causes and corrections:
 
 No lifecycle, drawdown, allocation, broker, or generated trading evidence was changed. Focused rerun is required before publication/cycle validation.
 
+## DigitalOcean deployment blocker: dirty worktree
+
+The attempted retest did not load commits `240e700` through `755bac0` because `git pull --ff-only` stopped with:
+
+```
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+Pytest therefore ran the prior checkout and reproduced the same five known failures (122 passed, 5 failed). This is not a new validation result for the corrected branch.
+
+Safety decision:
+
+- Do not reset, checkout, delete, or stash files blindly.
+- Inspect `git status --short --branch`, tracked diffs, and untracked files first.
+- Preserve any authentic generated evidence or unrelated user changes.
+- After the exact dirty paths are classified, use a recoverable stash or commit only if appropriate, then fast-forward and rerun the focused suite.
+
 ## Enterprise report direction
 
 The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
