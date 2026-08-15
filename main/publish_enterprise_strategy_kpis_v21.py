@@ -22,6 +22,10 @@ from swing_trade_bot.swing_trade_analytics_report import (
     build_swing_trade_analytics_report,
     write_swing_trade_analytics_report,
 )
+from swing_trade_bot.swing_strategy_alerts_report import (
+    build_swing_strategy_alerts_report,
+    write_swing_strategy_alerts_report,
+)
 
 
 def publish(
@@ -115,16 +119,29 @@ def publish(
     trade_report = build_swing_trade_analytics_report(payload)
     write_swing_trade_analytics_report(trade_report, root)
 
-    # The dedicated report is created by this same atomic publication command.
+    alerts_report = build_swing_strategy_alerts_report(
+        root,
+        kpi_payload=payload,
+    )
+    write_swing_strategy_alerts_report(alerts_report, root)
+    payload["alerts"] = alerts_report
+    if isinstance(payload.get("dashboard_sections"), dict):
+        payload["dashboard_sections"]["alerts"] = alerts_report
+
+    # The dedicated reports are created by this same atomic publication command.
     # Synchronize artifact availability before validating and writing the KPI
     # contract so consumers never receive a false missing-artifact warning.
+    generated_artifact_ids = {
+        "swing_trade_analytics_report",
+        "swing_strategy_alerts_report",
+    }
     for artifact in payload.get("artifact_contract", []):
-        if artifact.get("artifact_id") == "swing_trade_analytics_report":
+        if artifact.get("artifact_id") in generated_artifact_ids:
             artifact["available"] = True
     available = set(payload.get("available_artifacts", []))
-    available.add("swing_trade_analytics_report")
+    available.update(generated_artifact_ids)
     missing = set(payload.get("missing_optional_artifacts", []))
-    missing.discard("swing_trade_analytics_report")
+    missing.difference_update(generated_artifact_ids)
     payload["available_artifacts"] = sorted(available)
     payload["missing_optional_artifacts"] = sorted(missing)
     payload["artifacts"] = len(available)
