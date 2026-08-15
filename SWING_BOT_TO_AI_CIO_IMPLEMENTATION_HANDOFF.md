@@ -478,3 +478,35 @@ Decision:
 - Build alerts from current-cycle, identity-consistent sources only.
 - Publish excluded/stale source details as evidence warnings, separate from actionable strategy alerts.
 - A current report may validly contain zero actionable alerts while still showing evaluation coverage and stale-source exclusions.
+
+
+## Development update: authoritative Alerts authority layer
+
+Status: **IMPLEMENTED; FOCUSED DIGITALOCEAN VALIDATION REQUIRED**
+
+Commits:
+
+- `fe81dfc` — add `swing_strategy_alerts_report.py`
+- `386dcec` — add focused authoritative Alerts regression tests
+
+The isolated publisher:
+
+- Requires current, safe `SWING-001` Enterprise KPI evidence and current daily-cycle evidence.
+- Evaluates current operational-health and authority-audit warnings/errors when available.
+- Rejects required stale or timestamp-free authority evidence.
+- Excludes legacy Executive Dashboard flags when timestamp or authoritative position-count reconciliation fails.
+- Does not convert normal open positions, HOLD decisions, missing closed positions, or stale review rows into alerts.
+- Publishes deterministic advisory alerts, source evaluations, evidence timestamps, excluded-source warnings, and an explicit verified zero-alert message.
+- Generates JSON, CSV, and Markdown atomically.
+- Preserves all paper-only safety constants.
+
+New files:
+
+- `main/src/swing_trade_bot/swing_strategy_alerts_report.py`
+- `main/tests/test_swing_strategy_alerts_report.py`
+
+Next gate:
+
+1. Pull and compile the new module/test.
+2. Run only `test_swing_strategy_alerts_report.py`.
+3. Correct authority-layer failures before integrating it into KPI publication, daily-cycle orchestration, plugin/registration contracts, or portal consumption.
