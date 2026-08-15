@@ -562,3 +562,23 @@ Recovery decision:
 - Do not restore the stale registration snapshot; current config/publication will regenerate it.
 - Retain the targeted stash until post-publication verification.
 - Rerun the same 109-test contract suite on the corrected head.
+
+
+## Alerts contract correction after corrected-head test
+
+Corrected-head contract suite at `6c4cf22` collected 109 tests: 105 passed and 4 failed.
+
+All four failures were narrow contract expectations:
+
+- Registration contract map omitted the new Alerts artifact.
+- Registry filename allowlist omitted `swing_strategy_alerts_report.json`.
+- Alerts CSV output contract used `required_columns` instead of the validator's canonical `columns` key.
+- Inventory validity failed as a consequence of that malformed CSV contract.
+
+Corrections:
+
+- `6292fe0` — recognize the Alerts registration artifact.
+- `90e88f8` — allow the authoritative Alerts filename.
+- `93eaa53` — use the strict CSV `columns` contract.
+
+No production alert logic, allocation, lifecycle, drawdown, execution, or safety behavior changed.
