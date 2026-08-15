@@ -861,3 +861,20 @@ Safe recovery decision:
 - Do not restore the stale registration snapshot; the authoritative configuration/current publication regenerates it.
 - Retain the targeted stash as a recovery checkpoint until the corrected-head contract suite and deployed publication pass.
 - Rerun the identical 155-test contract suite on the corrected head.
+
+
+## Decision Journal corrected-head contract result and allowlist correction
+
+After the targeted registration stash, DigitalOcean successfully fast-forwarded to the Decision Journal contract commits and ran the 155-test suite on the corrected head.
+
+Result: **154 passed, 1 failed in 0.89s**.
+
+The only failure was the intentionally locked authoritative report-filename set in `test_swing_strategy_service_registration_v2.py`. Production registration correctly declared `swing_decision_journal_report.json`, but the test allowlist still represented the pre-journal contract.
+
+Correction:
+
+- `113900c` — add only `swing_decision_journal_report.json` to the authoritative Swing report filename allowlist.
+- No generic validation was weakened.
+- No production code, journal authority, allocation, lifecycle, drawdown, execution, or safety behavior changed.
+
+Rerun the same corrected-head 155-test contract suite before proceeding to the full repository gate.
