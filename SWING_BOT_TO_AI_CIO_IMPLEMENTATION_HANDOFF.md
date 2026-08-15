@@ -951,3 +951,34 @@ Next gate:
 3. Rerun KPI publication; a full cycle rerun is unnecessary because the just-completed cycle evidence is current and healthy.
 4. Inspect standalone JSON/Markdown, KPI equality, registration, HOLD position decisions, candidate separation, and prohibited BUY/SELL absence.
 5. Rerun the complete repository suite after the new wiring regression before final freeze.
+
+
+## Deployed Swing Decision Journal publication verified
+
+DigitalOcean pulled through `eac9066` and validated the corrected publication wiring:
+
+- Focused Decision Journal/KPI/Alerts/Trade Analytics/cycle suite: **38 passed in 0.62s**, exit code 0.
+- Enterprise KPI republication: exit code 0.
+- `swing_decision_journal_report.json`: generated.
+- `swing_decision_journal_report.md`: generated.
+- Authority policy: `CURRENT_MATCHED_AUTHORITATIVE_EVIDENCE_ONLY`.
+- Evaluation status: `COMPLETE`.
+- Evidence warnings: none.
+- Excluded planning source: `results/rebalance_actions.json`.
+
+Authentic decisions:
+
+- SOXL: scope `OPEN_POSITION`, decision `HOLD`, owner `Strategy A`, state `OPEN`.
+- TQQQ: scope `OPEN_POSITION`, decision `HOLD`, owner `Strategy A`, state `OPEN`.
+- NBIS: scope `CANDIDATE`, decision `WAITING_FOR_ENTRY`, controlling owner `OPPORTUNITY_COMMITTEE`, authoritative committee state `REJECTED`.
+
+Safety and consumer verification:
+
+- No BUY or SELL decision is present.
+- KPI `dashboard_sections.decisions` exactly equals the standalone journal.
+- Registration version 1.9 declares `decision_journal`.
+- Registration declares `swing_decision_journal_report`.
+- No sale, exit, or closed position was fabricated.
+- SWING-001, the governed $4,500 allocation, and paper-only controls remain unchanged.
+
+One final full repository suite is required because the publication wiring regression test was added after the prior 1043-pass run. After that passes, freeze Swing-side Decision Journal development and hand off portal refresh/consumption to the Dividend-hosted AI CIO chat.
