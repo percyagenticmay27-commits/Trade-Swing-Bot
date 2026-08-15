@@ -87,6 +87,138 @@ def test_v21_accepts_split_adjusted_current_paper_portfolio(tmp_path):
     assert payload["open_positions"][0]["symbol"] == "SOXL"
 
 
+def test_v21_publishes_open_trade_analytics_without_fabricated_exit_fields(tmp_path):
+    summary = _safe_portfolio()
+    summary["position_count"] = 1
+    summary["invested_capital"] = 900.0
+    summary["positions_market_value"] = 930.0
+    summary["cash_balance"] = 3600.0
+    summary["portfolio_value"] = 4530.0
+    summary["unrealized_pnl"] = 30.0
+    _write(tmp_path / "paper_ledger/paper_portfolio_summary.json", summary)
+    _write(
+        tmp_path / "paper_ledger/paper_portfolio_positions.json",
+        {
+            "paper_trade_mode": True,
+            "positions": [
+                {
+                    "symbol": "SOXL",
+                    "entry_date": "2026-08-04",
+                    "entry_price": 300.0,
+                    "shares": 3.0,
+                    "cost_basis": 900.0,
+                    "current_price": 310.0,
+                    "market_value": 930.0,
+                    "unrealized_pnl": 30.0,
+                    "unrealized_pnl_percent": 3.3333,
+                    "active_strategy": "Strategy A",
+                    "status": "OPEN",
+                    "max_drawdown_amount": -45.0,
+                    "max_drawdown_percent": -5.0,
+                }
+            ],
+        },
+    )
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    row = payload["trade_analytics"]["open_positions"][0]
+    assert row["symbol"] == "SOXL"
+    assert row["entry_date"] == "2026-08-04"
+    assert row["entry_price"] == 300.0
+    assert row["shares"] == 3.0
+    assert row["cost_basis"] == 900.0
+    assert row["current_price"] == 310.0
+    assert row["market_value"] == 930.0
+    assert row["unrealized_pnl"] == 30.0
+    assert row["unrealized_pnl_percent"] == 3.3333
+    assert row["active_strategy"] == "Strategy A"
+    assert row["position_status"] == "OPEN"
+    assert row["max_drawdown_amount"] == -45.0
+    assert row["max_drawdown_percent"] == -5.0
+    assert "exit_date" not in row
+    assert "exit_price" not in row
+    assert "realized_pnl" not in row
+
+
+def test_v21_does_not_infer_max_drawdown_from_snapshot_prices(tmp_path):
+    summary = _safe_portfolio()
+    summary["position_count"] = 1
+    _write(tmp_path / "paper_ledger/paper_portfolio_summary.json", summary)
+    _write(tmp_path / "paper_ledger/paper_portfolio_positions.json", _positions())
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    row = payload["trade_analytics"]["open_positions"][0]
+    assert row["max_drawdown_amount"] is None
+    assert row["max_drawdown_percent"] is None
+    assert payload["trade_analytics"]["max_drawdown_inference_allowed"] is False
+    assert payload["trade_analytics"]["max_drawdown_policy"] == "AUTHORITATIVE_POSITION_HISTORY_ONLY"
+
+
+def test_v21_publishes_closed_trade_analytics_when_authoritative_fields_exist(tmp_path):
+    _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
+    _write(
+        tmp_path / "paper_ledger/closed_positions.json",
+        {
+            "paper_trade_mode": True,
+            "closed_positions": [
+                {
+                    "symbol": "SOXL",
+                    "entry_date": "2026-07-01",
+                    "entry_price": 120.0,
+                    "shares": 5.0,
+                    "cost_basis": 600.0,
+                    "exit_date": "2026-07-18",
+                    "exit_price": 132.0,
+                    "realized_pnl": 60.0,
+                    "realized_pnl_percent": 10.0,
+                    "holding_days": 17,
+                    "exit_reason": "STRATEGY_A_EXIT_CONFIRMED",
+                    "active_strategy": "Strategy A",
+                    "status": "CLOSED",
+                    "max_drawdown_amount": -24.0,
+                    "max_drawdown_percent": -4.0,
+                }
+            ],
+        },
+    )
+
+    payload = publisher.build_enterprise_strategy_kpis_v21(
+        tmp_path,
+        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+    )
+
+    row = payload["trade_analytics"]["closed_positions"][0]
+    assert row == {
+        "symbol": "SOXL",
+        "entry_date": "2026-07-01",
+        "entry_price": 120.0,
+        "shares": 5.0,
+        "cost_basis": 600.0,
+        "exit_date": "2026-07-18",
+        "exit_price": 132.0,
+        "realized_pnl": 60.0,
+        "realized_pnl_percent": 10.0,
+        "holding_days": 17.0,
+        "exit_reason": "STRATEGY_A_EXIT_CONFIRMED",
+        "active_strategy": "Strategy A",
+        "position_status": "CLOSED",
+        "max_drawdown_amount": -24.0,
+        "max_drawdown_percent": -4.0,
+    }
+    assert payload["trade_history"]["closed_position_analytics"] == [row]
+    assert payload["dashboard_sections"]["trade_analytics"]["closed_positions"] == [row]
+
+
 def test_v21_uses_registered_opportunity_quality_report_filename(tmp_path):
     _write(tmp_path / "portfolio_allocations.json", {"allocations": []})
     _write(
@@ -164,6 +296,8 @@ def test_v21_optional_missing_evidence_is_disclosed_not_fabricated(tmp_path):
     assert payload["evidence_status"] == "PARTIAL"
     assert payload["performance_summary"]["win_rate_percent"] is None
     assert payload["strategy_intelligence"]["opportunity_quality"] is None
+    assert payload["trade_analytics"]["open_positions"] == []
+    assert payload["trade_analytics"]["closed_positions"] == []
     assert payload["missing_optional_artifacts"]
     assert any("Optional evidence unavailable" in warning for warning in payload["warnings"])
 
@@ -180,6 +314,7 @@ def test_v21_atomic_publication(tmp_path):
     assert published == output
     stored = json.loads(output.read_text(encoding="utf-8"))
     assert stored["kpi_contract_version"] == "2.1"
+    assert "trade_analytics" in stored
     assert not list(tmp_path.glob("*.tmp"))
 
 
