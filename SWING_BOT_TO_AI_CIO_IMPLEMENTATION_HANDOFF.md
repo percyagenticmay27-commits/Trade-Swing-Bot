@@ -700,3 +700,52 @@ Decision:
 - Add regression coverage for current-cycle authority, position/candidate separation, deterministic timeline ordering, stale evidence rejection, zero-decision disclosure, no fabricated BUY/SELL decisions, atomic publication, contract registration, and safety locks.
 
 Before implementation, inspect the exact deployed shapes and timestamps of `swing_committee_decision_trace.json`, `swing_committee_runtime_evidence.json`, paper portfolio positions, opportunity-quality/watchlist evidence, and any current position-management decision source.
+
+
+## Development update: authoritative Swing Decision Journal authority layer
+
+Status: **IMPLEMENTED; FOCUSED DIGITALOCEAN VALIDATION REQUIRED**
+
+Commits:
+
+- `938f3d2` — add the isolated authoritative Decision Journal report module.
+- `f707c00` — add focused Decision Journal authority and safety regressions.
+
+Inspection decision:
+
+- `rebalance_actions.json` currently contains advisory allocation calculations labeled `BUY` and `SELL`. Those rows are not executed paper trades and are explicitly excluded from Decision Journal authority.
+- Current open-position decisions come only from authoritative Enterprise KPI `trade_analytics.open_positions` evidence. An authentic open position with no authoritative exit decision is presented as `HOLD`; no exit or sale is inferred.
+- Candidate decisions require both current `swing_committee_runtime_evidence.json` and `swing_committee_decision_trace.json`, with matching symbol and `evaluation_cycle_id`.
+- Committee final `WAIT` is presented as `WAITING_FOR_ENTRY`; `ELIGIBLE_FOR_ALLOCATION` as `ENTRY_REVIEW`; `REVIEW` as `EXIT_REVIEW`; and `HOLD` as `HOLD`. No `BUY` or `SELL` journal decision is permitted.
+- Stale committee evidence is disclosed and excluded. Required KPI/cycle evidence that is stale, unsafe, or identity-inconsistent fails closed.
+- Held-position and candidate decisions remain separate, while a deterministic combined list supports portal rendering.
+
+New files:
+
+- `main/src/swing_trade_bot/swing_decision_journal_report.py`
+- `main/tests/test_swing_decision_journal_report.py`
+
+Initial workspace validation:
+
+- Production module and test file compile successfully with `py_compile`.
+- Pytest is not installed in the scratch workspace, so the focused pytest result must be established on DigitalOcean's existing virtual environment.
+
+Focused coverage includes:
+
+- SOXL/TQQQ-style open positions publish only `HOLD` decisions.
+- Candidate decisions remain distinct from held positions.
+- Committee timeline ordering is deterministic.
+- Stale committee evidence is not relabeled as current.
+- Runtime/trace symbol mismatch fails closed.
+- Advisory rebalance `BUY`/`SELL` rows are never consumed.
+- Zero decisions produce an explicit evaluated/no-reportable-decisions disclosure.
+- JSON and Markdown publication is atomic.
+- All paper/broker/order/capital safety constants remain locked.
+
+Next gate:
+
+1. Pull the feature branch on DigitalOcean.
+2. Compile the new module and focused test.
+3. Run only `tests/test_swing_decision_journal_report.py`.
+4. Inspect any failures against the exact deployed committee trace/runtime shapes; do not weaken freshness, identity, or no-fabrication controls.
+5. Only after the authority layer passes, integrate the report into Enterprise KPI publication and the registered `decision_journal` capability/artifact contracts.
