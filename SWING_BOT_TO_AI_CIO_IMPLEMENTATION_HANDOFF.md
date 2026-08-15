@@ -582,3 +582,23 @@ Corrections:
 - `93eaa53` — use the strict CSV `columns` contract.
 
 No production alert logic, allocation, lifecycle, drawdown, execution, or safety behavior changed.
+
+
+## DigitalOcean Alerts contract gate passed
+
+DigitalOcean pulled through `a97ee62` and reran the corrected registration/output/KPI/Alerts suite.
+
+Result: **109 passed in 0.80s**, exit code 0.
+
+Verified:
+
+- Authoritative Alerts source/freshness enforcement.
+- Registry v1.8 capability and artifact contract.
+- Configured and published registration equality.
+- Plugin-compatible deterministic capability naming.
+- Strict JSON/CSV/Markdown output contracts.
+- Enterprise KPI artifact declaration.
+- All paper-only, advisory-only, broker/order/capital safety locks.
+- No Dividend production imports.
+
+Remaining freeze gates are the complete repository suite and deployed cycle/KPI/Alerts artifact verification.
