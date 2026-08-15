@@ -39,6 +39,18 @@ def test_open_positions_are_hold_decisions_and_candidates_stay_separate(tmp_path
     assert report["candidate_decisions"][0]["symbol"] == "NBIS"
 
 
+
+def test_in_flight_kpi_payload_is_used_before_kpi_file_exists(tmp_path: Path) -> None:
+    _write(tmp_path, "swing_daily_cycle_report.json", {"plugin_id": "SWING-001", "paper_trade_mode": True, "advisory_only": True, "generated_at_utc": "2026-08-15T14:30:00Z"})
+    kpi = {"strategy_id": "SWING-001", "paper_trade_mode": True, "advisory_only": True, "generated_at": "2026-08-15T14:30:00Z", "trade_analytics": {"open_positions": [{"symbol": "SOXL", "position_status": "OPEN", "active_strategy": "Strategy A"}]}}
+
+    report = build_swing_decision_journal_report(tmp_path, kpi_payload=kpi, now=NOW)
+
+    assert report["position_decisions"][0]["symbol"] == "SOXL"
+    assert report["position_decisions"][0]["current_decision"] == "HOLD"
+    assert not (tmp_path / "enterprise_strategy_kpis.json").exists()
+
+
 def test_committee_timeline_is_deterministic(tmp_path: Path) -> None:
     _required(tmp_path); _committee(tmp_path)
     report = build_swing_decision_journal_report(tmp_path, now=NOW)
