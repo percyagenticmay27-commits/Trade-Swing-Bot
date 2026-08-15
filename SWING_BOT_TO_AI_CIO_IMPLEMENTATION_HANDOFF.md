@@ -411,3 +411,28 @@ Verified authentic report state:
 The dedicated Swing Trade Analytics publication stage is complete. The next consumer-side stage is for the Enterprise AI CIO/jshouseapi.com portal to render this registered `trade_analytics` capability as a Swing-specific Trade Analytics / Position Performance section instead of the Dividend Income layout. That consumer work belongs outside Trade-Swing-Bot and must not change Swing lifecycle calculations or fabricate closed positions.
 
 The retained DigitalOcean stash contains the pre-pull tracked runtime snapshot. It may be kept temporarily as a recovery checkpoint; do not `stash pop` it because that would restore stale generated reports.
+
+
+## Product decision: next development is authoritative Swing Alerts
+
+The Enterprise AI CIO portal now correctly renders the dedicated Swing Trade Analytics section. Closed Position Performance is intentionally empty because the authentic paper ledger still contains no SELL events.
+
+The portal Alerts section currently states that no strategy-owned alerts are reported. Repository inspection confirms this is a publication gap, not evidence that the Swing codebase has no alert concepts:
+
+- `position_intelligence_engine.py` already models `risk_flags`, `suggested_review_actions`, warnings, exit-review states, and profit-protection review states.
+- The current SWING-001 service registration does not declare an `alerts` capability or authoritative alerts artifact.
+- Enterprise KPI v2.1 does not currently publish an `alerts` dashboard section.
+- The deployed 15-stage daily cycle does not list a dedicated strategy-alert publication stage.
+
+Decision:
+
+- The next Swing-owned development is an authoritative, paper-only Strategy Alerts report derived from existing review/risk evidence.
+- Do not manufacture an alert merely to populate the portal.
+- An empty alert list is valid only after the report discloses which authoritative sources were evaluated and that no actionable trigger was present.
+- Alerts must be advisory evidence only and must never place orders, move capital, connect to a broker, or change the governed $4,500 allocation.
+- Closed-position absence is not itself an alert.
+- Preserve separate categories for actionable trade review alerts and operational/evidence warnings.
+- Register the new capability/artifact and publish it through Enterprise KPI evidence so the AI CIO host can consume it without hard-coded file copying.
+- Add regression coverage for authentic alerts, zero-alert evaluation, severity/priority preservation, missing evidence disclosure, deduplication, deterministic ordering, atomic output, portal contract fields, and all paper-safety locks.
+
+Before implementation, inspect the existing daily-cycle orchestration and the current runtime availability of Position Intelligence, Profit Protection, Exit Review, lifecycle, operational health, and evidence-authority outputs. Make the smallest architectural extension and do not redesign those engines.
