@@ -5,7 +5,7 @@
   "display_name": "Trade Swing Bot",
   "plugin_type": "STRATEGY_PLUGIN",
   "strategy_class": "SWING_TRADING",
-  "plugin_version": "1.5",
+  "plugin_version": "1.6",
   "repository_name": "Trade-Swing-Bot",
   "repository_role": "INDEPENDENT_STRATEGY_INTELLIGENCE_PLUGIN",
   "lifecycle_status": "QA_FROZEN",
@@ -13,6 +13,12 @@
   "registration_status": "CIO_DISCOVERABLE",
   "generated_by": "swing_cio_plugin_manifest",
   "capabilities": [
+    {
+      "capability_id": "alerts",
+      "display_name": "Authoritative Strategy Alerts",
+      "status": "AVAILABLE",
+      "advisory_only": true
+    },
     {
       "capability_id": "discovery",
       "display_name": "Opportunity Discovery",
@@ -160,6 +166,18 @@
         "results/strategy_assignments.md"
       ],
       "dashboard_destination": "Strategy Assignment"
+    },
+    {
+      "report_id": "swing_strategy_alerts",
+      "name": "Swing Strategy Alerts",
+      "owner_module": "swing_strategy_alerts_report",
+      "required": false,
+      "artifacts": [
+        "results/swing_strategy_alerts_report.json",
+        "results/swing_strategy_alerts_report.csv",
+        "results/swing_strategy_alerts_report.md"
+      ],
+      "dashboard_destination": "Swing Alerts"
     },
     {
       "report_id": "swing_trade_analytics",
