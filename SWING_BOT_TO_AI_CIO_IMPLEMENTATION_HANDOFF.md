@@ -198,25 +198,6 @@ The expanded focused command collected 35 tests. Every listed test reached `PASS
 
 The captured console text ends immediately after the 35th `PASSED` result, before pytest's summary and shell exit-code line. Treat the individual results as successful focused evidence, but retain the full cycle/KPI publication as the remaining freeze gate.
 
-## Remaining validation before declaring the closed-position stage frozen
-
-Regression code now covers the exit boundary, partial FIFO shares, realized-P&L preservation, and buy-only zero-closed output. Before freezing, verify on DigitalOcean:
-
-- Capture the expanded pytest summary and exit code if needed for the final freeze record
-- Existing SOXL/TQQQ open-position drawdown values remain unchanged after a fresh cycle
-- The authentic production ledger continues to publish zero closed positions
-- The full Swing cycle and Enterprise KPI publication remain healthy
-
-Then run:
-
-1. The focused pytest suite
-2. `python run_swing_bot_cycle.py`
-3. Confirm 15/15 stages pass and registration is published
-4. `python publish_enterprise_strategy_kpis_v21.py`
-5. Inspect `results/enterprise_strategy_kpis.json` without editing it
-6. Confirm `trade_analytics.open_positions` retains SOXL/TQQQ values
-7. Confirm `trade_analytics.closed_positions` remains empty until an authentic paper SELL exists
-
 ## Enterprise report direction
 
 The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
