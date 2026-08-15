@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 MODULE_NAME = "swing_strategy_service_registration"
-MODULE_VERSION = "2.2.0"
+MODULE_VERSION = "2.3.0"
 SCHEMA_VERSION = "1.0"
 PLUGIN_CONTRACT_VERSION = "2.0"
 DEPLOYMENT_ROOT = "/home/tradebot/Trade-Swing-Bot/main"
@@ -24,6 +24,7 @@ ELIGIBLE_STATUSES = {"ONLINE", "ENABLED", "AVAILABLE", "HEALTHY", "READY"}
 CAPABILITIES: tuple[str, ...] = (
     "alerts",
     "daily_cycle_status",
+    "decision_journal",
     "executive_dashboard",
     "market_data_status",
     "monthly_command_center",
@@ -61,6 +62,7 @@ DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
     _artifact("stock_performance", "stock_performance", "stock_performance_report.json"),
     _artifact("strategy_kpis", "strategy_kpis", "enterprise_strategy_kpis.json"),
     _artifact("swing_strategy_alerts_report", "alerts", "swing_strategy_alerts_report.json"),
+    _artifact("swing_decision_journal_report", "decision_journal", "swing_decision_journal_report.json"),
     _artifact("swing_trade_analytics_report", "trade_analytics", "swing_trade_analytics_report.json"),
     _artifact("watchlist", "watchlist", "watchlist_report.json"),
     _artifact("weekly_stock_report", "weekly_stock_report", "weekly_stock_report.json"),
