@@ -112,10 +112,32 @@ def publish(
     payload["artifact_contract"] = sorted(
         payload["artifact_contract"], key=lambda row: row["artifact_id"]
     )
-    kpi_path = write_enterprise_strategy_kpis_v21(payload, output)
     trade_report = build_swing_trade_analytics_report(payload)
     write_swing_trade_analytics_report(trade_report, root)
-    return kpi_path
+
+    # The dedicated report is created by this same atomic publication command.
+    # Synchronize artifact availability before validating and writing the KPI
+    # contract so consumers never receive a false missing-artifact warning.
+    for artifact in payload.get("artifact_contract", []):
+        if artifact.get("artifact_id") == "swing_trade_analytics_report":
+            artifact["available"] = True
+    available = set(payload.get("available_artifacts", []))
+    available.add("swing_trade_analytics_report")
+    missing = set(payload.get("missing_optional_artifacts", []))
+    missing.discard("swing_trade_analytics_report")
+    payload["available_artifacts"] = sorted(available)
+    payload["missing_optional_artifacts"] = sorted(missing)
+    payload["artifacts"] = len(available)
+    warnings = [
+        warning
+        for warning in payload.get("warnings", [])
+        if not str(warning).startswith("Optional evidence unavailable:")
+    ]
+    if missing:
+        warnings.append("Optional evidence unavailable: " + ", ".join(sorted(missing)))
+    payload["warnings"] = sorted(set(warnings))
+
+    return write_enterprise_strategy_kpis_v21(payload, output)
 
 
 def main() -> int:
