@@ -25,7 +25,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.7"
+MODULE_VERSION = "2.1.8"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -183,7 +183,12 @@ def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str,
     if not payload:
         return []
     _require_safe_source(payload, "closed_positions")
-    rows = payload.get("closed_positions") or payload.get("positions") or payload.get("trades")
+    rows = (
+        payload.get("closed_trades")
+        or payload.get("closed_positions")
+        or payload.get("positions")
+        or payload.get("trades")
+    )
     if not isinstance(rows, list):
         return []
 
