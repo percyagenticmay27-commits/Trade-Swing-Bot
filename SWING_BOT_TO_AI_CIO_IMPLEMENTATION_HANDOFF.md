@@ -158,15 +158,33 @@ Verified coverage includes:
 - Paper-safety locks
 - No Dividend production imports
 
+## Development update: closed-lifecycle regression lock
+
+Commit `1e2f52f` adds regression coverage in `main/tests/test_trade_history_manager.py` without changing production code.
+
+New coverage:
+
+- A closed trade's authoritative drawdown stops on its actual exit date; a severe bar after exit cannot affect the result.
+- A seven-share SELL across FIFO lots closes five shares from `BUY-1` and two shares from `BUY-2`.
+- Drawdown amounts use the matched lot shares: $100 for the five-share lot and $40 for the two-share lot in the synthetic fixture.
+- Realized P&L remains $100 + $20 = $120 after excursion enrichment.
+- Three shares remain open in the second FIFO lot.
+- Buy-only output explicitly publishes `closed_trade_count = 0` and an empty `closed_trades` list.
+
+Validation performed in the development workspace:
+
+- Updated production modules and tests compile successfully with `py_compile`.
+- Direct execution of the same synthetic FIFO/exit-boundary scenario against `build_trade_history_report()` passed.
+- The workspace did not contain pytest, so the authoritative pytest result remains pending on DigitalOcean's existing virtual environment.
+
 ## Remaining validation before declaring the closed-position stage frozen
 
-Add or confirm focused regression coverage for:
+Regression code now covers the exit boundary, partial FIFO shares, realized-P&L preservation, and buy-only zero-closed output. Before freezing, verify on DigitalOcean:
 
-- A closed-position fixture explicitly proving bars after its exit date are excluded
-- Partial FIFO exits using the correct entry lot and exited share quantity
-- Realized P&L remaining unchanged after excursion enrichment
-- Existing open-position drawdown values remaining unchanged
-- The authentic buy-only production ledger continuing to publish zero closed positions
+- The expanded pytest suite passes in the deployed virtual environment
+- Existing SOXL/TQQQ open-position drawdown values remain unchanged
+- The authentic production ledger continues to publish zero closed positions
+- The full Swing cycle and Enterprise KPI publication remain healthy
 
 Then run:
 
