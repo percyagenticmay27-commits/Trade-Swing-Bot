@@ -779,3 +779,20 @@ Next gate:
 3. Run Decision Journal, KPI publisher, Trade Analytics, Alerts, and cycle-publication regressions.
 4. Correct any current-evidence shape or publication validation failures narrowly.
 5. Only after this gate passes, expose the registered `decision_journal` capability and JSON/Markdown artifacts.
+
+
+## Decision Journal KPI gate syntax correction
+
+The first DigitalOcean KPI integration gate did not execute product assertions:
+
+- Compile failed with a `SyntaxError` at the new Decision Journal artifact tuple.
+- Pytest stopped during collection with two import errors caused by the same syntax defect.
+- Root cause: the remote file edit inserted the two literal characters `\\n` between the Alerts and Decision Journal artifact tuples instead of an actual newline.
+- This result is not evidence of a Decision Journal logic, KPI contract, lifecycle, or safety failure.
+
+Correction:
+
+- `4d1d27b` — replace only the literal `\\n` with a real source newline.
+- No logic, schemas, allocation, lifecycle, drawdown, trade evidence, or safety controls changed.
+
+Rerun the same compile and focused KPI integration suite after pulling `4d1d27b`.
