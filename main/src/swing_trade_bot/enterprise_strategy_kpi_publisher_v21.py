@@ -18,7 +18,6 @@ from .enterprise_strategy_kpi_publisher import (
     DEFAULT_STRATEGY_ALLOCATIONS_PATH,
     STRATEGY_ID,
     _find_numeric,
-    _holdings,
     _load_json,
     _require_safe_source,
     build_enterprise_strategy_kpis,
@@ -26,7 +25,7 @@ from .enterprise_strategy_kpi_publisher import (
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.6"
+MODULE_VERSION = "2.1.7"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -93,6 +92,136 @@ def _finite(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _nonnegative(value: object) -> float | None:
+    number = _finite(value)
+    return number if number is not None and number >= 0 else None
+
+
+def _first_number(row: Mapping[str, Any], *keys: str, signed: bool = False) -> float | None:
+    for key in keys:
+        if key not in row:
+            continue
+        value = _finite(row.get(key)) if signed else _nonnegative(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _first_text(row: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _explicit_drawdown(row: Mapping[str, Any]) -> tuple[float | None, float | None]:
+    """Return only explicitly published drawdown evidence.
+
+    Drawdown is deliberately never inferred from entry/current prices or P&L.
+    """
+    amount = _first_number(
+        row,
+        "max_drawdown_amount",
+        "maximum_drawdown_amount",
+        "max_drawdown_dollars",
+        signed=True,
+    )
+    percent = _first_number(
+        row,
+        "max_drawdown_percent",
+        "maximum_drawdown_percent",
+        "max_drawdown_pct",
+        signed=True,
+    )
+    return amount, percent
+
+
+def _open_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    _require_safe_source(payload, "paper_portfolio_positions")
+    rows = payload.get("positions") or payload.get("holdings")
+    if not isinstance(rows, list):
+        return []
+
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        symbol = str(row.get("symbol", "")).strip().upper()
+        shares = _nonnegative(row.get("shares"))
+        if not symbol or shares is None or shares <= 0:
+            continue
+        max_drawdown_amount, max_drawdown_percent = _explicit_drawdown(row)
+        normalized: dict[str, Any] = {
+            "symbol": symbol,
+            "entry_date": _first_text(row, "entry_date", "opened_date", "purchase_date"),
+            "entry_price": _first_number(row, "entry_price", "average_cost", "avg_cost"),
+            "shares": round(shares, 8),
+            "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
+            "current_price": _first_number(row, "current_price", "price"),
+            "market_value": _first_number(row, "market_value", "current_value"),
+            "unrealized_pnl": _first_number(row, "unrealized_pnl", "unrealized_gain", signed=True),
+            "unrealized_pnl_percent": _first_number(
+                row,
+                "unrealized_pnl_percent",
+                "unrealized_gain_percent",
+                "return_percent",
+                signed=True,
+            ),
+            "active_strategy": _first_text(row, "active_strategy", "strategy_owner") or "",
+            "position_status": (_first_text(row, "position_status", "status") or "OPEN").upper(),
+            "max_drawdown_amount": max_drawdown_amount,
+            "max_drawdown_percent": max_drawdown_percent,
+        }
+        output.append(normalized)
+    return sorted(output, key=lambda item: item["symbol"])
+
+
+def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    _require_safe_source(payload, "closed_positions")
+    rows = payload.get("closed_positions") or payload.get("positions") or payload.get("trades")
+    if not isinstance(rows, list):
+        return []
+
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        symbol = str(row.get("symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        max_drawdown_amount, max_drawdown_percent = _explicit_drawdown(row)
+        normalized: dict[str, Any] = {
+            "symbol": symbol,
+            "entry_date": _first_text(row, "entry_date", "opened_date", "purchase_date"),
+            "entry_price": _first_number(row, "entry_price", "average_cost", "avg_cost"),
+            "shares": _first_number(row, "shares", "quantity"),
+            "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
+            "exit_date": _first_text(row, "exit_date", "closed_date", "sale_date"),
+            "exit_price": _first_number(row, "exit_price", "sale_price", "closed_price"),
+            "realized_pnl": _first_number(row, "realized_pnl", "realized_gain", "profit_loss", signed=True),
+            "realized_pnl_percent": _first_number(
+                row,
+                "realized_pnl_percent",
+                "realized_gain_percent",
+                "return_percent",
+                signed=True,
+            ),
+            "holding_days": _first_number(row, "holding_days", "days_held"),
+            "exit_reason": _first_text(row, "exit_reason", "close_reason", "sell_reason"),
+            "active_strategy": _first_text(row, "active_strategy", "strategy_owner") or "",
+            "position_status": (_first_text(row, "position_status", "status") or "CLOSED").upper(),
+            "max_drawdown_amount": max_drawdown_amount,
+            "max_drawdown_percent": max_drawdown_percent,
+        }
+        output.append(normalized)
+    return sorted(output, key=lambda item: (item["symbol"], str(item.get("exit_date") or "")))
+
+
 def _current_opportunity_score(payload: Mapping[str, Any] | None) -> float | None:
     direct = _find_numeric(payload, ("opportunity_quality_score", "opportunity_quality", "score"))
     if direct is not None:
@@ -140,7 +269,7 @@ def _apply_current_paper_portfolio(
     if any(value is None for value in required.values()) or not isinstance(position_count, int) or position_count < 0:
         return
 
-    holdings = _holdings(positions)
+    holdings = _open_trade_analytics(positions)
     if positions is not None and len(holdings) != position_count:
         warnings.append("Detailed holdings count does not match the current paper portfolio position count.")
 
@@ -190,6 +319,7 @@ def build_enterprise_strategy_kpis_v21(
     if current_opportunity_score is not None:
         base["opportunity_quality"] = current_opportunity_score
 
+    normalized_closed_positions = _closed_trade_analytics(closed_positions)
     allocation_provenance = dict(base.get("allocation_provenance", {}))
     portfolio_section = {
         "allocated_capital": base.get("allocated_capital"),
@@ -216,6 +346,14 @@ def build_enterprise_strategy_kpis_v21(
         "win_rate_percent": base.get("win_rate_percent"),
         "analytics": base.get("performance"),
     }
+    trade_analytics_section = {
+        "open_position_count": len(base.get("open_positions", [])),
+        "closed_position_count": len(normalized_closed_positions),
+        "open_positions": base.get("open_positions", []),
+        "closed_positions": normalized_closed_positions,
+        "max_drawdown_policy": "AUTHORITATIVE_POSITION_HISTORY_ONLY",
+        "max_drawdown_inference_allowed": False,
+    }
     strategy_intelligence_section = {
         "opportunity_quality": base.get("opportunity_quality"),
         "watchlist_count": base.get("watchlist_count"),
@@ -227,6 +365,7 @@ def build_enterprise_strategy_kpis_v21(
         "summary": _load_optional(root, "paper_ledger/trade_history_summary.json"),
         "events": trade_history,
         "closed_positions": closed_positions,
+        "closed_position_analytics": normalized_closed_positions,
     }
 
     payload = dict(base)
@@ -241,6 +380,7 @@ def build_enterprise_strategy_kpis_v21(
             "portfolio": portfolio_section,
             "holdings": holdings_section,
             "performance_summary": performance_section,
+            "trade_analytics": trade_analytics_section,
             "strategy_intelligence": strategy_intelligence_section,
             "trade_history": trade_history_section,
             "dashboard_sections": {
@@ -248,6 +388,7 @@ def build_enterprise_strategy_kpis_v21(
                 "portfolio": portfolio_section,
                 "holdings": holdings_section,
                 "performance": performance_section,
+                "trade_analytics": trade_analytics_section,
                 "watchlist": {
                     "count": base.get("watchlist_count"),
                     "evidence": watchlist,
@@ -321,6 +462,7 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
         "portfolio",
         "holdings",
         "performance_summary",
+        "trade_analytics",
         "strategy_intelligence",
         "trade_history",
         "dashboard_sections",
