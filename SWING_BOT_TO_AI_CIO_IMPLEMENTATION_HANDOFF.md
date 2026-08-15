@@ -177,12 +177,33 @@ Validation performed in the development workspace:
 - Direct execution of the same synthetic FIFO/exit-boundary scenario against `build_trade_history_report()` passed.
 - The workspace did not contain pytest, so the authoritative pytest result remains pending on DigitalOcean's existing virtual environment.
 
+## DigitalOcean validation: expanded closed-lifecycle suite
+
+DigitalOcean fast-forwarded from `897946d` through handoff commit `8a37215` and compiled:
+
+- `paper_position_excursion.py`
+- `trade_history_manager.py`
+- `test_trade_history_manager.py`
+
+The expanded focused command collected 35 tests. Every listed test reached `PASSED`, including:
+
+- `test_closed_trade_drawdown_stops_at_actual_exit_date`
+- `test_partial_fifo_exit_uses_each_entry_lot_and_matched_shares`
+- Buy-only zero-closed lifecycle evidence
+- Closed excursion archive preservation and fail-closed behavior
+- Canonical closed-trade Enterprise analytics
+- Open-position drawdown and incomplete-history behavior
+- No fabricated exit fields or snapshot drawdown inference
+- Paper safety and no Dividend production imports
+
+The captured console text ends immediately after the 35th `PASSED` result, before pytest's summary and shell exit-code line. Treat the individual results as successful focused evidence, but retain the full cycle/KPI publication as the remaining freeze gate.
+
 ## Remaining validation before declaring the closed-position stage frozen
 
 Regression code now covers the exit boundary, partial FIFO shares, realized-P&L preservation, and buy-only zero-closed output. Before freezing, verify on DigitalOcean:
 
-- The expanded pytest suite passes in the deployed virtual environment
-- Existing SOXL/TQQQ open-position drawdown values remain unchanged
+- Capture the expanded pytest summary and exit code if needed for the final freeze record
+- Existing SOXL/TQQQ open-position drawdown values remain unchanged after a fresh cycle
 - The authentic production ledger continues to publish zero closed positions
 - The full Swing cycle and Enterprise KPI publication remain healthy
 
