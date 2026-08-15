@@ -901,3 +901,25 @@ Verified contract layers:
 - Existing schema registry, Trade Analytics, KPI, and paper-safety regressions.
 
 The Decision Journal contract gate is complete. The next gate is the full repository suite. Do not run the real cycle or KPI publication until that suite passes.
+
+
+## Swing Decision Journal full repository gate passed
+
+Complete DigitalOcean repository suite after Decision Journal authority, KPI, registration, plugin, output-contract, and allowlist integration:
+
+- **1043 passed, 1 skipped in 5.72s**
+- Exit code 0
+
+No regressions were found in trade lifecycle, closed-position drawdown-through-exit, Trade Analytics, Alerts, committee traceability, operational runtime/health, market-data contracts, registration, or paper-only safety.
+
+Final deployment gate:
+
+1. Run the authentic Swing operational cycle and require 15/15 stages with no errors.
+2. Publish Enterprise KPIs through the normal command; do not edit generated results manually.
+3. Inspect generated Decision Journal JSON/Markdown.
+4. Verify two open-position HOLD decisions for SOXL and TQQQ when current authoritative holdings remain open.
+5. Verify candidate decisions remain separate and derive only from matched current committee runtime/trace evidence.
+6. Verify no BUY, SELL, executed exit, or closed position is fabricated from `rebalance_actions.json`.
+7. Verify KPI `dashboard_sections.decisions` equals the standalone Decision Journal report.
+8. Verify registration v1.9 declares `decision_journal` and the JSON artifact.
+9. Preserve the retained targeted stash until deployment verification completes; do not pop it.
