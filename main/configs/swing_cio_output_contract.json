@@ -168,6 +168,43 @@
       "missing_behavior": "WARN"
     },
     {
+      "artifact_id": "swing_decision_journal_json",
+      "path": "results/swing_decision_journal_report.json",
+      "format": "json",
+      "owner_module": "swing_decision_journal_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Decisions",
+      "root_type": "object",
+      "required_fields": [
+        "strategy_id",
+        "paper_trade_mode",
+        "advisory_only",
+        "decision_authority_policy",
+        "position_decision_count",
+        "candidate_decision_count",
+        "decisions",
+        "evidence_warnings"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_decision_journal_markdown",
+      "path": "results/swing_decision_journal_report.md",
+      "format": "markdown",
+      "owner_module": "swing_decision_journal_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Decisions",
+      "required_sections": [
+        "Swing Decision Journal",
+        "Current Decisions"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
       "artifact_id": "swing_strategy_alerts_csv",
       "path": "results/swing_strategy_alerts_report.csv",
       "format": "csv",
