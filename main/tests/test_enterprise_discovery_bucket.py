@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import date
 from pathlib import Path
@@ -14,6 +15,7 @@ from swing_trade_bot.enterprise_discovery_bucket import (
     load_leveraged_mapping,
     merge_bucket_candidates,
     merge_mentions,
+    refresh_enterprise_discovery_inputs,
 )
 
 
@@ -45,6 +47,24 @@ def _mapping(path: Path) -> Path:
             ],
         },
     )
+
+
+def _local_discovery_tree(root: Path) -> None:
+    candidates = root / "examples/discovery_candidates.csv"
+    candidates.parent.mkdir(parents=True, exist_ok=True)
+    candidates.write_text(
+        "underlying_symbol,leveraged_symbol,status,paper_return,win_rate,profit_factor,number_of_trades,trading_days,days_in_status,earnings_stability_score,leveraged_vehicle_exists,themes\n"
+        "NBIS,NBIL,DISCOVERY,0,0,0,0,0,0,50,true,AI Infrastructure\n",
+        encoding="utf-8",
+    )
+    mentions = root / "results/discovery_mentions.csv"
+    mentions.parent.mkdir(parents=True, exist_ok=True)
+    mentions.write_text(
+        "underlying_symbol,source,mentioned_on,themes,earnings_growth_related,analyst_upgrade_related\n"
+        "NBIS,Reuters,2026-08-15,AI Infrastructure,false,false\n",
+        encoding="utf-8",
+    )
+    _mapping(root / "configs/swing_discovery_leveraged_mapping.json")
 
 
 def test_discover_bucket_path_is_read_only_repository_relative(tmp_path: Path) -> None:
@@ -207,6 +227,46 @@ def test_duplicate_local_and_enterprise_mentions_are_deduplicated() -> None:
     )
     merged = merge_mentions([mention], [mention])
     assert merged == [mention]
+
+
+def test_refresh_falls_back_to_local_inputs_when_ai_cio_bucket_missing(tmp_path: Path) -> None:
+    _local_discovery_tree(tmp_path)
+    ai_cio = tmp_path / "ai-cio"
+    report = refresh_enterprise_discovery_inputs(swing_root=tmp_path, ai_cio_repository=ai_cio)
+    assert report["source_mode"] == "SWING_LOCAL_FALLBACK"
+    assert report["runtime_candidate_count"] == 1
+    assert report["runtime_mention_count"] == 1
+    assert (tmp_path / "results/discovery_candidates_runtime.csv").is_file()
+    assert (tmp_path / "results/discovery_mentions_runtime.csv").is_file()
+
+
+def test_refresh_imports_ai_cio_nomination_as_discovery_not_watchlist(tmp_path: Path) -> None:
+    _local_discovery_tree(tmp_path)
+    ai_cio = tmp_path / "ai-cio"
+    _write_json(
+        ai_cio / "results/enterprise_swing_discovery_bucket.json",
+        _bucket(
+            {
+                "underlying_symbol": "NVDA",
+                "discovery_status": "HOT",
+                "themes": ["Semiconductors"],
+                "evidence_sources": [
+                    {"source": "Reuters", "mentioned_on": "2026-08-16"},
+                    {"source": "Bloomberg", "mentioned_on": "2026-08-17"},
+                ],
+            }
+        ),
+    )
+    report = refresh_enterprise_discovery_inputs(swing_root=tmp_path, ai_cio_repository=ai_cio)
+    assert report["source_mode"] == "AI_CIO_BUCKET_PLUS_SWING_LOCAL"
+    assert report["enterprise_candidate_count"] == 1
+    assert report["enterprise_mention_count"] == 2
+    with (tmp_path / "results/discovery_candidates_runtime.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    nvda = next(row for row in rows if row["underlying_symbol"] == "NVDA")
+    assert nvda["leveraged_symbol"] == "NVDX"
+    assert nvda["status"] == "DISCOVERY"
+    assert nvda["number_of_trades"] == "0"
 
 
 def test_no_broker_execution_or_order_api_is_exposed() -> None:
