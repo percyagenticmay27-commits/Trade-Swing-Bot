@@ -20,8 +20,8 @@
   "runtime_evidence_refresh": {
     "enabled": true,
     "watchlist": {
-      "candidates_path": "examples/discovery_candidates.csv",
-      "mentions_path": "results/discovery_mentions.csv",
+      "candidates_path": "results/discovery_candidates_runtime.csv",
+      "mentions_path": "results/discovery_mentions_runtime.csv",
       "financial_health_path": "examples/financial_health.csv"
     },
     "portfolio_allocation": {
