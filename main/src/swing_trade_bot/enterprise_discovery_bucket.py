@@ -8,14 +8,15 @@ always wins over Enterprise nomination metadata.
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .discovery_engine import CandidateState, SourceMention
+from .discovery_engine import CandidateState, SourceMention, load_candidates, load_mentions
 
 STRATEGY_ID = "SWING-001"
 BUCKET_SCHEMA_VERSION = "1.0"
@@ -25,6 +26,11 @@ DEFAULT_AI_CIO_REPOSITORY = Path(
 )
 DEFAULT_BUCKET_RELATIVE_PATH = Path("results/enterprise_swing_discovery_bucket.json")
 DEFAULT_MAPPING_RELATIVE_PATH = Path("configs/swing_discovery_leveraged_mapping.json")
+DEFAULT_LOCAL_CANDIDATES_RELATIVE_PATH = Path("examples/discovery_candidates.csv")
+DEFAULT_LOCAL_MENTIONS_RELATIVE_PATH = Path("results/discovery_mentions.csv")
+DEFAULT_RUNTIME_CANDIDATES_RELATIVE_PATH = Path("results/discovery_candidates_runtime.csv")
+DEFAULT_RUNTIME_MENTIONS_RELATIVE_PATH = Path("results/discovery_mentions_runtime.csv")
+DEFAULT_INTAKE_REPORT_RELATIVE_PATH = Path("results/enterprise_discovery_intake_report.json")
 IMPORTABLE_BUCKET_STATUSES = frozenset({"HOT", "RISING", "EMERGING"})
 VALID_BUCKET_STATUSES = frozenset({"HOT", "RISING", "EMERGING", "COOLING", "DECLINING"})
 
@@ -122,10 +128,13 @@ def _themes(item: Mapping[str, Any]) -> tuple[str, ...]:
     else:
         values = []
     ordered: list[str] = []
+    normalized: set[str] = set()
     for raw in values:
         theme = str(raw).strip()
-        if theme and theme.upper() not in {existing.upper() for existing in ordered}:
+        key = theme.upper()
+        if theme and key not in normalized:
             ordered.append(theme)
+            normalized.add(key)
     return tuple(ordered)
 
 
@@ -251,3 +260,116 @@ def merge_mentions(
         seen.add(key)
         result.append(mention)
     return result
+
+
+def write_candidates_csv(path: str | Path, candidates: Sequence[CandidateState]) -> Path:
+    """Materialize the merged runtime candidate universe for the daily Swing cycle."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(CandidateState.__dataclass_fields__)
+    with destination.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for candidate in candidates:
+            row = asdict(candidate)
+            row["themes"] = ";".join(candidate.themes)
+            writer.writerow(row)
+    return destination
+
+
+def write_mentions_csv(path: str | Path, mentions: Sequence[SourceMention]) -> Path:
+    """Materialize merged local + AI CIO source evidence for the daily Swing cycle."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = (
+        "underlying_symbol",
+        "source",
+        "mentioned_on",
+        "themes",
+        "earnings_growth_related",
+        "analyst_upgrade_related",
+    )
+    with destination.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for mention in mentions:
+            writer.writerow(
+                {
+                    "underlying_symbol": mention.underlying_symbol,
+                    "source": mention.source,
+                    "mentioned_on": mention.mentioned_on.isoformat(),
+                    "themes": ";".join(mention.themes),
+                    "earnings_growth_related": str(mention.earnings_growth_related).lower(),
+                    "analyst_upgrade_related": str(mention.analyst_upgrade_related).lower(),
+                }
+            )
+    return destination
+
+
+def refresh_enterprise_discovery_inputs(
+    *,
+    swing_root: str | Path | None = None,
+    ai_cio_repository: str | Path | None = None,
+) -> dict[str, Any]:
+    """Build current runtime discovery inputs before the normal Swing cycle.
+
+    The AI CIO bucket is optional. If it does not yet exist, current Swing-local
+    candidates and mentions are materialized unchanged so the existing cycle can
+    continue safely. A malformed bucket fails closed instead of silently importing
+    unverifiable candidates.
+    """
+    root = Path(swing_root) if swing_root is not None else Path.cwd()
+    local_candidates_path = root / DEFAULT_LOCAL_CANDIDATES_RELATIVE_PATH
+    local_mentions_path = root / DEFAULT_LOCAL_MENTIONS_RELATIVE_PATH
+    mapping_path = root / DEFAULT_MAPPING_RELATIVE_PATH
+    runtime_candidates_path = root / DEFAULT_RUNTIME_CANDIDATES_RELATIVE_PATH
+    runtime_mentions_path = root / DEFAULT_RUNTIME_MENTIONS_RELATIVE_PATH
+    report_path = root / DEFAULT_INTAKE_REPORT_RELATIVE_PATH
+
+    if not local_candidates_path.is_file():
+        raise FileNotFoundError(f"Swing local discovery candidates missing: {local_candidates_path}")
+    if not local_mentions_path.is_file():
+        raise FileNotFoundError(f"Swing local discovery mentions missing: {local_mentions_path}")
+    if not mapping_path.is_file():
+        raise FileNotFoundError(f"Swing leveraged mapping missing: {mapping_path}")
+
+    candidates = load_candidates(local_candidates_path)
+    mentions = load_mentions(local_mentions_path)
+    mapping = load_leveraged_mapping(mapping_path)
+    bucket_path = discover_bucket_path(repository_root=ai_cio_repository)
+    bucket_available = bucket_path.is_file()
+    warnings: list[str] = []
+    enterprise_candidate_count = 0
+    enterprise_mention_count = 0
+
+    if bucket_available:
+        bucket = load_discovery_bucket(bucket_path)
+        enterprise_candidate_count = len(bucket.get("candidates", []))
+        candidates, warnings = merge_bucket_candidates(candidates, bucket, mapping)
+        enterprise_mentions = bucket_mentions(bucket)
+        enterprise_mention_count = len(enterprise_mentions)
+        mentions = merge_mentions(mentions, enterprise_mentions)
+
+    write_candidates_csv(runtime_candidates_path, candidates)
+    write_mentions_csv(runtime_mentions_path, mentions)
+    report = {
+        "schema_version": "1.0",
+        "strategy_id": STRATEGY_ID,
+        "paper_trade_mode": True,
+        "source_mode": "AI_CIO_BUCKET_PLUS_SWING_LOCAL" if bucket_available else "SWING_LOCAL_FALLBACK",
+        "ai_cio_bucket_available": bucket_available,
+        "ai_cio_bucket_path": str(bucket_path),
+        "local_candidates_path": str(local_candidates_path),
+        "local_mentions_path": str(local_mentions_path),
+        "leveraged_mapping_path": str(mapping_path),
+        "runtime_candidates_path": str(runtime_candidates_path),
+        "runtime_mentions_path": str(runtime_mentions_path),
+        "enterprise_candidate_count": enterprise_candidate_count,
+        "enterprise_mention_count": enterprise_mention_count,
+        "runtime_candidate_count": len(candidates),
+        "runtime_mention_count": len(mentions),
+        "warnings": warnings,
+    }
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return report
