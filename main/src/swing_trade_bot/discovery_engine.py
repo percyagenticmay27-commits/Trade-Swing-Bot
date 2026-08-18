@@ -11,6 +11,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal, cast
 
+from .enterprise_evidence_normalization import source_class_profile
+
 
 WatchlistStatus = Literal["DISCOVERY", "MONITOR", "WATCHLIST", "LOW", "MEDIUM", "HIGH", "REMOVED"]
 CapacityStatus = Literal["ACTIVE", "OVER_CAPACITY_MONITOR", "REMOVED"]
@@ -88,7 +90,11 @@ PAPER_ACCOUNT_VALUE = 100.0
 
 @dataclass(frozen=True, slots=True)
 class SourceMention:
-    """One dated candidate mention from an independent source."""
+    """One dated candidate mention from an independent source.
+
+    source_class/original_source are optional Enterprise adapter metadata. Legacy
+    Swing CSV rows omit them and retain the historical literal-source semantics.
+    """
 
     underlying_symbol: str
     source: str
@@ -96,6 +102,8 @@ class SourceMention:
     themes: tuple[str, ...] = ()
     earnings_growth_related: bool = False
     analyst_upgrade_related: bool = False
+    source_class: str | None = None
+    original_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,27 +205,28 @@ class DiscoveryEngine:
     ) -> WatchlistRow:
         symbol = candidate.underlying_symbol.upper()
         recent = _recent_mentions(symbol, mentions, as_of)
-        independent_sources = {_normalize_source(item.source) for item in recent}
-        institutional_count = sum(source in INSTITUTIONAL_SOURCES for source in independent_sources)
-        youtube_count = sum(_is_youtube_source(source, recent) for source in independent_sources)
-        confluence = sum(_source_weight(source, recent) for source in independent_sources)
+        independent_mentions = _independent_scoring_mentions(recent)
+        source_count = len(independent_mentions)
+        institutional_count = sum(_mention_is_institutional(item, recent) for item in independent_mentions)
+        youtube_count = sum(_mention_is_youtube_or_creator(item, recent) for item in independent_mentions)
+        confluence = sum(_mention_weight(item, recent) for item in independent_mentions)
         health = financial_health.get(symbol)
         health_score = health.score if health is not None else 0.0
         momentum_score = theme_momentum_score(candidate.themes, recent, as_of=as_of)
         status = self._next_status(
             candidate,
-            source_count=len(independent_sources),
+            source_count=source_count,
             confluence=confluence,
             financial_health_score=health_score,
         )
         row = WatchlistRow(
             underlying_symbol=symbol,
             leveraged_symbol=(candidate.leveraged_symbol or "").upper(),
-            source_count=len(independent_sources),
+            source_count=source_count,
             institutional_source_count=institutional_count,
             youtube_source_count=youtube_count,
             source_confluence_score=confluence,
-            source_confluence_level=confluence_level(confluence, len(independent_sources)),
+            source_confluence_level=confluence_level(confluence, source_count),
             financial_health_score=round(health_score, 2),
             watchlist_status=status,
             paper_return=candidate.paper_return,
@@ -313,15 +322,17 @@ def theme_momentum_score(
             for item in mentions
             if theme in {_normalize_theme(value) for value in item.themes}
             and prior_cutoff <= item.mentioned_on <= as_of
-            and _source_weight(_normalize_source(item.source), mentions) > 0
+            and _mention_weight(item, mentions) > 0
         ]
-        sources = {_normalize_source(item.source) for item in relevant}
-        institutional = sources & INSTITUTIONAL_SOURCES
+        independent = _independent_scoring_mentions(relevant)
         current_mentions = sum(item.mentioned_on >= recent_cutoff for item in relevant)
         prior_mentions = len(relevant) - current_mentions
 
-        breadth = min(len(sources) / 4.0, 1.0) * 35.0
-        institutional_support = min(len(institutional) / 3.0, 1.0) * 25.0
+        breadth = min(len(independent) / 4.0, 1.0) * 35.0
+        institutional_support = min(
+            sum(_mention_is_institutional(item, relevant) for item in independent) / 3.0,
+            1.0,
+        ) * 25.0
         if current_mentions == 0:
             trend = 0.0
         elif prior_mentions == 0:
@@ -428,6 +439,8 @@ def load_mentions(path: Path) -> list[SourceMention]:
                 themes=_split_values(row.get("themes") or row.get("theme_tags", "")),
                 earnings_growth_related=_bool(row.get("earnings_growth_related", "false")),
                 analyst_upgrade_related=_bool(row.get("analyst_upgrade_related", "false")),
+                source_class=(row.get("source_class") or "").strip().upper() or None,
+                original_source=(row.get("original_source") or "").strip() or None,
             )
             for row in csv.DictReader(input_file)
         ]
@@ -497,6 +510,48 @@ def _recent_mentions(symbol: str, mentions: Iterable[SourceMention], as_of: date
 
 def _normalize_source(source: str) -> str:
     return source.strip().upper()
+
+
+def _mention_identity(mention: SourceMention) -> str:
+    return _normalize_source(mention.original_source or mention.source)
+
+
+def _mention_weight(mention: SourceMention, mentions: Sequence[SourceMention]) -> int:
+    if mention.source_class is not None:
+        profile = source_class_profile(mention.source_class)
+        return profile.weight if profile is not None else 0
+    return _source_weight(_normalize_source(mention.source), mentions)
+
+
+def _mention_is_institutional(mention: SourceMention, mentions: Sequence[SourceMention]) -> bool:
+    if mention.source_class is not None:
+        profile = source_class_profile(mention.source_class)
+        return bool(profile and profile.institutional and profile.weight > 0)
+    return _normalize_source(mention.source) in INSTITUTIONAL_SOURCES
+
+
+def _mention_is_youtube_or_creator(mention: SourceMention, mentions: Sequence[SourceMention]) -> bool:
+    if mention.source_class is not None:
+        profile = source_class_profile(mention.source_class)
+        return bool(profile and profile.youtube_or_creator and profile.weight > 0)
+    return _is_youtube_source(_normalize_source(mention.source), mentions)
+
+
+def _independent_scoring_mentions(mentions: Sequence[SourceMention]) -> list[SourceMention]:
+    """Deduplicate trusted evidence by actual source identity.
+
+    Legacy mentions preserve historical behavior, including source breadth even when
+    a legacy literal has no configured weight. Enterprise mentions with source_class
+    metadata must have a recognized positive-weight class to contribute to trusted
+    breadth/confluence. SOCIAL_COMMUNITY and unrecognized Enterprise evidence remain
+    visible in runtime evidence but cannot inflate trusted source counts.
+    """
+    result: dict[str, SourceMention] = {}
+    for mention in mentions:
+        if mention.source_class is not None and _mention_weight(mention, mentions) <= 0:
+            continue
+        result.setdefault(_mention_identity(mention), mention)
+    return list(result.values())
 
 
 def _source_weight(source: str, mentions: Sequence[SourceMention]) -> int:
