@@ -20,9 +20,15 @@ from .leveraged_vehicle_registry import (
     build_weekly_review,
     load_vehicle_registry,
 )
+from .vehicle_quote_evidence import (
+    QuoteObservation,
+    ResolvedQuoteEvidence,
+    resolve_quote_evidence,
+    yahoo_quote_observation,
+)
 
 STRATEGY_ID = "SWING-001"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.1.0"
 DEFAULT_REGISTRY_PATH = Path("configs/swing_leveraged_vehicle_registry.json")
 DEFAULT_OUTPUT_PATH = Path("results/weekend_vehicle_review.json")
 DEFAULT_DISCOVERY_LIMIT = 12
@@ -63,21 +69,27 @@ def _history(ticker: Any, *, period: str) -> Any:
         return ticker.history(period=period)
 
 
-def collect_vehicle_evidence(
+def collect_vehicle_evidence_with_audit(
     underlying_symbol: str,
     vehicle_symbol: str,
     *,
     ticker_factory: Callable[[str], Any] | None = None,
-) -> tuple[VehicleEvidence | None, list[str]]:
-    """Collect market/product evidence for one already verified vehicle.
-
-    Missing critical product facts produce a warning and exclude the row from
-    preference scoring instead of inventing favorable zero values.
-    """
+    stooq_provider: Callable[[str], QuoteObservation | None] | None = None,
+    robinhood_read_only_provider: Callable[[str], QuoteObservation | None] | None = None,
+    cache_provider: Callable[[str], QuoteObservation | None] | None = None,
+) -> tuple[VehicleEvidence | None, list[str], ResolvedQuoteEvidence]:
+    """Collect verified vehicle evidence with field-level quote provenance."""
     if ticker_factory is None:
         import yfinance as yf
 
         ticker_factory = yf.Ticker
+        yahoo_provider = None
+        resolved_stooq_provider = stooq_provider
+        resolved_cache_provider = cache_provider
+    else:
+        yahoo_provider = lambda symbol: yahoo_quote_observation(symbol, ticker_factory=ticker_factory)
+        resolved_stooq_provider = stooq_provider or (lambda _: None)
+        resolved_cache_provider = cache_provider or (lambda _: None)
 
     symbol = vehicle_symbol.strip().upper()
     underlying = underlying_symbol.strip().upper()
@@ -88,32 +100,61 @@ def collect_vehicle_evidence(
         recent = _history(ticker, period="3mo")
         long_history = _history(ticker, period="max")
     except Exception as exc:
-        return None, [f"MARKET_HISTORY_UNAVAILABLE:{symbol}:{exc}"]
+        quote = resolve_quote_evidence(
+            symbol,
+            yahoo_provider=yahoo_provider,
+            stooq_provider=resolved_stooq_provider,
+            robinhood_read_only_provider=robinhood_read_only_provider,
+            cache_provider=resolved_cache_provider,
+        )
+        return None, [f"MARKET_HISTORY_UNAVAILABLE:{symbol}:{exc}", *quote.warnings], quote
 
     if getattr(recent, "empty", True):
-        return None, [f"MARKET_HISTORY_EMPTY:{symbol}"]
+        quote = resolve_quote_evidence(
+            symbol,
+            yahoo_provider=yahoo_provider,
+            stooq_provider=resolved_stooq_provider,
+            robinhood_read_only_provider=robinhood_read_only_provider,
+            cache_provider=resolved_cache_provider,
+        )
+        return None, [f"MARKET_HISTORY_EMPTY:{symbol}", *quote.warnings], quote
 
     try:
         close = recent["Close"].dropna()
         volume = recent["Volume"].dropna()
-        price = float(close.iloc[-1])
+        historical_price = float(close.iloc[-1])
         average_volume = float(volume.tail(20).mean())
         aligned = recent.loc[close.index.intersection(volume.index)]
         average_dollar_volume = float((aligned["Close"] * aligned["Volume"]).tail(20).mean())
         history_days = int(len(long_history.index)) if not getattr(long_history, "empty", True) else int(len(recent.index))
     except Exception as exc:
-        return None, [f"MARKET_HISTORY_MALFORMED:{symbol}:{exc}"]
+        quote = resolve_quote_evidence(
+            symbol,
+            yahoo_provider=yahoo_provider,
+            stooq_provider=resolved_stooq_provider,
+            robinhood_read_only_provider=robinhood_read_only_provider,
+            cache_provider=resolved_cache_provider,
+        )
+        return None, [f"MARKET_HISTORY_MALFORMED:{symbol}:{exc}", *quote.warnings], quote
 
     info = _safe_info(ticker)
-    bid = _float(info.get("bid"))
-    ask = _float(info.get("ask"))
     aum = _float(info.get("totalAssets"))
     expense = _float(
         info.get("netExpenseRatio", info.get("annualReportExpenseRatio", info.get("expenseRatio")))
     )
+    quote_type = str(info.get("quoteType", "")).strip().upper()
+
+    quote = resolve_quote_evidence(
+        symbol,
+        yahoo_provider=yahoo_provider,
+        stooq_provider=resolved_stooq_provider,
+        robinhood_read_only_provider=robinhood_read_only_provider,
+        cache_provider=resolved_cache_provider,
+    )
+    warnings.extend(quote.warnings)
 
     missing: list[str] = []
-    if bid is None or ask is None or bid <= 0 or ask < bid:
+    if quote.spread_pct is None:
         missing.append("bid_ask")
     if aum is None:
         missing.append("aum")
@@ -121,11 +162,9 @@ def collect_vehicle_evidence(
         missing.append("expense_ratio")
     if missing:
         warnings.append(f"INCOMPLETE_PRODUCT_EVIDENCE:{symbol}:{','.join(missing)}")
-        return None, warnings
+        return None, list(dict.fromkeys(warnings)), quote
 
-    midpoint = (bid + ask) / 2.0
-    spread_pct = ((ask - bid) / midpoint * 100.0) if midpoint > 0 else 0.0
-    quote_type = str(info.get("quoteType", "")).strip().upper()
+    price = quote.price if quote.price is not None and quote.price > 0 else historical_price
     product_active = quote_type in {"ETF", "MUTUALFUND", "EQUITY"} and price > 0
 
     return (
@@ -135,14 +174,30 @@ def collect_vehicle_evidence(
             price=price,
             average_daily_volume=max(average_volume, 0.0),
             average_daily_dollar_volume=max(average_dollar_volume, 0.0),
-            bid_ask_spread_pct=max(spread_pct, 0.0),
+            bid_ask_spread_pct=quote.spread_pct,
             aum=aum,
             expense_ratio_pct=expense,
             history_days=max(history_days, 0),
             product_active=product_active,
         ),
-        warnings,
+        list(dict.fromkeys(warnings)),
+        quote,
     )
+
+
+def collect_vehicle_evidence(
+    underlying_symbol: str,
+    vehicle_symbol: str,
+    *,
+    ticker_factory: Callable[[str], Any] | None = None,
+) -> tuple[VehicleEvidence | None, list[str]]:
+    """Backward-compatible evidence collector used by existing focused tests."""
+    evidence, warnings, _ = collect_vehicle_evidence_with_audit(
+        underlying_symbol,
+        vehicle_symbol,
+        ticker_factory=ticker_factory,
+    )
+    return evidence, warnings
 
 
 def discover_unverified_vehicle_candidates(
@@ -151,11 +206,7 @@ def discover_unverified_vehicle_candidates(
     search_factory: Callable[..., Any] | None = None,
     max_results: int = DEFAULT_DISCOVERY_LIMIT,
 ) -> list[dict[str, Any]]:
-    """Surface possible related leveraged ETFs for human/issuer verification.
-
-    Results are intentionally labeled UNVERIFIED and must never be merged into the
-    persistent registry without an independent verification step.
-    """
+    """Surface possible related leveraged ETFs for human/issuer verification."""
     if search_factory is None:
         import yfinance as yf
 
@@ -201,6 +252,9 @@ def build_weekend_vehicle_review(
     reviewed_on: date | None = None,
     ticker_factory: Callable[[str], Any] | None = None,
     search_factory: Callable[..., Any] | None = None,
+    stooq_provider: Callable[[str], QuoteObservation | None] | None = None,
+    robinhood_read_only_provider: Callable[[str], QuoteObservation | None] | None = None,
+    cache_provider: Callable[[str], QuoteObservation | None] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
     day = reviewed_on or date.today()
@@ -209,6 +263,7 @@ def build_weekend_vehicle_review(
 
     registry = load_vehicle_registry(registry_path)
     evidence: list[VehicleEvidence] = []
+    quote_audits: list[dict[str, Any]] = []
     warnings: list[str] = []
     candidate_queue: list[dict[str, Any]] = []
 
@@ -217,12 +272,20 @@ def build_weekend_vehicle_review(
         for vehicle in entry.vehicles:
             if not vehicle.enabled or not vehicle.verified:
                 continue
-            row, row_warnings = collect_vehicle_evidence(
+            row, row_warnings, quote = collect_vehicle_evidence_with_audit(
                 underlying,
                 vehicle.symbol,
                 ticker_factory=ticker_factory,
+                stooq_provider=stooq_provider,
+                robinhood_read_only_provider=robinhood_read_only_provider,
+                cache_provider=cache_provider,
             )
             warnings.extend(row_warnings)
+            quote_audits.append({
+                "underlying_symbol": underlying,
+                "vehicle_symbol": vehicle.symbol,
+                **asdict(quote),
+            })
             if row is not None:
                 evidence.append(row)
         candidate_queue.extend(
@@ -250,14 +313,21 @@ def build_weekend_vehicle_review(
         {
             "module_version": MODULE_VERSION,
             "reviewed_on": day.isoformat(),
-            "evidence_source": "YFINANCE_RESEARCH_DATA",
+            "evidence_source": "FIELD_LEVEL_YAHOO_STOOQ_ROBINHOOD_READ_ONLY_CACHE_FALLBACK",
+            "quote_provider_order": [
+                "YAHOO",
+                "STOOQ",
+                "ROBINHOOD_READ_ONLY_IF_CONFIGURED",
+                "LOCAL_CSV_STALE_FALLBACK",
+            ],
+            "quote_evidence_audit": quote_audits,
             "verified_vehicle_evidence": [asdict(row) for row in evidence],
             "verified_vehicle_evidence_count": len(evidence),
             "unverified_vehicle_candidates": candidate_queue,
             "unverified_vehicle_candidate_count": len(candidate_queue),
             "new_mapping_auto_registration_allowed": False,
             "mapping_verification_required": True,
-            "warnings": warnings,
+            "warnings": list(dict.fromkeys(warnings)),
             "broker_execution_allowed": False,
             "order_placement_allowed": False,
             "existing_positions_unchanged": True,
