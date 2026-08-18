@@ -5,6 +5,7 @@ from pathlib import Path
 from swing_trade_bot.vehicle_quote_evidence import (
     QuoteObservation,
     resolve_quote_evidence,
+    robinhood_public_quote_observation,
     stooq_quote_observation,
     validate_bid_ask,
 )
@@ -41,7 +42,7 @@ def test_invalid_yahoo_bid_ask_falls_back_to_stooq_without_losing_yahoo_price_vo
         "NVDL",
         yahoo_provider=yahoo,
         stooq_provider=stooq,
-        robinhood_read_only_provider=None,
+        robinhood_read_only_provider=lambda _: None,
         cache_provider=lambda _: None,
     )
     assert result.price == 36.67
@@ -83,12 +84,29 @@ def test_robinhood_slot_is_third_and_read_only_provider_can_rescue_quote() -> No
     assert result.quote_quality == "COMPLETE"
 
 
+def test_public_robinhood_quote_parser_is_read_only_and_extracts_quote_fields() -> None:
+    seen: list[str] = []
+
+    def reader(url: str) -> str:
+        seen.append(url)
+        return '{"symbol":"SNXX","last_trade_price":"19.430000","bid_price":"19.420000","ask_price":"19.440000"}'
+
+    row = robinhood_public_quote_observation("SNXX", reader=reader)
+    assert row is not None
+    assert row.source == "ROBINHOOD_READ_ONLY"
+    assert row.price == 19.43
+    assert row.bid == 19.42
+    assert row.ask == 19.44
+    assert row.volume is None
+    assert seen == ["https://api.robinhood.com/quotes/SNXX/"]
+
+
 def test_local_csv_is_last_and_marked_stale() -> None:
     result = resolve_quote_evidence(
         "TEST",
         yahoo_provider=lambda _: None,
         stooq_provider=lambda _: None,
-        robinhood_read_only_provider=None,
+        robinhood_read_only_provider=lambda _: None,
         cache_provider=lambda _: QuoteObservation(
             "LOCAL_CSV_STALE_FALLBACK", price=10.0, volume=1000, stale=True
         ),
@@ -118,5 +136,15 @@ def test_no_broker_or_order_execution_is_introduced() -> None:
     import swing_trade_bot.vehicle_quote_evidence as module
 
     source = Path(module.__file__).read_text(encoding="utf-8").lower()
-    forbidden = ("place_order", "submit_order", "execute_trade", "broker_adapter")
+    forbidden = (
+        "place_order",
+        "submit_order",
+        "execute_trade",
+        "broker_adapter",
+        "/accounts/",
+        "/positions/",
+        "/orders/",
+        "authorization",
+        "access_token",
+    )
     assert all(term not in source for term in forbidden)
