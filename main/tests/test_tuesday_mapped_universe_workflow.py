@@ -11,7 +11,7 @@ import swing_trade_bot.tuesday_mapped_universe_workflow as workflow
 def _patch_success(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
     monkeypatch.setattr(
         workflow,
-        "refresh_mapped_underlying_market_data",
+        "refresh_and_write_mapped_underlying_market_data",
         lambda **kwargs: calls.append("market") or {"mapped_underlying_count": 2, "current_market_data_count": 2},
     )
     monkeypatch.setattr(
@@ -59,7 +59,7 @@ def test_tuesday_workflow_fails_closed_if_market_refresh_fails(monkeypatch: pyte
         later_called = True
         return {}
 
-    monkeypatch.setattr(workflow, "refresh_mapped_underlying_market_data", bad_market)
+    monkeypatch.setattr(workflow, "refresh_and_write_mapped_underlying_market_data", bad_market)
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_quantitative_evidence", later)
     monkeypatch.setattr(workflow, "build_and_write_mapped_universe_evidence_refresh", later)
     monkeypatch.setattr(workflow, "build_and_write_weekly_mapped_universe_review", later)
@@ -72,7 +72,7 @@ def test_tuesday_workflow_fails_closed_if_market_refresh_fails(monkeypatch: pyte
 
 
 def test_tuesday_workflow_fails_closed_if_quantitative_evidence_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(workflow, "refresh_mapped_underlying_market_data", lambda **kwargs: {"mapped_underlying_count": 1, "current_market_data_count": 1})
+    monkeypatch.setattr(workflow, "refresh_and_write_mapped_underlying_market_data", lambda **kwargs: {"mapped_underlying_count": 1, "current_market_data_count": 1})
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_quantitative_evidence", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("quant failed")))
     ranked = False
 
