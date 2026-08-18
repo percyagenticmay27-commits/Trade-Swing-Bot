@@ -1,18 +1,20 @@
 """Field-level, read-only quote fallback for weekend leveraged-vehicle review.
 
-Provider order is Yahoo -> Stooq -> optional Robinhood read-only provider -> local
-CSV cache. Quotes are sanity-checked before use. A provider may contribute only
-some fields; provenance is retained per field. No account, broker, order, or
-position API is used here.
+Provider order is Yahoo -> Stooq -> Robinhood public read-only quote -> local CSV
+cache. Quotes are sanity-checked before use. A provider may contribute only some
+fields; provenance is retained per field. No account, broker, order, position,
+or authenticated Robinhood API is used here.
 """
 from __future__ import annotations
 
 import csv
 import html
+import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 USER_AGENT = "Mozilla/5.0 (compatible; Trade-Swing-Bot/1.0; read-only-market-data)"
@@ -137,6 +139,11 @@ def stooq_quote_observation(
     *,
     reader: Callable[[str], str] | None = None,
 ) -> QuoteObservation | None:
+    """Best-effort Stooq fallback.
+
+    Stooq can challenge automated page requests, so failure here is deliberately
+    non-fatal and allows the next read-only provider to run.
+    """
     reader = reader or _read_url
     ticker = f"{symbol.strip().lower()}.us"
     price = None
@@ -161,6 +168,47 @@ def stooq_quote_observation(
     if all(value is None for value in (price, bid, ask, volume)):
         return None
     return QuoteObservation("STOOQ", price=price, bid=bid, ask=ask, volume=volume)
+
+
+def robinhood_public_quote_observation(
+    symbol: str,
+    *,
+    reader: Callable[[str], str] | None = None,
+) -> QuoteObservation | None:
+    """Read a public Robinhood quote without authentication or account access.
+
+    This is intentionally limited to the public quote resource. It does not
+    accept credentials and has no code path for accounts, positions, or orders.
+    If Robinhood changes or disables the public resource, the function returns
+    no data and the resolver continues to the stale local fallback.
+    """
+    reader = reader or _read_url
+    clean_symbol = symbol.strip().upper()
+    if not clean_symbol:
+        return None
+    url = f"https://api.robinhood.com/quotes/{quote(clean_symbol, safe='')}/"
+    try:
+        payload = json.loads(reader(url))
+    except Exception:
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    price = _number(
+        payload.get("last_trade_price")
+        or payload.get("last_extended_hours_trade_price")
+        or payload.get("adjusted_previous_close")
+    )
+    bid = _number(payload.get("bid_price"))
+    ask = _number(payload.get("ask_price"))
+    if all(value is None for value in (price, bid, ask)):
+        return None
+    return QuoteObservation(
+        "ROBINHOOD_READ_ONLY",
+        price=price,
+        bid=bid,
+        ask=ask,
+        volume=None,
+    )
 
 
 def local_csv_quote_observation(symbol: str, *, data_dir: str | Path = "data") -> QuoteObservation | None:
@@ -192,6 +240,7 @@ def resolve_quote_evidence(
     """Resolve quote fields in strict provider order while preserving provenance."""
     yahoo_provider = yahoo_provider or yahoo_quote_observation
     stooq_provider = stooq_provider or stooq_quote_observation
+    robinhood_read_only_provider = robinhood_read_only_provider or robinhood_public_quote_observation
     cache_provider = cache_provider or local_csv_quote_observation
 
     providers: list[tuple[str, Callable[[str], QuoteObservation | None] | None]] = [
