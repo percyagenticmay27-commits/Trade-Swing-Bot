@@ -28,7 +28,7 @@ from .vehicle_quote_evidence import (
 )
 
 STRATEGY_ID = "SWING-001"
-MODULE_VERSION = "1.1.0"
+MODULE_VERSION = "1.2.0"
 DEFAULT_REGISTRY_PATH = Path("configs/swing_leveraged_vehicle_registry.json")
 DEFAULT_OUTPUT_PATH = Path("results/weekend_vehicle_review.json")
 DEFAULT_DISCOVERY_LIMIT = 12
@@ -78,7 +78,12 @@ def collect_vehicle_evidence_with_audit(
     robinhood_read_only_provider: Callable[[str], QuoteObservation | None] | None = None,
     cache_provider: Callable[[str], QuoteObservation | None] | None = None,
 ) -> tuple[VehicleEvidence | None, list[str], ResolvedQuoteEvidence]:
-    """Collect verified vehicle evidence with field-level quote provenance."""
+    """Collect verified vehicle evidence with field-level quote provenance.
+
+    A missing trustworthy spread is retained as UNKNOWN evidence when the remaining
+    product and market evidence is valid. Missing AUM or expense evidence still
+    fails closed because those product facts are required for vehicle comparison.
+    """
     if ticker_factory is None:
         import yfinance as yf
 
@@ -153,16 +158,16 @@ def collect_vehicle_evidence_with_audit(
     )
     warnings.extend(quote.warnings)
 
-    missing: list[str] = []
-    if quote.spread_pct is None:
-        missing.append("bid_ask")
+    missing_required: list[str] = []
     if aum is None:
-        missing.append("aum")
+        missing_required.append("aum")
     if expense is None:
-        missing.append("expense_ratio")
-    if missing:
-        warnings.append(f"INCOMPLETE_PRODUCT_EVIDENCE:{symbol}:{','.join(missing)}")
+        missing_required.append("expense_ratio")
+    if missing_required:
+        warnings.append(f"INCOMPLETE_PRODUCT_EVIDENCE:{symbol}:{','.join(missing_required)}")
         return None, list(dict.fromkeys(warnings)), quote
+    if quote.spread_pct is None:
+        warnings.append(f"UNKNOWN_SPREAD_EVIDENCE:{symbol}")
 
     price = quote.price if quote.price is not None and quote.price > 0 else historical_price
     product_active = quote_type in {"ETF", "MUTUALFUND", "EQUITY"} and price > 0
@@ -320,9 +325,10 @@ def build_weekend_vehicle_review(
                 "ROBINHOOD_READ_ONLY_IF_CONFIGURED",
                 "LOCAL_CSV_STALE_FALLBACK",
             ],
-            "quote_evidence_audit": quote_audits,
+            "spread_policy": "KNOWN_GOOD_SCORE_NORMALLY__UNKNOWN_REDUCED_CONFIDENCE__KNOWN_BAD_REJECTED",
             "verified_vehicle_evidence": [asdict(row) for row in evidence],
             "verified_vehicle_evidence_count": len(evidence),
+            "quote_evidence_audit": quote_audits,
             "unverified_vehicle_candidates": candidate_queue,
             "unverified_vehicle_candidate_count": len(candidate_queue),
             "new_mapping_auto_registration_allowed": False,
