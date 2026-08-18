@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 STRATEGY_ID = "SWING-001"
 REGISTRY_SCHEMA_VERSION = "2.0"
 DEFAULT_SWITCH_THRESHOLD_POINTS = 5.0
+UNKNOWN_SPREAD_SCORE = 50.0
+UNKNOWN_SPREAD_CONFIDENCE_PENALTY = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +42,7 @@ class VehicleEvidence:
     price: float
     average_daily_volume: float
     average_daily_dollar_volume: float
-    bid_ask_spread_pct: float
+    bid_ask_spread_pct: float | None
     aum: float
     expense_ratio_pct: float
     history_days: int
@@ -159,6 +161,10 @@ def score_vehicle_group(
     Weighting favors tradability first, then product cost/stability:
     25% average dollar volume, 20% share volume, 15% spread, 10% AUM,
     10% expense ratio, 10% price accessibility, and 10% trading history.
+
+    An unavailable trustworthy spread is UNKNOWN, not BAD. The spread component is
+    scored neutrally and a small confidence penalty is applied. Known malformed
+    quotes are filtered by the quote-evidence layer before reaching this function.
     """
     definitions = {v.symbol: v for v in entry.vehicles}
     rows = [
@@ -176,7 +182,7 @@ def score_vehicle_group(
         and row.price > 0
         and row.average_daily_volume >= 0
         and row.average_daily_dollar_volume >= 0
-        and row.bid_ask_spread_pct >= 0
+        and (row.bid_ask_spread_pct is None or row.bid_ask_spread_pct >= 0)
         and row.aum >= 0
         and row.expense_ratio_pct >= 0
         and row.history_days >= 0
@@ -189,7 +195,7 @@ def score_vehicle_group(
 
     dollar = [r.average_daily_dollar_volume for r in eligible_rows]
     volume = [r.average_daily_volume for r in eligible_rows]
-    spreads = [r.bid_ask_spread_pct for r in eligible_rows]
+    known_spreads = [r.bid_ask_spread_pct for r in eligible_rows if r.bid_ask_spread_pct is not None]
     aum = [r.aum for r in eligible_rows]
     expense = [r.expense_ratio_pct for r in eligible_rows]
     prices = [r.price for r in eligible_rows]
@@ -202,15 +208,22 @@ def score_vehicle_group(
         if symbol not in eligible_symbols:
             scores.append(VehicleScore(entry.underlying_symbol, symbol, 0.0, False))
             continue
+        spread_score = (
+            _relative_score(row.bid_ask_spread_pct, known_spreads, higher_is_better=False)
+            if row.bid_ask_spread_pct is not None
+            else UNKNOWN_SPREAD_SCORE
+        )
         score = (
             0.25 * _relative_score(row.average_daily_dollar_volume, dollar, higher_is_better=True)
             + 0.20 * _relative_score(row.average_daily_volume, volume, higher_is_better=True)
-            + 0.15 * _relative_score(row.bid_ask_spread_pct, spreads, higher_is_better=False)
+            + 0.15 * spread_score
             + 0.10 * _relative_score(row.aum, aum, higher_is_better=True)
             + 0.10 * _relative_score(row.expense_ratio_pct, expense, higher_is_better=False)
             + 0.10 * _relative_score(row.price, prices, higher_is_better=False)
             + 0.10 * _relative_score(float(row.history_days), history, higher_is_better=True)
         )
+        if row.bid_ask_spread_pct is None:
+            score = max(0.0, score - UNKNOWN_SPREAD_CONFIDENCE_PENALTY)
         scores.append(VehicleScore(entry.underlying_symbol, symbol, round(score, 2), True))
     return sorted(scores, key=lambda item: (-item.score, item.vehicle_symbol))
 
@@ -224,8 +237,9 @@ def choose_preferred_vehicle(
     """Choose the preferred vehicle for future candidates only.
 
     The incumbent remains preferred unless a challenger beats it by at least the
-    switch threshold. If the incumbent is no longer eligible, the best eligible
-    challenger may replace it immediately.
+    switch threshold. A challenger with UNKNOWN spread cannot displace an incumbent
+    with trustworthy spread evidence. If the incumbent is inactive or otherwise
+    ineligible, the best eligible challenger may replace it immediately.
     """
     if switch_threshold_points < 0:
         raise ValueError("switch_threshold_points must be nonnegative")
@@ -242,6 +256,22 @@ def choose_preferred_vehicle(
         return best.vehicle_symbol, scores
     if best.vehicle_symbol == incumbent.vehicle_symbol:
         return incumbent.vehicle_symbol, scores
+
+    evidence_by_symbol = {
+        row.vehicle_symbol.strip().upper(): row
+        for row in evidence
+        if row.underlying_symbol.strip().upper() == entry.underlying_symbol
+    }
+    incumbent_evidence = evidence_by_symbol.get(incumbent.vehicle_symbol)
+    challenger_evidence = evidence_by_symbol.get(best.vehicle_symbol)
+    if (
+        incumbent_evidence is not None
+        and challenger_evidence is not None
+        and incumbent_evidence.bid_ask_spread_pct is not None
+        and challenger_evidence.bid_ask_spread_pct is None
+    ):
+        return incumbent.vehicle_symbol, scores
+
     if best.score >= incumbent.score + switch_threshold_points:
         return best.vehicle_symbol, scores
     return incumbent.vehicle_symbol, scores
