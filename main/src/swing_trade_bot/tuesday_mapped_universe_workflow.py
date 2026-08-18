@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .mapped_underlying_market_data_refresh import refresh_mapped_underlying_market_data
+from .mapped_underlying_market_data_refresh import refresh_and_write_mapped_underlying_market_data
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
 from .weekly_mapped_universe_review import build_and_write_weekly_mapped_universe_review
@@ -51,8 +51,11 @@ def run_tuesday_mapped_universe_workflow(
         "status": "STARTED",
     }
     try:
-        market = refresh_mapped_underlying_market_data(
-            registry_path=registry_path, data_dir=data_dir, refresh=True
+        market = refresh_and_write_mapped_underlying_market_data(
+            registry_path=registry_path,
+            data_dir=data_dir,
+            output_dir=results_dir,
+            refresh=True,
         )
         status["steps"].append({
             "name": "MAPPED_UNDERLYING_MARKET_DATA_REFRESH",
