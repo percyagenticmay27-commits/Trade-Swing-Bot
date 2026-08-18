@@ -1,0 +1,13 @@
+[Unit]
+Description=Trade Swing Bot weekend leveraged-vehicle maintenance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main
+ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.weekend_vehicle_maintenance
+User=root
+
+[Install]
+WantedBy=multi-user.target
