@@ -11,17 +11,28 @@ from swing_trade_bot.mapped_universe_evidence_refresh import (
 
 def _registry(path: Path) -> Path:
     payload = {
-        "schema_version": "1.0",
-        "underlyings": {
-            "NVDA": {
+        "schema_version": "2.0",
+        "strategy_id": "SWING-001",
+        "paper_trade_mode": True,
+        "mapping_policy": "EXPLICIT_VERIFIED_ONE_TO_MANY_NO_TICKER_INFERENCE",
+        "review_policy": {
+            "cadence": "WEEKLY_WEEKEND",
+            "preferred_vehicle_scope": "FUTURE_NEW_CANDIDATES_ONLY",
+            "existing_positions_unchanged": True,
+            "switch_threshold_points": 5.0,
+        },
+        "mappings": [
+            {
+                "underlying_symbol": "NVDA",
                 "preferred_vehicle": "NVDX",
                 "vehicles": [{"symbol": "NVDX", "verified": True, "enabled": True}],
             },
-            "SNDK": {
+            {
+                "underlying_symbol": "SNDK",
                 "preferred_vehicle": "SNXX",
                 "vehicles": [{"symbol": "SNXX", "verified": True, "enabled": True}],
             },
-        },
+        ],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
