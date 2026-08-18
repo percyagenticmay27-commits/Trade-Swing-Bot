@@ -1,12 +1,12 @@
 [Unit]
-Description=Trade Swing Bot weekly mapped-underlying strength review
+Description=Trade Swing Bot Tuesday mapped-underlying evidence refresh and strength review
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main
-ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.weekly_mapped_universe_review
+ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.tuesday_mapped_universe_workflow
 User=root
 
 [Install]
