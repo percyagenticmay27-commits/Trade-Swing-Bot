@@ -47,6 +47,7 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 DEFAULT_SOURCE_FILES = (
+    "mapped_underlying_quantitative_evidence.json",
     "opportunity_quality_inputs.json",
     "portfolio_allocations.json",
     "watchlist_report.json",
@@ -59,27 +60,17 @@ DEFAULT_SOURCE_FILES = (
 )
 
 
-def generate_runtime_opportunity_quality_report(
-    *,
-    results_dir: Path,
-    source_paths: Sequence[Path] | None = None,
-    system_mode: str = "QA",
-) -> OpportunityQualityReport:
-    """Build and atomically publish the standard runtime report set."""
+def generate_runtime_opportunity_quality_report(*, results_dir: Path, source_paths: Sequence[Path] | None = None, system_mode: str = "QA") -> OpportunityQualityReport:
     evidence = collect_runtime_evidence(results_dir=results_dir, source_paths=source_paths)
     inputs = build_inputs_from_evidence(evidence)
     if not inputs:
         raise FileNotFoundError("No symbol-level Opportunity Quality evidence was found")
-
     report = OpportunityQualityEngine(paper_trade_mode=True, system_mode=system_mode).evaluate(inputs)
     write_runtime_reports_atomic(results_dir, report, evidence)
     return report
 
 
-def collect_runtime_evidence(
-    *, results_dir: Path, source_paths: Sequence[Path] | None = None
-) -> dict[str, dict[str, Any]]:
-    """Merge symbol-level evidence from configured JSON/CSV inputs."""
+def collect_runtime_evidence(*, results_dir: Path, source_paths: Sequence[Path] | None = None) -> dict[str, dict[str, Any]]:
     paths = list(source_paths or [results_dir / name for name in DEFAULT_SOURCE_FILES])
     merged: dict[str, dict[str, Any]] = {}
     for path in paths:
@@ -99,63 +90,35 @@ def collect_runtime_evidence(
 
 
 def build_inputs_from_evidence(evidence: Mapping[str, Mapping[str, Any]]) -> list[OpportunityQualityInput]:
-    """Convert merged runtime evidence into frozen-engine inputs."""
     inputs: list[OpportunityQualityInput] = []
     for symbol in sorted(evidence):
         row = evidence[symbol]
-        inputs.append(
-            OpportunityQualityInput(
-                symbol=symbol,
-                fundamental_analysis_score=_optional_score(row.get("fundamental_analysis_score")),
-                market_intelligence_score=_optional_score(row.get("market_intelligence_score")),
-                conviction_score=_optional_score(row.get("conviction_score")),
-                momentum_score=_optional_score(row.get("momentum_score")),
-                technical_analysis_score=_optional_score(row.get("technical_analysis_score")),
-                market_regime_support_score=_optional_score(row.get("market_regime_support_score")),
-                portfolio_risk_adjustment_score=_optional_score(row.get("portfolio_risk_adjustment_score")),
-                entry_score=_optional_score(row.get("entry_score")),
-            )
-        )
+        inputs.append(OpportunityQualityInput(
+            symbol=symbol,
+            fundamental_analysis_score=_optional_score(row.get("fundamental_analysis_score")),
+            market_intelligence_score=_optional_score(row.get("market_intelligence_score")),
+            conviction_score=_optional_score(row.get("conviction_score")),
+            momentum_score=_optional_score(row.get("momentum_score")),
+            technical_analysis_score=_optional_score(row.get("technical_analysis_score")),
+            market_regime_support_score=_optional_score(row.get("market_regime_support_score")),
+            portfolio_risk_adjustment_score=_optional_score(row.get("portfolio_risk_adjustment_score")),
+            entry_score=_optional_score(row.get("entry_score")),
+        ))
     return inputs
 
 
-def write_runtime_reports_atomic(
-    results_dir: Path,
-    report: OpportunityQualityReport,
-    evidence: Mapping[str, Mapping[str, Any]],
-) -> tuple[Path, Path, Path]:
-    """Atomically publish JSON, CSV, and Markdown runtime reports."""
+def write_runtime_reports_atomic(results_dir: Path, report: OpportunityQualityReport, evidence: Mapping[str, Mapping[str, Any]]) -> tuple[Path, Path, Path]:
     results_dir.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat()
-    ranked_rows = sorted(
-        (asdict(row) for row in report.rows),
-        key=lambda row: (-float(row["opportunity_quality_score"]), str(row["symbol"])),
-    )
+    ranked_rows = sorted((asdict(row) for row in report.rows), key=lambda row: (-float(row["opportunity_quality_score"]), str(row["symbol"])))
     for rank, row in enumerate(ranked_rows, start=1):
         row["rank"] = rank
         row["evidence_sources"] = list(evidence.get(str(row["symbol"]), {}).get("sources", []))
-
-    json_payload = {
-        **SAFETY_FLAGS,
-        "generated_at": generated_at,
-        "schema_version": "1.0",
-        "system_mode": report.system_mode,
-        "entry_score_display_only": True,
-        "entry_score_not_part_of_opportunity_quality": True,
-        "missing_evidence_rule": "missing evidence = 0",
-        "component_weights": dict(COMPONENT_WEIGHTS),
-        "opportunity_count": len(ranked_rows),
-        "rows": ranked_rows,
-        "warnings": [],
-        "errors": [],
-    }
-
+    json_payload = {**SAFETY_FLAGS, "generated_at": generated_at, "schema_version": "1.0", "system_mode": report.system_mode, "entry_score_display_only": True, "entry_score_not_part_of_opportunity_quality": True, "missing_evidence_rule": "missing evidence = 0", "component_weights": dict(COMPONENT_WEIGHTS), "opportunity_count": len(ranked_rows), "rows": ranked_rows, "warnings": [], "errors": []}
     json_path = results_dir / "opportunity_quality_report.json"
     csv_path = results_dir / "opportunity_quality_report.csv"
     md_path = results_dir / "opportunity_quality_report.md"
-
     _atomic_write_text(json_path, json.dumps(json_payload, indent=2) + "\n")
-
     fieldnames = list(ranked_rows[0].keys()) if ranked_rows else []
     with tempfile.NamedTemporaryFile("w", newline="", encoding="utf-8", delete=False, dir=results_dir) as temp:
         writer = csv.DictWriter(temp, fieldnames=fieldnames)
@@ -166,9 +129,7 @@ def write_runtime_reports_atomic(
             writer.writerow(serializable)
         temp_path = Path(temp.name)
     os.replace(temp_path, csv_path)
-
-    markdown = format_opportunity_quality_markdown(report)
-    markdown += f"\n\nGenerated at: {generated_at}\n"
+    markdown = format_opportunity_quality_markdown(report) + f"\n\nGenerated at: {generated_at}\n"
     _atomic_write_text(md_path, markdown)
     return json_path, csv_path, md_path
 
@@ -177,8 +138,7 @@ def _read_rows(path: Path) -> list[Mapping[str, Any]]:
     if path.suffix.lower() == ".csv":
         with path.open(newline="", encoding="utf-8-sig") as handle:
             return [dict(row) for row in csv.DictReader(handle)]
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return _extract_rows(payload)
+    return _extract_rows(json.loads(path.read_text(encoding="utf-8")))
 
 
 def _extract_rows(payload: Any) -> list[Mapping[str, Any]]:
@@ -228,11 +188,7 @@ def main() -> None:
     parser.add_argument("--source", action="append", type=Path, default=None)
     parser.add_argument("--system-mode", default="QA")
     args = parser.parse_args()
-    report = generate_runtime_opportunity_quality_report(
-        results_dir=args.results_dir,
-        source_paths=args.source,
-        system_mode=args.system_mode,
-    )
+    report = generate_runtime_opportunity_quality_report(results_dir=args.results_dir, source_paths=args.source, system_mode=args.system_mode)
     print(f"Published {len(report.rows)} Opportunity Quality rows to {args.results_dir}")
 
 
