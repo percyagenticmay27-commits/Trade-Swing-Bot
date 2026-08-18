@@ -12,11 +12,12 @@ import csv
 import json
 import os
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .discovery_engine import CandidateState, SourceMention, load_candidates, load_mentions
+from .enterprise_evidence_normalization import normalize_enterprise_source, source_class_profile
 
 STRATEGY_ID = "SWING-001"
 BUCKET_SCHEMA_VERSION = "1.0"
@@ -33,6 +34,10 @@ DEFAULT_RUNTIME_MENTIONS_RELATIVE_PATH = Path("results/discovery_mentions_runtim
 DEFAULT_INTAKE_REPORT_RELATIVE_PATH = Path("results/enterprise_discovery_intake_report.json")
 IMPORTABLE_BUCKET_STATUSES = frozenset({"HOT", "RISING", "EMERGING"})
 VALID_BUCKET_STATUSES = frozenset({"HOT", "RISING", "EMERGING", "COOLING", "DECLINING"})
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _load_json_object(path: str | Path) -> dict[str, Any]:
@@ -83,6 +88,11 @@ def load_discovery_bucket(path: str | Path) -> dict[str, Any]:
         evidence = item.get("evidence_sources", [])
         if not isinstance(evidence, list):
             raise ValueError(f"discovery bucket candidates[{index}].evidence_sources must be a list")
+        for evidence_index, evidence_item in enumerate(evidence):
+            if not isinstance(evidence_item, Mapping):
+                raise ValueError(
+                    f"discovery bucket candidates[{index}].evidence_sources[{evidence_index}] must be an object"
+                )
     return payload
 
 
@@ -202,44 +212,99 @@ def merge_bucket_candidates(
     return merged, warnings
 
 
-def bucket_mentions(bucket: Mapping[str, Any]) -> list[SourceMention]:
-    """Translate source-level AI CIO evidence into Swing discovery mentions."""
+def bucket_mentions_with_audit(
+    bucket: Mapping[str, Any],
+) -> tuple[list[SourceMention], list[dict[str, Any]], list[str]]:
+    """Normalize AI CIO source evidence and retain original-source audit provenance."""
     mentions: list[SourceMention] = []
+    audit: list[dict[str, Any]] = []
+    warnings: list[str] = []
     seen: set[tuple[str, str, date]] = set()
+
     for candidate in bucket.get("candidates", []):
         if not isinstance(candidate, Mapping):
             continue
         symbol = str(candidate.get("underlying_symbol", "")).strip().upper()
         candidate_themes = _themes(candidate)
-        for evidence in candidate.get("evidence_sources", []):
+        for evidence_index, evidence in enumerate(candidate.get("evidence_sources", [])):
             if not isinstance(evidence, Mapping):
                 continue
-            source = str(evidence.get("source", "")).strip()
+            normalized = normalize_enterprise_source(
+                evidence.get("source"),
+                evidence.get("source_class"),
+            )
+            audit_row: dict[str, Any] = {
+                "underlying_symbol": symbol,
+                "evidence_index": evidence_index,
+                "original_source": normalized.original_source,
+                "supplied_source_class": str(evidence.get("source_class", "")).strip() or None,
+                "normalized_source_class": normalized.source_class,
+                "normalization_method": normalized.normalization_method,
+                "accepted": normalized.accepted,
+            }
+            if not normalized.accepted:
+                if normalized.warning:
+                    warnings.append(normalized.warning)
+                    audit_row["reason"] = normalized.warning
+                audit.append(audit_row)
+                continue
+
             mentioned_on_raw = str(evidence.get("mentioned_on", "")).strip()
-            if not source or not mentioned_on_raw:
+            if not mentioned_on_raw:
+                warning = f"MALFORMED_ENTERPRISE_EVIDENCE:{symbol}:{normalized.original_source}:MISSING_MENTIONED_ON"
+                warnings.append(warning)
+                audit_row.update({"accepted": False, "reason": warning})
+                audit.append(audit_row)
                 continue
             try:
                 mentioned_on = date.fromisoformat(mentioned_on_raw)
             except ValueError as exc:
                 raise ValueError(
-                    f"Invalid mentioned_on for {symbol}/{source}: {mentioned_on_raw}"
+                    f"Invalid mentioned_on for {symbol}/{normalized.original_source}: {mentioned_on_raw}"
                 ) from exc
-            key = (symbol, source.upper(), mentioned_on)
+
+            key = (symbol, normalized.original_source.strip().upper(), mentioned_on)
             if key in seen:
+                audit_row.update({"accepted": False, "duplicate": True, "reason": "DUPLICATE_ENTERPRISE_EVIDENCE"})
+                audit.append(audit_row)
                 continue
             seen.add(key)
+
+            profile = source_class_profile(normalized.source_class)
             evidence_themes = _themes(evidence)
             mentions.append(
                 SourceMention(
                     underlying_symbol=symbol,
-                    source=source,
+                    source=normalized.original_source,
+                    original_source=normalized.original_source,
+                    source_class=normalized.source_class,
                     mentioned_on=mentioned_on,
                     themes=_merge_themes(candidate_themes, evidence_themes),
                     earnings_growth_related=evidence.get("earnings_growth_related") is True,
                     analyst_upgrade_related=evidence.get("analyst_upgrade_related") is True,
                 )
             )
+            audit_row.update(
+                {
+                    "mentioned_on": mentioned_on.isoformat(),
+                    "trusted_weight": profile.weight if profile else 0,
+                    "institutional": bool(profile and profile.institutional),
+                    "creator": bool(profile and profile.youtube_or_creator),
+                }
+            )
+            audit.append(audit_row)
+
+    return mentions, audit, list(dict.fromkeys(warnings))
+
+
+def bucket_mentions(bucket: Mapping[str, Any]) -> list[SourceMention]:
+    """Translate normalized source-level AI CIO evidence into Swing mentions."""
+    mentions, _, _ = bucket_mentions_with_audit(bucket)
     return mentions
+
+
+def _mention_identity(mention: SourceMention) -> str:
+    return (mention.original_source or mention.source).strip().upper()
 
 
 def merge_mentions(
@@ -252,7 +317,7 @@ def merge_mentions(
     for mention in (*local_mentions, *enterprise_mentions):
         key = (
             mention.underlying_symbol.strip().upper(),
-            mention.source.strip().upper(),
+            _mention_identity(mention),
             mention.mentioned_on,
         )
         if key in seen:
@@ -278,12 +343,14 @@ def write_candidates_csv(path: str | Path, candidates: Sequence[CandidateState])
 
 
 def write_mentions_csv(path: str | Path, mentions: Sequence[SourceMention]) -> Path:
-    """Materialize merged local + AI CIO source evidence for the daily Swing cycle."""
+    """Materialize merged local + normalized AI CIO source evidence."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = (
         "underlying_symbol",
         "source",
+        "original_source",
+        "source_class",
         "mentioned_on",
         "themes",
         "earnings_growth_related",
@@ -297,6 +364,8 @@ def write_mentions_csv(path: str | Path, mentions: Sequence[SourceMention]) -> P
                 {
                     "underlying_symbol": mention.underlying_symbol,
                     "source": mention.source,
+                    "original_source": mention.original_source or "",
+                    "source_class": mention.source_class or "",
                     "mentioned_on": mention.mentioned_on.isoformat(),
                     "themes": ";".join(mention.themes),
                     "earnings_growth_related": str(mention.earnings_growth_related).lower(),
@@ -341,24 +410,43 @@ def refresh_enterprise_discovery_inputs(
     warnings: list[str] = []
     enterprise_candidate_count = 0
     enterprise_mention_count = 0
+    evidence_received = 0
+    evidence_normalized = 0
+    evidence_rejected = 0
+    evidence_audit: list[dict[str, Any]] = []
+    bucket_generated_at = None
 
     if bucket_available:
         bucket = load_discovery_bucket(bucket_path)
+        bucket_generated_at = bucket.get("generated_at_utc") or bucket.get("generated_at")
         enterprise_candidate_count = len(bucket.get("candidates", []))
-        candidates, warnings = merge_bucket_candidates(candidates, bucket, mapping)
-        enterprise_mentions = bucket_mentions(bucket)
+        evidence_received = sum(
+            len(item.get("evidence_sources", []))
+            for item in bucket.get("candidates", [])
+            if isinstance(item, Mapping)
+        )
+        candidates, candidate_warnings = merge_bucket_candidates(candidates, bucket, mapping)
+        enterprise_mentions, evidence_audit, evidence_warnings = bucket_mentions_with_audit(bucket)
+        warnings.extend(candidate_warnings)
+        warnings.extend(evidence_warnings)
         enterprise_mention_count = len(enterprise_mentions)
+        evidence_normalized = sum(1 for row in evidence_audit if row.get("accepted") is True)
+        evidence_rejected = evidence_received - evidence_normalized
         mentions = merge_mentions(mentions, enterprise_mentions)
 
     write_candidates_csv(runtime_candidates_path, candidates)
     write_mentions_csv(runtime_mentions_path, mentions)
     report = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "strategy_id": STRATEGY_ID,
         "paper_trade_mode": True,
+        "generated_at_utc": _utc_now(),
         "source_mode": "AI_CIO_BUCKET_PLUS_SWING_LOCAL" if bucket_available else "SWING_LOCAL_FALLBACK",
         "ai_cio_bucket_available": bucket_available,
+        "ai_cio_bucket_readable": bucket_available,
+        "ai_cio_bucket_schema_valid": bucket_available,
         "ai_cio_bucket_path": str(bucket_path),
+        "ai_cio_bucket_generated_at": bucket_generated_at,
         "local_candidates_path": str(local_candidates_path),
         "local_mentions_path": str(local_mentions_path),
         "leveraged_mapping_path": str(mapping_path),
@@ -366,9 +454,14 @@ def refresh_enterprise_discovery_inputs(
         "runtime_mentions_path": str(runtime_mentions_path),
         "enterprise_candidate_count": enterprise_candidate_count,
         "enterprise_mention_count": enterprise_mention_count,
+        "enterprise_evidence_records_received": evidence_received,
+        "enterprise_evidence_records_normalized": evidence_normalized,
+        "enterprise_evidence_records_rejected": evidence_rejected,
+        "enterprise_evidence_normalization_audit": evidence_audit,
         "runtime_candidate_count": len(candidates),
         "runtime_mention_count": len(mentions),
-        "warnings": warnings,
+        "warnings": list(dict.fromkeys(warnings)),
+        "errors": [],
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
