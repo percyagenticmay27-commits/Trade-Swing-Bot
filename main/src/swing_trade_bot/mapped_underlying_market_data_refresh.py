@@ -1,11 +1,16 @@
 """Refresh read-only daily OHLCV evidence for the persistent mapped universe."""
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .data_download import build_historical_data
 from .leveraged_vehicle_registry import preferred_vehicle_mapping
+
+OUTPUT_NAME = "mapped_underlying_market_data_refresh.json"
 
 
 def refresh_mapped_underlying_market_data(
@@ -58,8 +63,42 @@ def refresh_mapped_underlying_market_data(
     }
 
 
+def write_mapped_underlying_market_data_refresh(
+    payload: Mapping[str, Any], *, output_dir: str | Path = "results"
+) -> Path:
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / OUTPUT_NAME
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=root) as handle:
+        json.dump(dict(payload), handle, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    os.replace(temporary, path)
+    return path
+
+
+def refresh_and_write_mapped_underlying_market_data(
+    *,
+    registry_path: str | Path = "configs/swing_leveraged_vehicle_registry.json",
+    data_dir: str | Path = "data",
+    output_dir: str | Path = "results",
+    years: int = 5,
+    refresh: bool = True,
+) -> dict[str, Any]:
+    payload = refresh_mapped_underlying_market_data(
+        registry_path=registry_path,
+        data_dir=data_dir,
+        years=years,
+        refresh=refresh,
+    )
+    write_mapped_underlying_market_data_refresh(payload, output_dir=output_dir)
+    return payload
+
+
 if __name__ == "__main__":
-    report = refresh_mapped_underlying_market_data()
+    report = refresh_and_write_mapped_underlying_market_data()
     print(
         "Mapped underlying market data refresh: "
         f"{report['current_market_data_count']}/{report['mapped_underlying_count']} current"
