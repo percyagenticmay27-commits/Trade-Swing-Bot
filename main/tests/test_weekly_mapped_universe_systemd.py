@@ -8,10 +8,10 @@ SERVICE = REPO_ROOT / "deploy/systemd/swing-weekly-mapped-universe-review.servic
 TIMER = REPO_ROOT / "deploy/systemd/swing-weekly-mapped-universe-review.timer"
 
 
-def test_service_runs_weekly_mapped_universe_review_only() -> None:
+def test_service_runs_tuesday_mapped_universe_workflow_only() -> None:
     text = SERVICE.read_text(encoding="utf-8")
     assert "WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main" in text
-    assert "-m swing_trade_bot.weekly_mapped_universe_review" in text
+    assert "-m swing_trade_bot.tuesday_mapped_universe_workflow" in text
     lowered = text.lower()
     assert "robinhood" not in lowered
     assert "order" not in lowered
