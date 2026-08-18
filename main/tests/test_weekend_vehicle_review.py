@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from swing_trade_bot.vehicle_quote_evidence import QuoteObservation
 from swing_trade_bot.weekend_vehicle_review import (
     build_weekend_vehicle_review,
     collect_vehicle_evidence,
@@ -54,11 +55,17 @@ class FakeTicker:
                 close = [30.0, 31.0, 32.0]
                 volume = [300_000, 320_000, 340_000]
             return pd.DataFrame({"Close": close, "Volume": volume})
+        if period == "5d":
+            price = 52.0 if self.symbol == "NVDX" else 32.0
+            volume = 1_200_000 if self.symbol == "NVDX" else 340_000
+            return pd.DataFrame({"Close": [price], "Volume": [volume]})
         return pd.DataFrame({"Close": [1.0] * 250, "Volume": [1.0] * 250})
 
     def get_info(self):
         if self.symbol == "NVDX":
             return {
+                "regularMarketPrice": 52.0,
+                "regularMarketVolume": 1_200_000,
                 "bid": 51.95,
                 "ask": 52.05,
                 "totalAssets": 800_000_000,
@@ -66,6 +73,8 @@ class FakeTicker:
                 "quoteType": "ETF",
             }
         return {
+            "regularMarketPrice": 32.0,
+            "regularMarketVolume": 340_000,
             "bid": 31.80,
             "ask": 32.20,
             "totalAssets": 100_000_000,
@@ -76,7 +85,13 @@ class FakeTicker:
 
 class FakeIncompleteTicker(FakeTicker):
     def get_info(self):
-        return {"bid": 10.0, "ask": 10.1, "quoteType": "ETF"}
+        return {
+            "regularMarketPrice": 10.0,
+            "regularMarketVolume": 1000,
+            "bid": 10.0,
+            "ask": 10.1,
+            "quoteType": "ETF",
+        }
 
 
 class FakeSearch:
@@ -148,6 +163,40 @@ def test_weekend_review_scores_only_verified_registry_vehicles_and_queues_new_se
     assert report["new_mapping_auto_registration_allowed"] is False
     assert report["mapping_verification_required"] is True
     assert report["existing_positions_unchanged"] is True
+    assert report["quote_provider_order"] == [
+        "YAHOO",
+        "STOOQ",
+        "ROBINHOOD_READ_ONLY_IF_CONFIGURED",
+        "LOCAL_CSV_STALE_FALLBACK",
+    ]
+    assert len(report["quote_evidence_audit"]) == 2
+
+
+def test_extreme_yahoo_spread_can_be_replaced_by_stooq_for_scoring(tmp_path: Path) -> None:
+    class BadYahooTicker(FakeTicker):
+        def get_info(self):
+            info = dict(super().get_info())
+            info["bid"] = 20.0
+            info["ask"] = 45.0
+            return info
+
+    registry = _registry(tmp_path / "registry.json")
+    report = build_weekend_vehicle_review(
+        registry_path=registry,
+        reviewed_on=date(2026, 8, 22),
+        ticker_factory=BadYahooTicker,
+        search_factory=FakeSearch,
+        stooq_provider=lambda symbol: QuoteObservation(
+            "STOOQ",
+            price=52.0 if symbol == "NVDX" else 32.0,
+            bid=51.95 if symbol == "NVDX" else 31.95,
+            ask=52.05 if symbol == "NVDX" else 32.05,
+            volume=1_000_000,
+        ),
+    )
+    assert report["verified_vehicle_evidence_count"] == 2
+    assert all(row["spread_source"] == "STOOQ" for row in report["quote_evidence_audit"])
+    assert any("UNRELIABLE_BID_ASK" in warning for warning in report["warnings"])
 
 
 def test_force_allows_manual_validation_without_changing_weekend_policy(tmp_path: Path) -> None:
@@ -175,5 +224,6 @@ def test_no_order_or_broker_execution_path_is_introduced() -> None:
     import swing_trade_bot.weekend_vehicle_review as module
 
     source = Path(module.__file__).read_text(encoding="utf-8").lower()
-    forbidden = ("place_order", "submit_order", "execute_trade", "broker_adapter", "robinhood")
+    forbidden = ("place_order", "submit_order", "execute_trade", "broker_adapter")
     assert all(term not in source for term in forbidden)
+    assert "robinhood_read_only" in source
