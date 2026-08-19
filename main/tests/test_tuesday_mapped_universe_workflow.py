@@ -20,15 +20,17 @@ def _patch_success(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_portfolio_risk_evidence", lambda **kwargs: calls.append("portfolio_risk") or {"mapped_underlying_count": 2, "portfolio_risk_scored_count": 2, "rows": []})
     monkeypatch.setattr(workflow, "build_and_write_mapped_universe_evidence_refresh", lambda **kwargs: calls.append("refresh") or {"mapped_underlying_count": 2, "underlyings_with_component_evidence": 2, "underlyings_with_complete_component_evidence": 2})
     monkeypatch.setattr(workflow, "build_and_write_weekly_mapped_universe_review", lambda **kwargs: calls.append("review") or {"mapped_underlying_count": 2, "selected_watchlist_count": 1, "selected_underlyings": ["NVDA"]})
+    monkeypatch.setattr(workflow, "synchronize_and_write_oq_watchlist_state", lambda **kwargs: calls.append("watchlist_sync") or {"selected_underlyings": ["NVDA"], "promoted_to_watchlist": ["NVDA"], "added_to_watchlist": [], "retained_existing_lifecycle": [], "veto_blocked": [], "removed_state_preserved": []})
 
 
-def test_tuesday_workflow_runs_all_seven_components_before_ranking(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_tuesday_workflow_runs_all_seven_components_before_ranking_and_watchlist_sync(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
     _patch_success(monkeypatch, calls)
     result = workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path, data_dir=tmp_path / "data")
-    assert calls == ["market", "quantitative", "fundamental_data", "fundamental_score", "fundamental_write", "news", "intelligence", "regime", "portfolio_risk", "refresh", "review"]
+    assert calls == ["market", "quantitative", "fundamental_data", "fundamental_score", "fundamental_write", "news", "intelligence", "regime", "portfolio_risk", "refresh", "review", "watchlist_sync"]
     assert result["status"] == "COMPLETE"
     assert result["selected_underlyings"] == ["NVDA"]
+    assert result["watchlist_sync"]["promoted_to_watchlist"] == ["NVDA"]
 
 
 def test_tuesday_workflow_fails_closed_if_market_refresh_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -49,6 +51,7 @@ def test_tuesday_workflow_fails_closed_if_market_refresh_fails(monkeypatch: pyte
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_portfolio_risk_evidence", later)
     monkeypatch.setattr(workflow, "build_and_write_mapped_universe_evidence_refresh", later)
     monkeypatch.setattr(workflow, "build_and_write_weekly_mapped_universe_review", later)
+    monkeypatch.setattr(workflow, "synchronize_and_write_oq_watchlist_state", later)
     with pytest.raises(RuntimeError, match="market refresh failed"):
         workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path)
     assert later_called is False
@@ -101,6 +104,16 @@ def test_tuesday_workflow_fails_closed_if_portfolio_risk_evidence_fails(monkeypa
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_portfolio_risk_evidence", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("portfolio risk failed")))
     with pytest.raises(RuntimeError, match="portfolio risk failed"):
         workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path)
+
+
+def test_tuesday_workflow_fails_closed_if_watchlist_sync_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    _patch_success(monkeypatch, calls)
+    monkeypatch.setattr(workflow, "synchronize_and_write_oq_watchlist_state", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("watchlist sync failed")))
+    with pytest.raises(RuntimeError, match="watchlist sync failed"):
+        workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path)
+    status = json.loads((tmp_path / workflow.STATUS_FILENAME).read_text(encoding="utf-8"))
+    assert status["status"] == "FAILED"
 
 
 def test_tuesday_workflow_is_paper_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
