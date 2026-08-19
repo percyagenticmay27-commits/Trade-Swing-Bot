@@ -5,9 +5,10 @@ Sequence:
 2. Generate Swing-owned Momentum and Technical Analysis evidence.
 3. Refresh raw underlying-company fundamentals from SEC EDGAR companyfacts.
 4. Generate Swing-owned Fundamental Analysis evidence.
-5. Generate Swing-owned Market Intelligence and Conviction evidence from dated trusted mentions.
-6. Snapshot all available Swing-owned Opportunity Quality component evidence.
-7. Run the frozen Opportunity Quality V1.2 mapped-universe review.
+5. Refresh recent mapped-underlying news evidence independently of AI CIO discovery.
+6. Generate Swing-owned Market Intelligence and Conviction evidence from dated trusted mentions.
+7. Snapshot all available Swing-owned Opportunity Quality component evidence.
+8. Run the frozen Opportunity Quality V1.2 mapped-universe review.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from .mapped_underlying_fundamental_evidence import (
 )
 from .mapped_underlying_intelligence_evidence import build_and_write_mapped_underlying_intelligence_evidence
 from .mapped_underlying_market_data_refresh import refresh_and_write_mapped_underlying_market_data
+from .mapped_underlying_news_refresh import build_and_write_mapped_underlying_news_refresh
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
 from .weekly_mapped_universe_review import build_and_write_weekly_mapped_universe_review
@@ -110,9 +112,20 @@ def run_tuesday_mapped_universe_workflow(
             "fundamentally_scored_count": fundamental["fundamentally_scored_count"],
         })
 
+        news = build_and_write_mapped_underlying_news_refresh(
+            registry_path=registry_path,
+            output_dir=results_dir,
+        )
+        status["steps"].append({
+            "name": "MAPPED_UNDERLYING_NEWS_REFRESH",
+            "status": "PASSED",
+            "mapped_underlying_count": news["mapped_underlying_count"],
+            "accepted_mention_count": news["accepted_mention_count"],
+            "error_count": len(news["errors"]),
+        })
+
         intelligence = build_and_write_mapped_underlying_intelligence_evidence(
             registry_path=registry_path,
-            mentions_path=Path(results_dir) / "discovery_mentions_runtime.csv",
             output_dir=results_dir,
         )
         status["steps"].append({
