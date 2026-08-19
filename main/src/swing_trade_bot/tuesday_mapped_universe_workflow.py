@@ -5,8 +5,9 @@ Sequence:
 2. Generate Swing-owned Momentum and Technical Analysis evidence.
 3. Refresh raw underlying-company fundamentals from SEC EDGAR companyfacts.
 4. Generate Swing-owned Fundamental Analysis evidence.
-5. Snapshot all available Swing-owned Opportunity Quality component evidence.
-6. Run the frozen Opportunity Quality V1.2 mapped-universe review.
+5. Generate Swing-owned Market Intelligence and Conviction evidence from dated trusted mentions.
+6. Snapshot all available Swing-owned Opportunity Quality component evidence.
+7. Run the frozen Opportunity Quality V1.2 mapped-universe review.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from .mapped_underlying_fundamental_evidence import (
     build_mapped_underlying_fundamental_evidence,
     write_mapped_underlying_fundamental_evidence,
 )
+from .mapped_underlying_intelligence_evidence import build_and_write_mapped_underlying_intelligence_evidence
 from .mapped_underlying_market_data_refresh import refresh_and_write_mapped_underlying_market_data
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
@@ -106,6 +108,19 @@ def run_tuesday_mapped_universe_workflow(
             "status": "PASSED",
             "mapped_underlying_count": fundamental["mapped_underlying_count"],
             "fundamentally_scored_count": fundamental["fundamentally_scored_count"],
+        })
+
+        intelligence = build_and_write_mapped_underlying_intelligence_evidence(
+            registry_path=registry_path,
+            mentions_path=Path(results_dir) / "discovery_mentions_runtime.csv",
+            output_dir=results_dir,
+        )
+        status["steps"].append({
+            "name": "MARKET_INTELLIGENCE_AND_CONVICTION_EVIDENCE",
+            "status": "PASSED",
+            "mapped_underlying_count": intelligence["mapped_underlying_count"],
+            "underlyings_with_market_intelligence": intelligence["underlyings_with_market_intelligence"],
+            "underlyings_with_conviction": intelligence["underlyings_with_conviction"],
         })
 
         evidence = build_and_write_mapped_universe_evidence_refresh(
