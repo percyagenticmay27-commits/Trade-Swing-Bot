@@ -66,6 +66,7 @@ def _companyfacts():
 
 def test_companyfacts_derives_transparent_raw_metrics() -> None:
     metrics = derive_fundamental_metrics(_companyfacts())
+    assert metrics["fiscal_end"] == "2025-01-26"
     assert metrics["revenue_growth_pct"] == 20.0
     assert metrics["earnings_growth_pct"] == 50.0
     assert metrics["operating_margin_pct"] == 20.0
@@ -73,6 +74,33 @@ def test_companyfacts_derives_transparent_raw_metrics() -> None:
     assert metrics["return_on_equity_pct"] == 15.0
     assert metrics["current_ratio"] == 2.0
     assert metrics["debt_to_equity"] == 0.25
+
+
+def test_alternative_revenue_tag_uses_freshest_annual_series() -> None:
+    facts = _companyfacts()
+    facts["facts"]["us-gaap"]["RevenueFromContractWithCustomerExcludingAssessedTax"] = _fact([
+        {"form": "10-K", "fp": "FY", "end": "2023-01-29", "filed": "2023-03-01", "val": 25.0},
+        {"form": "10-K", "fp": "FY", "end": "2024-01-28", "filed": "2024-03-01", "val": 30.0},
+    ])
+    facts["facts"]["us-gaap"]["Revenues"] = _fact([
+        {"form": "10-K", "fp": "FY", "end": "2024-01-28", "filed": "2024-03-01", "val": 100.0},
+        {"form": "10-K", "fp": "FY", "end": "2025-01-26", "filed": "2025-03-01", "val": 120.0},
+    ])
+    metrics = derive_fundamental_metrics(facts)
+    assert metrics["fiscal_end"] == "2025-01-26"
+    assert metrics["revenue_growth_pct"] == 20.0
+    assert metrics["operating_margin_pct"] == 20.0
+
+
+def test_ratios_use_same_fiscal_end_as_revenue() -> None:
+    facts = _companyfacts()
+    facts["facts"]["us-gaap"]["OperatingIncomeLoss"] = _fact([
+        {"form": "10-K", "fp": "FY", "end": "2025-01-26", "filed": "2025-03-01", "val": 24.0},
+        {"form": "10-K", "fp": "FY", "end": "2026-01-25", "filed": "2026-03-01", "val": 500.0},
+    ])
+    metrics = derive_fundamental_metrics(facts)
+    assert metrics["fiscal_end"] == "2025-01-26"
+    assert metrics["operating_margin_pct"] == 20.0
 
 
 def test_known_mapped_symbols_skip_ticker_map_and_fetch_only_underlying_companyfacts(tmp_path: Path) -> None:
