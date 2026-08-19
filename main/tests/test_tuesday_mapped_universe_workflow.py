@@ -39,7 +39,17 @@ def _patch_success(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
     monkeypatch.setattr(
         workflow,
         "write_mapped_underlying_fundamental_evidence",
-        lambda *args, **kwargs: calls.append("fundamental_write") or (tmp_path := Path(kwargs.get("output_dir", "."))) / "mapped_underlying_fundamental_evidence.json",
+        lambda *args, **kwargs: calls.append("fundamental_write") or Path(kwargs.get("output_dir", ".")) / "mapped_underlying_fundamental_evidence.json",
+    )
+    monkeypatch.setattr(
+        workflow,
+        "build_and_write_mapped_underlying_intelligence_evidence",
+        lambda **kwargs: calls.append("intelligence") or {
+            "mapped_underlying_count": 2,
+            "underlyings_with_market_intelligence": 2,
+            "underlyings_with_conviction": 1,
+            "rows": [],
+        },
     )
     monkeypatch.setattr(
         workflow,
@@ -61,11 +71,11 @@ def _patch_success(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
     )
 
 
-def test_tuesday_workflow_runs_market_quantitative_fundamental_before_ranking(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_tuesday_workflow_runs_market_quantitative_fundamental_intelligence_before_ranking(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls: list[str] = []
     _patch_success(monkeypatch, calls)
     result = workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path, data_dir=tmp_path / "data")
-    assert calls == ["market", "quantitative", "fundamental_data", "fundamental_score", "fundamental_write", "refresh", "review"]
+    assert calls == ["market", "quantitative", "fundamental_data", "fundamental_score", "fundamental_write", "intelligence", "refresh", "review"]
     assert result["status"] == "COMPLETE"
     assert result["selected_underlyings"] == ["NVDA"]
 
@@ -85,6 +95,7 @@ def test_tuesday_workflow_fails_closed_if_market_refresh_fails(monkeypatch: pyte
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_quantitative_evidence", later)
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_fundamental_data", later)
     monkeypatch.setattr(workflow, "build_mapped_underlying_fundamental_evidence", later)
+    monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_intelligence_evidence", later)
     monkeypatch.setattr(workflow, "build_and_write_mapped_universe_evidence_refresh", later)
     monkeypatch.setattr(workflow, "build_and_write_weekly_mapped_universe_review", later)
 
@@ -117,6 +128,27 @@ def test_tuesday_workflow_fails_closed_if_fundamental_data_fails(monkeypatch: py
     monkeypatch.setattr(workflow, "build_and_write_mapped_underlying_fundamental_data", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("fundamental failed")))
     with pytest.raises(RuntimeError, match="fundamental failed"):
         workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path)
+
+
+def test_tuesday_workflow_fails_closed_if_intelligence_evidence_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+    _patch_success(monkeypatch, calls)
+    monkeypatch.setattr(
+        workflow,
+        "build_and_write_mapped_underlying_intelligence_evidence",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("intelligence failed")),
+    )
+    ranked = False
+
+    def review(**kwargs):
+        nonlocal ranked
+        ranked = True
+        return {}
+
+    monkeypatch.setattr(workflow, "build_and_write_weekly_mapped_universe_review", review)
+    with pytest.raises(RuntimeError, match="intelligence failed"):
+        workflow.run_tuesday_mapped_universe_workflow(results_dir=tmp_path)
+    assert ranked is False
 
 
 def test_tuesday_workflow_is_paper_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
