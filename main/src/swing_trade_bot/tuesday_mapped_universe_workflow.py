@@ -3,8 +3,10 @@
 Sequence:
 1. Refresh mapped-underlying daily OHLCV using the existing read-only market-data chain.
 2. Generate Swing-owned Momentum and Technical Analysis evidence.
-3. Snapshot all available Swing-owned Opportunity Quality component evidence.
-4. Run the frozen Opportunity Quality V1.2 mapped-universe review.
+3. Refresh raw underlying-company fundamentals from SEC EDGAR companyfacts.
+4. Generate Swing-owned Fundamental Analysis evidence.
+5. Snapshot all available Swing-owned Opportunity Quality component evidence.
+6. Run the frozen Opportunity Quality V1.2 mapped-universe review.
 """
 from __future__ import annotations
 
@@ -15,6 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .mapped_underlying_fundamental_data_refresh import build_and_write_mapped_underlying_fundamental_data
+from .mapped_underlying_fundamental_evidence import (
+    build_mapped_underlying_fundamental_evidence,
+    write_mapped_underlying_fundamental_evidence,
+)
 from .mapped_underlying_market_data_refresh import refresh_and_write_mapped_underlying_market_data
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
@@ -72,6 +79,33 @@ def run_tuesday_mapped_universe_workflow(
             "status": "PASSED",
             "mapped_underlying_count": quantitative["mapped_underlying_count"],
             "quantitatively_scored_count": quantitative["quantitatively_scored_count"],
+        })
+
+        fundamental_data = build_and_write_mapped_underlying_fundamental_data(
+            registry_path=registry_path,
+            output_dir=results_dir,
+        )
+        status["steps"].append({
+            "name": "SEC_FUNDAMENTAL_DATA_REFRESH",
+            "status": "PASSED",
+            "mapped_underlying_count": fundamental_data["mapped_underlying_count"],
+            "underlyings_with_fundamental_metrics": fundamental_data["underlyings_with_fundamental_metrics"],
+        })
+
+        metric_rows = [
+            {"underlying_symbol": row.get("underlying_symbol"), **dict(row.get("metrics", {}))}
+            for row in fundamental_data.get("rows", [])
+        ]
+        fundamental = build_mapped_underlying_fundamental_evidence(
+            registry_path=registry_path,
+            metric_rows=metric_rows,
+        )
+        write_mapped_underlying_fundamental_evidence(fundamental, output_dir=results_dir)
+        status["steps"].append({
+            "name": "FUNDAMENTAL_ANALYSIS_EVIDENCE",
+            "status": "PASSED",
+            "mapped_underlying_count": fundamental["mapped_underlying_count"],
+            "fundamentally_scored_count": fundamental["fundamentally_scored_count"],
         })
 
         evidence = build_and_write_mapped_universe_evidence_refresh(
