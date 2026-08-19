@@ -11,6 +11,7 @@ Sequence:
 8. Generate Swing-owned Portfolio Risk Adjustment evidence from the paper portfolio.
 9. Snapshot all available Swing-owned Opportunity Quality component evidence.
 10. Run the frozen Opportunity Quality V1.2 mapped-universe review.
+11. Synchronize selected OQ names into durable Swing watchlist lifecycle state only.
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ from .mapped_underlying_news_refresh import build_and_write_mapped_underlying_ne
 from .mapped_underlying_portfolio_risk_evidence import build_and_write_mapped_underlying_portfolio_risk_evidence
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
+from .oq_watchlist_sync import synchronize_and_write_oq_watchlist_state
 from .weekly_mapped_universe_review import build_and_write_weekly_mapped_universe_review
 
 STRATEGY_ID = "SWING-001"
@@ -186,9 +188,39 @@ def run_tuesday_mapped_universe_workflow(
             "selected_watchlist_count": review["selected_watchlist_count"],
             "selected_underlyings": review["selected_underlyings"],
         })
+
+        results_path = Path(results_dir)
+        project_root = results_path.parent if results_path.is_absolute() else Path.cwd()
+        review_path = results_path / "weekly_mapped_universe_review.json"
+        if review_path.is_absolute():
+            review_relative: str | Path = review_path
+        else:
+            review_relative = review_path
+        watchlist_sync = synchronize_and_write_oq_watchlist_state(
+            root=project_root,
+            registry_path=registry_path,
+            review_path=review_relative,
+        )
+        status["steps"].append({
+            "name": "OQ_TO_WATCHLIST_LIFECYCLE_SYNC",
+            "status": "PASSED",
+            "selected_underlyings": watchlist_sync["selected_underlyings"],
+            "promoted_to_watchlist": watchlist_sync["promoted_to_watchlist"],
+            "added_to_watchlist": watchlist_sync["added_to_watchlist"],
+            "veto_blocked": watchlist_sync["veto_blocked"],
+            "removed_state_preserved": watchlist_sync["removed_state_preserved"],
+        })
+
         status["status"] = "COMPLETE"
         status["selected_watchlist_count"] = review["selected_watchlist_count"]
         status["selected_underlyings"] = review["selected_underlyings"]
+        status["watchlist_sync"] = {
+            "promoted_to_watchlist": watchlist_sync["promoted_to_watchlist"],
+            "added_to_watchlist": watchlist_sync["added_to_watchlist"],
+            "retained_existing_lifecycle": watchlist_sync["retained_existing_lifecycle"],
+            "veto_blocked": watchlist_sync["veto_blocked"],
+            "removed_state_preserved": watchlist_sync["removed_state_preserved"],
+        }
     except Exception as exc:
         status["status"] = "FAILED"
         status["error"] = f"{type(exc).__name__}: {exc}"
