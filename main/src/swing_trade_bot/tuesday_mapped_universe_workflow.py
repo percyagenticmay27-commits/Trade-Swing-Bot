@@ -7,8 +7,10 @@ Sequence:
 4. Generate Swing-owned Fundamental Analysis evidence.
 5. Refresh recent mapped-underlying news evidence independently of AI CIO discovery.
 6. Generate Swing-owned Market Intelligence and Conviction evidence from dated trusted mentions.
-7. Snapshot all available Swing-owned Opportunity Quality component evidence.
-8. Run the frozen Opportunity Quality V1.2 mapped-universe review.
+7. Generate Swing-owned Market Regime Support evidence from SPY/QQQ daily history.
+8. Generate Swing-owned Portfolio Risk Adjustment evidence from the paper portfolio.
+9. Snapshot all available Swing-owned Opportunity Quality component evidence.
+10. Run the frozen Opportunity Quality V1.2 mapped-universe review.
 """
 from __future__ import annotations
 
@@ -26,7 +28,9 @@ from .mapped_underlying_fundamental_evidence import (
 )
 from .mapped_underlying_intelligence_evidence import build_and_write_mapped_underlying_intelligence_evidence
 from .mapped_underlying_market_data_refresh import refresh_and_write_mapped_underlying_market_data
+from .mapped_underlying_market_regime_evidence import build_and_write_mapped_underlying_market_regime_evidence
 from .mapped_underlying_news_refresh import build_and_write_mapped_underlying_news_refresh
+from .mapped_underlying_portfolio_risk_evidence import build_and_write_mapped_underlying_portfolio_risk_evidence
 from .mapped_underlying_quantitative_evidence import build_and_write_mapped_underlying_quantitative_evidence
 from .mapped_universe_evidence_refresh import build_and_write_mapped_universe_evidence_refresh
 from .weekly_mapped_universe_review import build_and_write_weekly_mapped_universe_review
@@ -134,6 +138,29 @@ def run_tuesday_mapped_universe_workflow(
             "mapped_underlying_count": intelligence["mapped_underlying_count"],
             "underlyings_with_market_intelligence": intelligence["underlyings_with_market_intelligence"],
             "underlyings_with_conviction": intelligence["underlyings_with_conviction"],
+        })
+
+        regime = build_and_write_mapped_underlying_market_regime_evidence(
+            registry_path=registry_path,
+            data_dir=data_dir,
+            output_dir=results_dir,
+        )
+        status["steps"].append({
+            "name": "MARKET_REGIME_SUPPORT_EVIDENCE",
+            "status": "PASSED",
+            "mapped_underlying_count": regime["mapped_underlying_count"],
+            "market_regime_support_score": regime["market_regime_support_score"],
+        })
+
+        portfolio_risk = build_and_write_mapped_underlying_portfolio_risk_evidence(
+            registry_path=registry_path,
+            results_dir=results_dir,
+        )
+        status["steps"].append({
+            "name": "PORTFOLIO_RISK_ADJUSTMENT_EVIDENCE",
+            "status": "PASSED",
+            "mapped_underlying_count": portfolio_risk["mapped_underlying_count"],
+            "portfolio_risk_scored_count": portfolio_risk["portfolio_risk_scored_count"],
         })
 
         evidence = build_and_write_mapped_universe_evidence_refresh(
