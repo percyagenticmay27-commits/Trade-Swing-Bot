@@ -64,10 +64,51 @@ def test_refresh_accepts_known_trusted_publishers_and_flags_catalysts(tmp_path: 
         fetch_text=lambda url: xml,
     )
     assert report["accepted_mention_count"] == 2
+    assert report["trusted_mention_count"] == 2
+    assert report["symbols_with_news"] == 1
     assert {row["source_class"] for row in report["rows"]} == {"INSTITUTIONAL_NEWS", "PROFESSIONAL_RESEARCH"}
     assert any(row["earnings_growth_related"] == "true" for row in report["rows"])
     assert any(row["analyst_upgrade_related"] == "true" for row in report["rows"])
+    summary = report["symbol_summaries"][0]
+    assert summary["preferred_vehicle"] == "NVDX"
+    assert summary["independent_trusted_source_count"] == 2
+    assert summary["trusted_sources"] == ["REUTERS", "YAHOO FINANCE"]
     assert report["ai_cio_discovery_status_used_as_evidence"] is False
+
+
+def test_repeated_articles_from_one_publisher_are_one_independent_source(tmp_path: Path) -> None:
+    registry = _registry(tmp_path / "registry.json")
+    xml = _rss(
+        ("Nvidia story one", "Yahoo Finance", "Mon, 17 Aug 2026 12:00:00 GMT"),
+        ("Nvidia story two", "Yahoo Finance", "Sun, 16 Aug 2026 12:00:00 GMT"),
+        ("Nvidia story three", "Yahoo Finance", "Sat, 15 Aug 2026 12:00:00 GMT"),
+    )
+    report = refresh_mapped_underlying_news(
+        registry_path=registry,
+        as_of=date(2026, 8, 18),
+        fetch_text=lambda url: xml,
+    )
+    assert report["trusted_mention_count"] == 3
+    summary = report["symbol_summaries"][0]
+    assert summary["trusted_mention_count"] == 3
+    assert summary["independent_trusted_source_count"] == 1
+    assert summary["trusted_sources"] == ["YAHOO FINANCE"]
+
+
+def test_social_community_is_context_only_not_trusted(tmp_path: Path) -> None:
+    registry = _registry(tmp_path / "registry.json")
+    xml = _rss(("Nvidia chatter", "Stocktwits", "Mon, 17 Aug 2026 12:00:00 GMT"))
+    report = refresh_mapped_underlying_news(
+        registry_path=registry,
+        as_of=date(2026, 8, 18),
+        fetch_text=lambda url: xml,
+    )
+    assert report["accepted_mention_count"] == 1
+    assert report["trusted_mention_count"] == 0
+    assert report["rejected_or_untrusted_count"] == 1
+    assert report["rows"][0]["source_class"] == "SOCIAL_COMMUNITY"
+    assert report["rows"][0]["scoring_eligible"] == "false"
+    assert report["symbol_summaries"][0]["independent_trusted_source_count"] == 0
 
 
 def test_unknown_publishers_remain_auditable_but_do_not_become_mentions(tmp_path: Path) -> None:
@@ -79,6 +120,7 @@ def test_unknown_publishers_remain_auditable_but_do_not_become_mentions(tmp_path
         fetch_text=lambda url: xml,
     )
     assert report["accepted_mention_count"] == 0
+    assert report["rejected_or_untrusted_count"] == 1
     assert any(row.get("publisher") == "Random Blog" and row.get("accepted") is False for row in report["audit"])
 
 
@@ -91,6 +133,7 @@ def test_stale_mentions_are_not_written(tmp_path: Path) -> None:
         fetch_text=lambda url: xml,
     )
     assert report["accepted_mention_count"] == 0
+    assert report["trusted_mention_count"] == 0
 
 
 def test_fetch_failure_is_visible_and_refresh_stays_paper_only(tmp_path: Path) -> None:
@@ -101,6 +144,7 @@ def test_fetch_failure_is_visible_and_refresh_stays_paper_only(tmp_path: Path) -
         fetch_text=lambda url: (_ for _ in ()).throw(OSError("network down")),
     )
     assert report["errors"]
+    assert report["symbol_summaries"][0]["status"] == "FETCH_OR_PARSE_ERROR"
     assert report["paper_trade_mode"] is True
     assert report["live_trading_enabled"] is False
     assert report["broker_execution_enabled"] is False
@@ -113,7 +157,7 @@ def test_write_keeps_swing_news_mentions_separate_from_runtime_intake(tmp_path: 
             "underlying_symbol": "NVDA", "source": "Reuters", "original_source": "Reuters",
             "source_class": "INSTITUTIONAL_NEWS", "mentioned_on": "2026-08-17", "themes": "",
             "earnings_growth_related": "true", "analyst_upgrade_related": "false",
-            "headline": "Nvidia earnings", "url": "https://example.com/a",
+            "headline": "Nvidia earnings", "url": "https://example.com/a", "scoring_eligible": "true",
         }],
         "paper_trade_mode": True,
     }
