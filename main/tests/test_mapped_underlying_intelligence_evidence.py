@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import date, timedelta
 from pathlib import Path
 
 from swing_trade_bot.discovery_engine import SourceMention
 from swing_trade_bot.mapped_underlying_intelligence_evidence import (
+    build_and_write_mapped_underlying_intelligence_evidence,
     build_mapped_underlying_intelligence_evidence,
     score_intelligence_mentions,
 )
@@ -35,6 +37,26 @@ def _mention(source: str, source_class: str, days_ago: int, *, earnings: bool = 
         earnings_growth_related=earnings,
         analyst_upgrade_related=upgrade,
     )
+
+
+def _write_mentions(path: Path, source: str, source_class: str, mentioned_on: str) -> None:
+    fields = (
+        "underlying_symbol", "source", "original_source", "source_class", "mentioned_on",
+        "themes", "earnings_growth_related", "analyst_upgrade_related",
+    )
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow({
+            "underlying_symbol": "NVDA",
+            "source": source,
+            "original_source": source,
+            "source_class": source_class,
+            "mentioned_on": mentioned_on,
+            "themes": "",
+            "earnings_growth_related": "false",
+            "analyst_upgrade_related": "false",
+        })
 
 
 def test_multiple_trusted_sources_generate_market_intelligence_and_conviction() -> None:
@@ -80,6 +102,21 @@ def test_stale_mentions_outside_30_days_are_missing(tmp_path: Path) -> None:
     row = report["rows"][0]
     assert row["market_intelligence_score"] is None
     assert row["conviction_score"] is None
+
+
+def test_default_runtime_merge_combines_ai_cio_and_swing_news_mentions(tmp_path: Path) -> None:
+    registry = _registry(tmp_path / "registry.json")
+    _write_mentions(tmp_path / "discovery_mentions_runtime.csv", "Reuters", "INSTITUTIONAL_NEWS", "2026-08-17")
+    _write_mentions(tmp_path / "mapped_underlying_news_mentions.csv", "Yahoo Finance", "PROFESSIONAL_RESEARCH", "2026-08-16")
+    report = build_and_write_mapped_underlying_intelligence_evidence(
+        registry_path=registry,
+        output_dir=tmp_path,
+        as_of=date(2026, 8, 18),
+    )
+    row = report["rows"][0]
+    assert row["trusted_source_count"] == 2
+    assert row["market_intelligence_score"] is not None
+    assert row["conviction_score"] is not None
 
 
 def test_ai_cio_status_is_not_a_scoring_input(tmp_path: Path) -> None:
