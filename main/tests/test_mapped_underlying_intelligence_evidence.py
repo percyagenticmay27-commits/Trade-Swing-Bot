@@ -84,6 +84,21 @@ def test_single_trusted_source_can_create_intelligence_but_not_conviction() -> N
     assert result["conviction_score"] is None
 
 
+def test_repeated_same_publisher_articles_do_not_manufacture_conviction() -> None:
+    result = score_intelligence_mentions(
+        [
+            _mention("Yahoo Finance", "PROFESSIONAL_RESEARCH", 1),
+            _mention("Yahoo Finance", "PROFESSIONAL_RESEARCH", 2, earnings=True),
+            _mention("Yahoo Finance", "PROFESSIONAL_RESEARCH", 3, upgrade=True),
+        ],
+        as_of=date(2026, 8, 18),
+    )
+    assert result is not None
+    assert result["trusted_source_count"] == 1
+    assert result["market_intelligence_score"] is not None
+    assert result["conviction_score"] is None
+
+
 def test_social_only_evidence_cannot_create_scores() -> None:
     result = score_intelligence_mentions(
         [_mention("StockTwits", "SOCIAL_COMMUNITY", 1)],
