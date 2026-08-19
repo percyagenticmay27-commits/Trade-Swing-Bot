@@ -45,6 +45,8 @@ DEFAULT_SOURCE_FILES = (
     "mapped_underlying_quantitative_evidence.json",
     "mapped_underlying_fundamental_evidence.json",
     "mapped_underlying_intelligence_evidence.json",
+    "mapped_underlying_market_regime_evidence.json",
+    "mapped_underlying_portfolio_risk_evidence.json",
     "opportunity_quality_inputs.json",
     "portfolio_allocations.json",
     "watchlist_report.json",
