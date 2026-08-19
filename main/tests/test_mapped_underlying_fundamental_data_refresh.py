@@ -3,15 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import swing_trade_bot.mapped_underlying_fundamental_data_refresh as module
 from swing_trade_bot.mapped_underlying_fundamental_data_refresh import (
     COMPANYFACTS_URL,
+    KNOWN_CIKS,
     TICKER_MAP_URL,
     derive_fundamental_metrics,
     refresh_mapped_underlying_fundamental_data,
 )
 
 
-def _registry(path: Path) -> Path:
+def _registry(path: Path, symbols: tuple[str, ...] = ("NVDA", "SNDK")) -> Path:
+    vehicles = {"NVDA": "NVDX", "SNDK": "SNXX", "ZZZZ": "ZZZL"}
     payload = {
         "schema_version": "2.0",
         "strategy_id": "SWING-001",
@@ -19,8 +24,12 @@ def _registry(path: Path) -> Path:
         "mapping_policy": "EXPLICIT_VERIFIED_ONE_TO_MANY_NO_TICKER_INFERENCE",
         "review_policy": {"cadence": "WEEKLY_WEEKEND", "preferred_vehicle_scope": "FUTURE_NEW_CANDIDATES_ONLY", "existing_positions_unchanged": True, "switch_threshold_points": 5.0},
         "mappings": [
-            {"underlying_symbol": "NVDA", "preferred_vehicle": "NVDX", "vehicles": [{"symbol": "NVDX", "verified": True, "enabled": True}]},
-            {"underlying_symbol": "SNDK", "preferred_vehicle": "SNXX", "vehicles": [{"symbol": "SNXX", "verified": True, "enabled": True}]},
+            {
+                "underlying_symbol": symbol,
+                "preferred_vehicle": vehicles[symbol],
+                "vehicles": [{"symbol": vehicles[symbol], "verified": True, "enabled": True}],
+            }
+            for symbol in symbols
         ],
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -66,52 +75,57 @@ def test_companyfacts_derives_transparent_raw_metrics() -> None:
     assert metrics["debt_to_equity"] == 0.25
 
 
-def test_refresh_fetches_only_underlying_company_facts(tmp_path: Path) -> None:
+def test_known_mapped_symbols_skip_ticker_map_and_fetch_only_underlying_companyfacts(tmp_path: Path) -> None:
     registry = _registry(tmp_path / "registry.json")
     calls: list[str] = []
 
     def fetch(url: str):
         calls.append(url)
-        if url == TICKER_MAP_URL:
-            return {
-                "0": {"ticker": "NVDA", "cik_str": 1045810},
-                "1": {"ticker": "SNDK", "cik_str": 2008287},
-            }
-        return _companyfacts()
-
-    report = refresh_mapped_underlying_fundamental_data(
-        registry_path=registry,
-        fetch_json=fetch,
-    )
-    assert report["underlyings_with_fundamental_metrics"] == 2
-    assert any(COMPANYFACTS_URL.format(cik=1045810) == call for call in calls)
-    assert all("NVDX" not in call and "SNXX" not in call for call in calls)
-
-
-def test_missing_cik_fails_closed_for_that_underlying(tmp_path: Path) -> None:
-    registry = _registry(tmp_path / "registry.json")
-
-    def fetch(url: str):
-        if url == TICKER_MAP_URL:
-            return {"0": {"ticker": "NVDA", "cik_str": 1045810}}
         return _companyfacts()
 
     report = refresh_mapped_underlying_fundamental_data(registry_path=registry, fetch_json=fetch)
-    sndk = next(row for row in report["rows"] if row["underlying_symbol"] == "SNDK")
-    assert sndk["status"] == "CIK_NOT_FOUND"
-    assert sndk["metrics"] == {}
+    assert report["underlyings_with_fundamental_metrics"] == 2
+    assert TICKER_MAP_URL not in calls
+    assert COMPANYFACTS_URL.format(cik=KNOWN_CIKS["NVDA"]) in calls
+    assert COMPANYFACTS_URL.format(cik=KNOWN_CIKS["SNDK"]) in calls
+    assert all("NVDX" not in call and "SNXX" not in call for call in calls)
+
+
+def test_unknown_symbol_uses_sec_ticker_map_then_companyfacts(tmp_path: Path) -> None:
+    registry = _registry(tmp_path / "registry.json", symbols=("ZZZZ",))
+    calls: list[str] = []
+
+    def fetch(url: str):
+        calls.append(url)
+        if url == TICKER_MAP_URL:
+            return {"0": {"ticker": "ZZZZ", "cik_str": 9999999}}
+        return _companyfacts()
+
+    report = refresh_mapped_underlying_fundamental_data(registry_path=registry, fetch_json=fetch)
+    assert report["underlyings_with_fundamental_metrics"] == 1
+    assert calls[0] == TICKER_MAP_URL
+    assert COMPANYFACTS_URL.format(cik=9999999) in calls
+
+
+def test_unknown_symbol_missing_cik_fails_closed(tmp_path: Path) -> None:
+    registry = _registry(tmp_path / "registry.json", symbols=("ZZZZ",))
+
+    def fetch(url: str):
+        if url == TICKER_MAP_URL:
+            return {}
+        return _companyfacts()
+
+    report = refresh_mapped_underlying_fundamental_data(registry_path=registry, fetch_json=fetch)
+    row = report["rows"][0]
+    assert row["status"] == "CIK_NOT_FOUND"
+    assert row["metrics"] == {}
 
 
 def test_fetch_error_is_visible_and_does_not_create_metrics(tmp_path: Path) -> None:
     registry = _registry(tmp_path / "registry.json")
 
     def fetch(url: str):
-        if url == TICKER_MAP_URL:
-            return {
-                "0": {"ticker": "NVDA", "cik_str": 1045810},
-                "1": {"ticker": "SNDK", "cik_str": 2008287},
-            }
-        if "0001045810" in url:
+        if f"{KNOWN_CIKS['NVDA']:010d}" in url:
             raise OSError("network unavailable")
         return _companyfacts()
 
@@ -122,15 +136,20 @@ def test_fetch_error_is_visible_and_does_not_create_metrics(tmp_path: Path) -> N
     assert report["underlyings_with_fundamental_metrics"] == 1
 
 
+def test_live_sec_fetch_requires_declared_contact_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+    with pytest.raises(RuntimeError, match="SEC_USER_AGENT"):
+        module._declared_user_agent()
+    monkeypatch.setenv("SEC_USER_AGENT", "Trade-Swing-Bot operations@example.com")
+    assert module._declared_user_agent() == "Trade-Swing-Bot operations@example.com"
+
+
 def test_fundamental_data_refresh_is_paper_only(tmp_path: Path) -> None:
     registry = _registry(tmp_path / "registry.json")
-
-    def fetch(url: str):
-        if url == TICKER_MAP_URL:
-            return {}
-        return {}
-
-    report = refresh_mapped_underlying_fundamental_data(registry_path=registry, fetch_json=fetch)
+    report = refresh_mapped_underlying_fundamental_data(
+        registry_path=registry,
+        fetch_json=lambda url: _companyfacts(),
+    )
     assert report["paper_trade_mode"] is True
     assert report["live_trading_enabled"] is False
     assert report["broker_execution_enabled"] is False
