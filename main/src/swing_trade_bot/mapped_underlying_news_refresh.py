@@ -7,7 +7,8 @@ artifact and never overwrites AI CIO/local discovery mentions.
 The default provider is Google News RSS used as an aggregator. Trust is granted
 only after the article publisher is normalized through Swing's existing source
 classification rules. Unknown publishers remain visible in the audit but do not
-become trusted scoring evidence.
+become trusted scoring evidence. Repeated articles from one publisher remain
+article-level evidence but never count as multiple independent source identities.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
@@ -123,13 +124,17 @@ def refresh_mapped_underlying_news(
     rows: list[dict[str, Any]] = []
     audit: list[dict[str, Any]] = []
     errors: list[str] = []
+    symbol_summaries: list[dict[str, Any]] = []
+    rejected_or_untrusted_count = 0
+    trusted_mention_count = 0
 
     for symbol in sorted(mapping):
         url = google_news_rss_url(symbol)
         try:
             items = parse_google_news_rss(fetch_text(url))[:MAX_ITEMS_PER_SYMBOL]
         except Exception as exc:
-            errors.append(f"{symbol}:{type(exc).__name__}:{exc}")
+            error = f"{symbol}:{type(exc).__name__}:{exc}"
+            errors.append(error)
             audit.append({
                 "underlying_symbol": symbol,
                 "preferred_vehicle": mapping[symbol],
@@ -138,10 +143,24 @@ def refresh_mapped_underlying_news(
                 "error": f"{type(exc).__name__}: {exc}",
                 "query_url": url,
             })
+            symbol_summaries.append({
+                "underlying_symbol": symbol,
+                "preferred_vehicle": mapping[symbol],
+                "status": "FETCH_OR_PARSE_ERROR",
+                "article_count": 0,
+                "accepted_mention_count": 0,
+                "trusted_mention_count": 0,
+                "independent_trusted_source_count": 0,
+                "trusted_sources": [],
+                "rejected_or_untrusted_count": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
             continue
 
         accepted = 0
         trusted = 0
+        rejected = 0
+        trusted_sources: set[str] = set()
         seen: set[tuple[str, date, str]] = set()
         for item in items:
             mentioned = item["mentioned_on"]
@@ -149,6 +168,8 @@ def refresh_mapped_underlying_news(
             if age < 0 or age > LOOKBACK_DAYS:
                 continue
             normalized = normalize_enterprise_source(item.get("source"))
+            profile = source_class_profile(normalized.source_class) if normalized.source_class else None
+            scoring_eligible = bool(normalized.accepted and profile is not None and profile.weight > 0)
             audit_row = {
                 "underlying_symbol": symbol,
                 "preferred_vehicle": mapping[symbol],
@@ -158,18 +179,20 @@ def refresh_mapped_underlying_news(
                 "mentioned_on": mentioned.isoformat(),
                 "age_days": age,
                 "accepted": normalized.accepted,
+                "scoring_eligible": scoring_eligible,
                 "source_class": normalized.source_class,
                 "normalization_method": normalized.normalization_method,
                 "warning": normalized.warning,
             }
             audit.append(audit_row)
             if not normalized.accepted or not normalized.source_class:
+                rejected += 1
+                rejected_or_untrusted_count += 1
                 continue
             identity = (normalized.original_source.upper(), mentioned, str(item.get("title", "")).upper())
             if identity in seen:
                 continue
             seen.add(identity)
-            profile = source_class_profile(normalized.source_class)
             earnings, upgrade = _catalyst_flags(str(item.get("title", "")))
             rows.append({
                 "underlying_symbol": symbol,
@@ -182,23 +205,33 @@ def refresh_mapped_underlying_news(
                 "analyst_upgrade_related": str(upgrade).lower(),
                 "headline": item.get("title", ""),
                 "url": item.get("url", ""),
+                "scoring_eligible": str(scoring_eligible).lower(),
             })
             accepted += 1
-            if profile is not None and profile.weight > 0:
+            if scoring_eligible:
                 trusted += 1
-        audit.append({
+                trusted_mention_count += 1
+                trusted_sources.add(normalized.original_source.strip().upper())
+            else:
+                rejected += 1
+                rejected_or_untrusted_count += 1
+
+        symbol_summaries.append({
             "underlying_symbol": symbol,
             "preferred_vehicle": mapping[symbol],
             "provider": "GOOGLE_NEWS_RSS",
             "status": "AVAILABLE",
-            "items_seen": len(items),
-            "accepted_mentions": accepted,
-            "trusted_mentions": trusted,
+            "article_count": len(items),
+            "accepted_mention_count": accepted,
+            "trusted_mention_count": trusted,
+            "independent_trusted_source_count": len(trusted_sources),
+            "trusted_sources": sorted(trusted_sources),
+            "rejected_or_untrusted_count": rejected,
             "query_url": url,
         })
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "strategy_id": "SWING-001",
         "paper_trade_mode": True,
         "live_trading_enabled": False,
@@ -210,7 +243,12 @@ def refresh_mapped_underlying_news(
         "lookback_days": LOOKBACK_DAYS,
         "provider": "GOOGLE_NEWS_RSS",
         "mapped_underlying_count": len(mapping),
+        "symbols_with_news": sum(1 for row in symbol_summaries if row.get("accepted_mention_count", 0) > 0),
         "accepted_mention_count": len(rows),
+        "trusted_mention_count": trusted_mention_count,
+        "rejected_or_untrusted_count": rejected_or_untrusted_count,
+        "source_independence_rule": "Repeated articles from one publisher count as one independent source identity for confluence scoring",
+        "symbol_summaries": symbol_summaries,
         "rows": rows,
         "audit": audit,
         "errors": errors,
@@ -226,7 +264,7 @@ def write_mapped_underlying_news_refresh(payload: Mapping[str, Any], *, output_d
 
     fields = (
         "underlying_symbol", "source", "original_source", "source_class", "mentioned_on",
-        "themes", "earnings_growth_related", "analyst_upgrade_related", "headline", "url",
+        "themes", "earnings_growth_related", "analyst_upgrade_related", "headline", "url", "scoring_eligible",
     )
     with tempfile.NamedTemporaryFile("w", newline="", encoding="utf-8", delete=False, dir=root) as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -264,6 +302,6 @@ if __name__ == "__main__":
     print(
         "Mapped underlying news refresh: "
         f"{report['mapped_underlying_count']} mapped; "
-        f"{report['accepted_mention_count']} accepted mentions; "
+        f"{report['trusted_mention_count']} trusted mentions; "
         f"{len(report['errors'])} errors"
     )
