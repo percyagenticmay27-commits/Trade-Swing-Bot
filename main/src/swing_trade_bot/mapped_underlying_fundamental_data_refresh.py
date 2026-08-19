@@ -22,10 +22,6 @@ TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 OUTPUT_NAME = "mapped_underlying_fundamental_data_refresh.json"
 
-# CIKs are stable SEC entity identifiers. These current Swing mappings are kept
-# locally so the normal Tuesday cycle does not need a separate SEC ticker-map
-# request before requesting companyfacts. Unknown future underlyings still use
-# the SEC ticker map and fail closed if resolution is unavailable.
 KNOWN_CIKS: dict[str, int] = {
     "AMZN": 1018724,
     "AVGO": 1730168,
@@ -71,12 +67,6 @@ JsonFetcher = Callable[[str], Mapping[str, Any]]
 
 
 def _declared_user_agent() -> str:
-    """Return a SEC-compliant declared automated-tool identity.
-
-    SEC fair-access guidance asks automated clients to identify the organization
-    and provide a contact email. Refuse live SEC access when that declaration is
-    absent rather than repeatedly generating 403 responses.
-    """
     value = os.getenv("SEC_USER_AGENT", "").strip()
     if not value or "@" not in value:
         raise RuntimeError(
@@ -137,26 +127,23 @@ def _resolve_ciks(symbols: list[str], fetch_json: JsonFetcher) -> dict[str, int]
     return result
 
 
-def _concept_entries(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> list[Mapping[str, Any]]:
+def _tag_annual_values(companyfacts: Mapping[str, Any], tag: str) -> list[tuple[str, float]]:
     us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
     if not isinstance(us_gaap, Mapping):
         return []
-    for tag in tags:
-        concept = us_gaap.get(tag)
-        if not isinstance(concept, Mapping):
-            continue
-        units = concept.get("units")
-        if not isinstance(units, Mapping):
-            continue
-        entries = units.get("USD")
-        if isinstance(entries, list):
-            return [entry for entry in entries if isinstance(entry, Mapping)]
-    return []
-
-
-def _annual_values(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> list[tuple[str, float]]:
+    concept = us_gaap.get(tag)
+    if not isinstance(concept, Mapping):
+        return []
+    units = concept.get("units")
+    if not isinstance(units, Mapping):
+        return []
+    entries = units.get("USD")
+    if not isinstance(entries, list):
+        return []
     by_end: dict[str, tuple[str, float]] = {}
-    for entry in _concept_entries(companyfacts, tags):
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
         form = str(entry.get("form", ""))
         fp = str(entry.get("fp", ""))
         end = str(entry.get("end", ""))
@@ -175,12 +162,25 @@ def _annual_values(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> li
     return [(end, by_end[end][1]) for end in sorted(by_end)]
 
 
-def _latest(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> float | None:
-    values = _annual_values(companyfacts, tags)
-    return values[-1][1] if values else None
+def _annual_values(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> list[tuple[str, float]]:
+    """Choose the freshest viable concept series across alternative XBRL tags."""
+    candidates = [_tag_annual_values(companyfacts, tag) for tag in tags]
+    candidates = [values for values in candidates if values]
+    if not candidates:
+        return []
+    return max(candidates, key=lambda values: (values[-1][0], len(values)))
 
 
-def _growth(values: list[tuple[str, float]]) -> float | None:
+def _value_for_end(companyfacts: Mapping[str, Any], tags: tuple[str, ...], end: str) -> float | None:
+    for tag in tags:
+        values = _tag_annual_values(companyfacts, tag)
+        for value_end, value in reversed(values):
+            if value_end == end:
+                return value
+    return None
+
+
+def _growth_for_latest_common_series(values: list[tuple[str, float]]) -> float | None:
     if len(values) < 2:
         return None
     previous = values[-2][1]
@@ -199,25 +199,29 @@ def _ratio(numerator: float | None, denominator: float | None, scale: float = 1.
 def derive_fundamental_metrics(companyfacts: Mapping[str, Any]) -> dict[str, float]:
     revenue_values = _annual_values(companyfacts, REVENUE_TAGS)
     income_values = _annual_values(companyfacts, NET_INCOME_TAGS)
-    revenue = revenue_values[-1][1] if revenue_values else None
-    net_income = income_values[-1][1] if income_values else None
-    operating_income = _latest(companyfacts, OPERATING_INCOME_TAGS)
-    cfo = _latest(companyfacts, CFO_TAGS)
-    capex = _latest(companyfacts, CAPEX_TAGS)
-    current_assets = _latest(companyfacts, CURRENT_ASSET_TAGS)
-    current_liabilities = _latest(companyfacts, CURRENT_LIABILITY_TAGS)
-    equity = _latest(companyfacts, EQUITY_TAGS)
+    if not revenue_values:
+        return {}
+    fiscal_end = revenue_values[-1][0]
+    revenue = revenue_values[-1][1]
+    net_income = _value_for_end(companyfacts, NET_INCOME_TAGS, fiscal_end)
+    operating_income = _value_for_end(companyfacts, OPERATING_INCOME_TAGS, fiscal_end)
+    cfo = _value_for_end(companyfacts, CFO_TAGS, fiscal_end)
+    capex = _value_for_end(companyfacts, CAPEX_TAGS, fiscal_end)
+    current_assets = _value_for_end(companyfacts, CURRENT_ASSET_TAGS, fiscal_end)
+    current_liabilities = _value_for_end(companyfacts, CURRENT_LIABILITY_TAGS, fiscal_end)
+    equity = _value_for_end(companyfacts, EQUITY_TAGS, fiscal_end)
 
-    debt = _latest(companyfacts, DEBT_COMBINED_TAGS)
+    debt = _value_for_end(companyfacts, DEBT_COMBINED_TAGS, fiscal_end)
     if debt is None:
-        debt_current = _latest(companyfacts, DEBT_CURRENT_TAGS)
-        debt_noncurrent = _latest(companyfacts, DEBT_NONCURRENT_TAGS)
+        debt_current = _value_for_end(companyfacts, DEBT_CURRENT_TAGS, fiscal_end)
+        debt_noncurrent = _value_for_end(companyfacts, DEBT_NONCURRENT_TAGS, fiscal_end)
         if debt_current is not None or debt_noncurrent is not None:
             debt = (debt_current or 0.0) + (debt_noncurrent or 0.0)
 
+    income_aligned = [(end, value) for end, value in income_values if end <= fiscal_end]
     raw: dict[str, float | None] = {
-        "revenue_growth_pct": _growth(revenue_values),
-        "earnings_growth_pct": _growth(income_values),
+        "revenue_growth_pct": _growth_for_latest_common_series(revenue_values),
+        "earnings_growth_pct": _growth_for_latest_common_series(income_aligned),
         "operating_margin_pct": _ratio(operating_income, revenue, 100.0),
         "free_cash_flow_margin_pct": _ratio(
             (cfo - capex) if cfo is not None and capex is not None else None,
@@ -228,11 +232,13 @@ def derive_fundamental_metrics(companyfacts: Mapping[str, Any]) -> dict[str, flo
         "current_ratio": _ratio(current_assets, current_liabilities),
         "debt_to_equity": _ratio(debt, equity),
     }
-    return {
+    result = {
         name: round(value, 6)
         for name, value in raw.items()
         if value is not None and math.isfinite(value)
     }
+    result["fiscal_end"] = fiscal_end
+    return result
 
 
 def refresh_mapped_underlying_fundamental_data(
@@ -288,7 +294,6 @@ def refresh_mapped_underlying_fundamental_data(
         "order_placement_enabled": False,
         "ai_cio_discovery_status_used_as_fundamental_data": False,
         "provider": "SEC_EDGAR_COMPANYFACTS",
-        "cik_resolution_policy": "LOCAL_KNOWN_CIK_THEN_SEC_TICKER_MAP",
         "mapped_underlying_count": len(mapping),
         "underlyings_with_fundamental_metrics": usable,
         "rows": rows,
