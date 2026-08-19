@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -28,6 +27,10 @@ from .leveraged_vehicle_registry import preferred_vehicle_mapping
 OUTPUT_NAME = "mapped_underlying_intelligence_evidence.json"
 ROLLING_DAYS = 30
 MIN_CONVICTION_SOURCES = 2
+DEFAULT_MENTION_FILES = (
+    "discovery_mentions_runtime.csv",
+    "mapped_underlying_news_mentions.csv",
+)
 
 
 def _clamp(value: float) -> float:
@@ -42,6 +45,23 @@ def _recent_mentions(symbol: str, mentions: Sequence[SourceMention], as_of: date
         if mention.underlying_symbol.strip().upper() == symbol
         and cutoff <= mention.mentioned_on <= as_of
     ]
+
+
+def _merge_mentions(mention_sets: Sequence[Sequence[SourceMention]]) -> list[SourceMention]:
+    result: list[SourceMention] = []
+    seen: set[tuple[str, str, date]] = set()
+    for mentions in mention_sets:
+        for mention in mentions:
+            identity = (
+                mention.underlying_symbol.strip().upper(),
+                (mention.original_source or mention.source).strip().upper(),
+                mention.mentioned_on,
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            result.append(mention)
+    return result
 
 
 def _recency_score(freshest_age_days: int) -> float:
@@ -84,11 +104,7 @@ def score_intelligence_mentions(
         if str(item.source_class or item.source).strip()
     }
     class_diversity = len(source_classes)
-    corroborated_catalysts = sum(
-        1
-        for flag in (earnings_catalyst, upgrade_catalyst)
-        if flag
-    )
+    corroborated_catalysts = sum(1 for flag in (earnings_catalyst, upgrade_catalyst) if flag)
 
     conviction: float | None = None
     if source_count >= MIN_CONVICTION_SOURCES:
@@ -174,18 +190,25 @@ def build_mapped_underlying_intelligence_evidence(
 def build_and_write_mapped_underlying_intelligence_evidence(
     *,
     registry_path: str | Path = "configs/swing_leveraged_vehicle_registry.json",
-    mentions_path: str | Path = "results/discovery_mentions_runtime.csv",
+    mentions_path: str | Path | None = None,
+    mentions_paths: Sequence[str | Path] | None = None,
     output_dir: str | Path = "results",
     as_of: date | None = None,
 ) -> dict[str, Any]:
-    source = Path(mentions_path)
-    mentions = load_mentions(source) if source.is_file() else []
+    root = Path(output_dir)
+    if mentions_paths is not None:
+        sources = [Path(path) for path in mentions_paths]
+    elif mentions_path is not None:
+        sources = [Path(mentions_path)]
+    else:
+        sources = [root / name for name in DEFAULT_MENTION_FILES]
+    mention_sets = [load_mentions(path) for path in sources if path.is_file()]
+    mentions = _merge_mentions(mention_sets)
     payload = build_mapped_underlying_intelligence_evidence(
         registry_path=registry_path,
         mentions=mentions,
         as_of=as_of or date.today(),
     )
-    root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     path = root / OUTPUT_NAME
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=root) as handle:
