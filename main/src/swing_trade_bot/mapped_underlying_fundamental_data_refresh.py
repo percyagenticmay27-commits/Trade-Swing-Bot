@@ -13,17 +13,28 @@ import os
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .leveraged_vehicle_registry import preferred_vehicle_mapping
 
 TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
-USER_AGENT = os.getenv(
-    "SEC_USER_AGENT",
-    "Trade-Swing-Bot/1.0 github.com/percyagenticmay27-commits/Trade-Swing-Bot",
-)
 OUTPUT_NAME = "mapped_underlying_fundamental_data_refresh.json"
+
+# CIKs are stable SEC entity identifiers. These current Swing mappings are kept
+# locally so the normal Tuesday cycle does not need a separate SEC ticker-map
+# request before requesting companyfacts. Unknown future underlyings still use
+# the SEC ticker map and fail closed if resolution is unavailable.
+KNOWN_CIKS: dict[str, int] = {
+    "AMZN": 1018724,
+    "AVGO": 1730168,
+    "GOOGL": 1652044,
+    "NFLX": 1065280,
+    "NVDA": 1045810,
+    "PLTR": 1321655,
+    "SNDK": 2023554,
+}
 
 REVENUE_TAGS = (
     "RevenueFromContractWithCustomerExcludingAssessedTax",
@@ -59,17 +70,40 @@ DEBT_NONCURRENT_TAGS = (
 JsonFetcher = Callable[[str], Mapping[str, Any]]
 
 
+def _declared_user_agent() -> str:
+    """Return a SEC-compliant declared automated-tool identity.
+
+    SEC fair-access guidance asks automated clients to identify the organization
+    and provide a contact email. Refuse live SEC access when that declaration is
+    absent rather than repeatedly generating 403 responses.
+    """
+    value = os.getenv("SEC_USER_AGENT", "").strip()
+    if not value or "@" not in value:
+        raise RuntimeError(
+            "SEC_USER_AGENT must identify Trade-Swing-Bot and include a contact email, "
+            "for example: 'Trade-Swing-Bot admin@example.com'"
+        )
+    return value
+
+
 def _fetch_json(url: str) -> Mapping[str, Any]:
     request = Request(
         url,
         headers={
-            "User-Agent": USER_AGENT,
-            "Accept-Encoding": "gzip, deflate",
-            "Host": "data.sec.gov" if "data.sec.gov" in url else "www.sec.gov",
+            "User-Agent": _declared_user_agent(),
+            "Accept": "application/json",
         },
     )
-    with urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 403:
+            raise RuntimeError(
+                "SEC returned HTTP 403. Verify SEC_USER_AGENT contains a monitored "
+                "contact email and that this host is within SEC fair-access limits."
+            ) from exc
+        raise
     if not isinstance(payload, Mapping):
         raise ValueError("SEC response must be a JSON object")
     return payload
@@ -89,6 +123,18 @@ def _ticker_to_cik(payload: Mapping[str, Any]) -> dict[str, int]:
         except (TypeError, ValueError):
             continue
     return mapping
+
+
+def _resolve_ciks(symbols: list[str], fetch_json: JsonFetcher) -> dict[str, int]:
+    result = {symbol: KNOWN_CIKS[symbol] for symbol in symbols if symbol in KNOWN_CIKS}
+    unresolved = [symbol for symbol in symbols if symbol not in result]
+    if unresolved:
+        ticker_map = _ticker_to_cik(fetch_json(TICKER_MAP_URL))
+        for symbol in unresolved:
+            cik = ticker_map.get(symbol)
+            if cik is not None:
+                result[symbol] = cik
+    return result
 
 
 def _concept_entries(companyfacts: Mapping[str, Any], tags: tuple[str, ...]) -> list[Mapping[str, Any]]:
@@ -182,7 +228,11 @@ def derive_fundamental_metrics(companyfacts: Mapping[str, Any]) -> dict[str, flo
         "current_ratio": _ratio(current_assets, current_liabilities),
         "debt_to_equity": _ratio(debt, equity),
     }
-    return {name: round(value, 6) for name, value in raw.items() if value is not None and math.isfinite(value)}
+    return {
+        name: round(value, 6)
+        for name, value in raw.items()
+        if value is not None and math.isfinite(value)
+    }
 
 
 def refresh_mapped_underlying_fundamental_data(
@@ -191,11 +241,12 @@ def refresh_mapped_underlying_fundamental_data(
     fetch_json: JsonFetcher = _fetch_json,
 ) -> dict[str, Any]:
     mapping = preferred_vehicle_mapping(registry_path)
-    ticker_map = _ticker_to_cik(fetch_json(TICKER_MAP_URL))
+    symbols = sorted(mapping)
+    cik_map = _resolve_ciks(symbols, fetch_json)
     rows: list[dict[str, Any]] = []
     usable = 0
-    for symbol in sorted(mapping):
-        cik = ticker_map.get(symbol)
+    for symbol in symbols:
+        cik = cik_map.get(symbol)
         if cik is None:
             rows.append({
                 "underlying_symbol": symbol,
@@ -237,6 +288,7 @@ def refresh_mapped_underlying_fundamental_data(
         "order_placement_enabled": False,
         "ai_cio_discovery_status_used_as_fundamental_data": False,
         "provider": "SEC_EDGAR_COMPANYFACTS",
+        "cik_resolution_policy": "LOCAL_KNOWN_CIK_THEN_SEC_TICKER_MAP",
         "mapped_underlying_count": len(mapping),
         "underlyings_with_fundamental_metrics": usable,
         "rows": rows,
