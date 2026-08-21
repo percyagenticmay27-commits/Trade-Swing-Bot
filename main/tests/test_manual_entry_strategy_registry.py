@@ -13,7 +13,7 @@ from swing_trade_bot.manual_entry_strategy_registry import (
 )
 
 
-def _strategy(strategy_id: str = "TEST_DAILY") -> ManualEntryStrategy:
+def _strategy(strategy_id: str = "TEST_DAILY", *, number_of_entries: int = 1) -> ManualEntryStrategy:
     return ManualEntryStrategy(
         strategy_id=strategy_id,
         name="Test Daily",
@@ -23,6 +23,7 @@ def _strategy(strategy_id: str = "TEST_DAILY") -> ManualEntryStrategy:
             EntryRule("close", ">", "ema", period=20),
             EntryRule("rsi", "between", [45.0, 65.0], period=14),
         ),
+        number_of_entries=number_of_entries,
     )
 
 
@@ -60,7 +61,7 @@ def test_default_strategy_is_used_when_no_explicit_assignment() -> None:
 
 def test_explicit_assignment_takes_precedence_over_default() -> None:
     default = _strategy("DEFAULT")
-    alternate = _strategy("ALT")
+    alternate = _strategy("ALT", number_of_entries=2)
     registry = ManualEntryStrategyRegistry(
         strategies=(default, alternate),
         assignments=(UnderlyingEntryAssignment("AMZN", "ALT"),),
@@ -68,7 +69,19 @@ def test_explicit_assignment_takes_precedence_over_default() -> None:
     )
 
     assert registry.resolve("AMZN") == alternate
+    assert registry.resolve("AMZN").number_of_entries == 2  # type: ignore[union-attr]
     assert registry.resolve("NFLX") == default
+
+
+def test_number_of_entries_defaults_to_one_and_accepts_staged_counts() -> None:
+    assert _strategy().number_of_entries == 1
+    assert _strategy(number_of_entries=2).number_of_entries == 2
+    assert _strategy(number_of_entries=3).number_of_entries == 3
+
+
+def test_invalid_number_of_entries_is_rejected() -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        _strategy(number_of_entries=0)
 
 
 def test_duplicate_underlying_assignment_is_rejected() -> None:
@@ -105,7 +118,7 @@ def test_disabled_assignment_does_not_override_default() -> None:
 
 def test_load_and_atomic_write_round_trip(tmp_path: Path) -> None:
     registry = ManualEntryStrategyRegistry(
-        strategies=(_strategy(),),
+        strategies=(_strategy(number_of_entries=3),),
         assignments=(UnderlyingEntryAssignment("NFLX", "TEST_DAILY", note="manual test"),),
         default_strategy_id="TEST_DAILY",
     )
@@ -113,9 +126,13 @@ def test_load_and_atomic_write_round_trip(tmp_path: Path) -> None:
 
     write_manual_entry_strategy_registry(path, registry)
     loaded = load_manual_entry_strategy_registry(path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
 
     assert loaded == registry
-    assert json.loads(path.read_text(encoding="utf-8"))["paper_trade_mode"] is True
+    assert payload["paper_trade_mode"] is True
+    assert payload["schema_version"] == "1.1"
+    assert payload["allocation_authority"] == "SWING_PORTFOLIO_ALLOCATOR"
+    assert payload["strategies"][0]["number_of_entries"] == 3
 
 
 def test_registry_is_configuration_only_and_paper_only() -> None:
