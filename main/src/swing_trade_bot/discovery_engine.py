@@ -251,6 +251,8 @@ class DiscoveryEngine:
         confluence: int,
         financial_health_score: float,
     ) -> WatchlistStatus:
+        if not candidate.leveraged_symbol or not candidate.leveraged_vehicle_exists:
+            return "REMOVED"
         if candidate.status == "LOW":
             if candidate.days_in_status < 90:
                 return "LOW"
@@ -258,12 +260,9 @@ class DiscoveryEngine:
                 candidate.win_rate < 35.0
                 or candidate.profit_factor < 1.25
                 or financial_health_score < 60.0
-                or not candidate.leveraged_vehicle_exists
             ):
                 return "WATCHLIST"
             return "LOW"
-        if not candidate.leveraged_symbol or not candidate.leveraged_vehicle_exists:
-            return "REMOVED"
         if candidate.status == "WATCHLIST":
             if _promotion_eligible(candidate, confluence, financial_health_score):
                 return "LOW"
