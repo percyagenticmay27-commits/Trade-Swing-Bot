@@ -29,6 +29,29 @@ def test_collects_and_merges_symbol_evidence(tmp_path: Path) -> None:
     assert evidence["AAA"]["entry_score"] == 75.0
 
 
+def test_mapped_underlying_evidence_precedes_stale_generic_snapshots(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "mapped_underlying_fundamental_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "AAA", "fundamental_analysis_score": 93.0}]}),
+        encoding="utf-8",
+    )
+    (results / "mapped_underlying_quantitative_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "AAA", "momentum_score": 77.0, "technical_analysis_score": 81.0}]}),
+        encoding="utf-8",
+    )
+    (results / "opportunity_quality_inputs.json").write_text(
+        json.dumps({"rows": [{"symbol": "AAA", "fundamental_analysis_score": 0.0, "momentum_score": 0.0, "technical_analysis_score": 0.0}]}),
+        encoding="utf-8",
+    )
+
+    evidence = collect_runtime_evidence(results_dir=results)
+
+    assert evidence["AAA"]["fundamental_analysis_score"] == 93.0
+    assert evidence["AAA"]["momentum_score"] == 77.0
+    assert evidence["AAA"]["technical_analysis_score"] == 81.0
+
+
 def test_build_inputs_preserves_missing_evidence_as_none() -> None:
     inputs = build_inputs_from_evidence({"AAA": {"symbol": "AAA", "conviction_score": 80.0}})
 
