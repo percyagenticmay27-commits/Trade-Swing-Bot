@@ -130,7 +130,7 @@ def test_load_and_atomic_write_round_trip(tmp_path: Path) -> None:
 
     assert loaded == registry
     assert payload["paper_trade_mode"] is True
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["allocation_authority"] == "SWING_PORTFOLIO_ALLOCATOR"
     assert payload["strategies"][0]["number_of_entries"] == 3
 
