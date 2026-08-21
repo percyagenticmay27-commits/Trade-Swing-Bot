@@ -53,11 +53,18 @@ def test_removed_is_reserved_for_missing_or_unavailable_leveraged_vehicle() -> N
         days_in_status=90,
         leveraged_vehicle_exists=False,
     )
+    unavailable_low = CandidateState(
+        underlying_symbol="PLTR",
+        leveraged_symbol="PLTU",
+        status="LOW",
+        days_in_status=20,
+        leveraged_vehicle_exists=False,
+    )
 
     rows = engine.evaluate(
-        [unavailable, missing],
+        [unavailable, missing, unavailable_low],
         [],
-        {"AMD": _healthy(), "NVDA": _healthy()},
+        {"AMD": _healthy(), "NVDA": _healthy(), "PLTR": _healthy()},
         as_of=AS_OF,
     )
     by_symbol = {row.underlying_symbol: row for row in rows}
@@ -66,6 +73,8 @@ def test_removed_is_reserved_for_missing_or_unavailable_leveraged_vehicle() -> N
     assert by_symbol["AMD"].capacity_status == "REMOVED"
     assert by_symbol["NVDA"].watchlist_status == "REMOVED"
     assert by_symbol["NVDA"].capacity_status == "REMOVED"
+    assert by_symbol["PLTR"].watchlist_status == "REMOVED"
+    assert by_symbol["PLTR"].capacity_status == "REMOVED"
 
 
 def test_monitor_candidate_with_valid_mapping_can_requalify_for_watchlist() -> None:
