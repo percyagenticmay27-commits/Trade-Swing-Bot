@@ -93,8 +93,10 @@ def test_contract_is_paper_only_and_host_uses_swing_intake(tmp_path: Path) -> No
     assert payload["capital_movement_enabled"] is False
     assert payload["host_may_write_strategy_storage_directly"] is False
     submission = payload["submission_contract"]
-    assert submission["status"] == "INTAKE_HANDLER_AVAILABLE"
+    assert submission["status"] == "AVAILABLE"
     assert submission["handler_module"] == "swing_trade_bot.manual_entry_strategy_intake"
+    assert submission["host_route"] == "/strategy/manual-entry"
+    assert submission["host_transport"] == "LOCAL_SWING_CLI_STDIN_JSON"
     assert submission["allocation_fields_user_writable"] is False
     assert submission["execution_vehicle_user_writable"] is False
 
