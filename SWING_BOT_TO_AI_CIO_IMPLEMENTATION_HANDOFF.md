@@ -1,6 +1,6 @@
 # Swing Bot to AI CIO Implementation Handoff
 
-Last updated: 2026-08-15  
+Last updated: 2026-08-21  
 Repository: `percyagenticmay27-commits/Trade-Swing-Bot`  
 Branch: `feature/swing-phase2-enterprise-market-data`  
 DigitalOcean repository: `/home/tradebot/Trade-Swing-Bot`  
@@ -92,8 +92,6 @@ Seven later commits implemented closed-position drawdown-through-exit:
 6. `85cd9e5` — cover canonical `closed_trades` KPI analytics
 7. `897946d` — warn when closed-trade drawdown evidence is unavailable
 
-Current verified branch head: `897946d`.
-
 Architecture:
 
 - `trade_history_manager.py` remains the authoritative FIFO lifecycle source.
@@ -105,141 +103,15 @@ Architecture:
 - `publish_enterprise_strategy_kpis_v21.py` performs the lifecycle enrichment before Enterprise KPI publication.
 - `enterprise_strategy_kpi_publisher_v21.py` consumes canonical `closed_trades` evidence.
 
-Relevant files:
-
-- `main/src/swing_trade_bot/paper_position_excursion.py`
-- `main/src/swing_trade_bot/paper_portfolio_manager.py`
-- `main/src/swing_trade_bot/trade_history_manager.py`
-- `main/src/swing_trade_bot/closed_trade_excursion_archive.py`
-- `main/src/swing_trade_bot/enterprise_strategy_kpi_publisher_v21.py`
-- `main/publish_enterprise_strategy_kpis_v21.py`
-
-## Latest verified development evidence
-
-DigitalOcean pulled commit `897946d` by fast-forward from `85cd9e5`.
-
-Compile command:
-
-```bash
-python -m py_compile \
-  src/swing_trade_bot/closed_trade_excursion_archive.py \
-  src/swing_trade_bot/paper_position_excursion.py
-```
-
-Result: exit code 0.
-
-Focused test command:
-
-```bash
-python -m pytest \
-  tests/test_closed_trade_excursion_archive.py \
-  tests/test_closed_trade_enterprise_analytics.py \
-  tests/test_paper_position_excursion.py \
-  tests/test_paper_portfolio_drawdown_integration.py \
-  tests/test_enterprise_strategy_kpi_publisher_v21.py \
-  -v --cache-clear
-```
-
-Result: **25 passed in 0.84s**, exit code 0.
-
-Verified coverage includes:
-
-- Closed-trade drawdown calculation and archive
-- Preserved evidence after truncated history
-- Archive identity mismatch rejection
-- No fabricated drawdown with missing history
-- Canonical closed-trade Enterprise analytics
-- Exclusion of future bars in the excursion engine
-- Open-position drawdown integration
-- No fabricated exit fields for open positions
-- No snapshot-price drawdown inference
-- Optional missing evidence disclosure
-- Atomic KPI publication
-- Paper-safety locks
-- No Dividend production imports
-
-## Development update: closed-lifecycle regression lock
-
-Commit `1e2f52f` adds regression coverage in `main/tests/test_trade_history_manager.py` without changing production code.
-
-New coverage:
-
-- A closed trade's authoritative drawdown stops on its actual exit date; a severe bar after exit cannot affect the result.
-- A seven-share SELL across FIFO lots closes five shares from `BUY-1` and two shares from `BUY-2`.
-- Drawdown amounts use the matched lot shares: $100 for the five-share lot and $40 for the two-share lot in the synthetic fixture.
-- Realized P&L remains $100 + $20 = $120 after excursion enrichment.
-- Three shares remain open in the second FIFO lot.
-- Buy-only output explicitly publishes `closed_trade_count = 0` and an empty `closed_trades` list.
-
-Validation performed in the development workspace:
-
-- Updated production modules and tests compile successfully with `py_compile`.
-- Direct execution of the same synthetic FIFO/exit-boundary scenario against `build_trade_history_report()` passed.
-- The workspace did not contain pytest, so the authoritative pytest result remains pending on DigitalOcean's existing virtual environment.
-
-## DigitalOcean validation: expanded closed-lifecycle suite
-
-DigitalOcean fast-forwarded from `897946d` through handoff commit `8a37215` and compiled:
-
-- `paper_position_excursion.py`
-- `trade_history_manager.py`
-- `test_trade_history_manager.py`
-
-The expanded focused command collected 35 tests. Every listed test reached `PASSED`, including:
-
-- `test_closed_trade_drawdown_stops_at_actual_exit_date`
-- `test_partial_fifo_exit_uses_each_entry_lot_and_matched_shares`
-- Buy-only zero-closed lifecycle evidence
-- Closed excursion archive preservation and fail-closed behavior
-- Canonical closed-trade Enterprise analytics
-- Open-position drawdown and incomplete-history behavior
-- No fabricated exit fields or snapshot drawdown inference
-- Paper safety and no Dividend production imports
-
-The captured console text ends immediately after the 35th `PASSED` result, before pytest's summary and shell exit-code line. Treat the individual results as successful focused evidence, but retain the full cycle/KPI publication as the remaining freeze gate.
-
 ## Product decision: dedicated Swing Trade Analytics report
 
-The current portal screenshot shows `SWING-001` inside a Dividend-oriented **Income** section with yearly distribution yield, annual income, next ex-date, audit, and distribution evidence. That table is not an appropriate Swing report and must not define the Swing reporting contract.
+The Swing repository publishes authoritative Swing trade lifecycle evidence instead of forcing Swing into Dividend income/distribution fields.
 
-Decision:
+Artifacts:
 
-- Swing needs a separate **Trade Analytics / Position Performance** report centered on the lifecycle and performance of paper trades.
-- Do not redesign the frozen drawdown engine.
-- Do not force Swing data into Dividend income/distribution fields.
-- Trade-Swing-Bot must publish the dedicated, consumer-ready Swing evidence artifact.
-- The AI CIO host may later render that artifact as a Swing-specific section, rename/suppress Income for `SWING-001`, or otherwise route by strategy capability. That portal change is outside this repository.
-
-Required open-position columns:
-
-- Symbol
-- Entry Date
-- Entry Price
-- Current Price
-- Shares
-- Cost Basis
-- Current Market Value
-- Unrealized Gain/Loss amount
-- Unrealized Gain/Loss percent
-- Maximum Drawdown amount
-- Maximum Drawdown percent
-- Days Held
-- Active Strategy
-- Status (`OPEN`)
-
-Required closed-position columns when authentic evidence exists:
-
-- Symbol
-- Entry Date and Entry Price
-- Exit Date and Exit/Sale Price
-- Shares and Cost Basis
-- Final Proceeds/Exit Value
-- Realized Gain/Loss amount and percent
-- Maximum Drawdown amount and percent during the actual trade lifetime
-- Holding Days
-- Active Strategy
-- Status (`CLOSED`)
-- Exit Reason
+- `results/swing_trade_analytics_report.json`
+- `results/swing_trade_analytics_report.csv`
+- `results/swing_trade_analytics_report.md`
 
 Authority rules:
 
@@ -248,741 +120,6 @@ Authority rules:
 - Max drawdown is published only from authoritative position history.
 - No exit fields may be fabricated for open positions.
 - No closed row may be fabricated while the authentic ledger remains buy-only.
-
-Next Swing development should create and register a dedicated report artifact (recommended contract name: `swing_trade_analytics_report`; recommended JSON path: `results/swing_trade_analytics_report.json`) derived from the already validated canonical trade analytics evidence. It should not modify Trade-Dividend-Bot.
-
-## Development update: dedicated Swing Trade Analytics report
-
-Status: **IMPLEMENTED AND VALIDATED ON DIGITALOCEAN**
-
-Implementation commits:
-
-- `196fd97` — add the dedicated paper-only report module
-- `918c99e` — add focused report regression tests
-- `7475827` — close the CSV test fixture cleanly
-- `2a15f05` — declare the report in the Enterprise KPI artifact contract and retain authoritative closed-trade proceeds
-- `28a3f08` / `233d81c` — publish JSON/CSV/Markdown views during KPI publication and synchronize artifact availability before writing the KPI contract
-- `2bb9227` — register the `trade_analytics` capability and JSON dashboard artifact
-- `df8f16a` — declare the report in the Swing plugin manifest
-- `74c23e0` — add JSON, CSV, and Markdown artifacts to the strict Swing output contract
-
-New module:
-
-- `main/src/swing_trade_bot/swing_trade_analytics_report.py`
-
-New artifacts generated by `publish_enterprise_strategy_kpis_v21.py`:
-
-- `results/swing_trade_analytics_report.json`
-- `results/swing_trade_analytics_report.csv`
-- `results/swing_trade_analytics_report.md`
-
-Architecture:
-
-- The report consumes only the already-normalized authoritative `trade_analytics` KPI section.
-- It does not recalculate P&L or drawdown and does not alter the frozen lifecycle engine.
-- Open rows publish current value and unrealized P&L and omit exit fields entirely.
-- Closed rows publish authentic exit/proceeds and realized P&L when available.
-- Open `days_held` is derived from authoritative entry date and KPI as-of date; closed `days_held` uses lifecycle `holding_days`.
-- Inferred drawdown policy and open rows containing exit evidence fail closed.
-- The authentic buy-only ledger remains compatible with zero closed rows.
-
-Focused local validation:
-
-- `py_compile`: passed
-- Six report tests: passed
-- JSON, CSV, and Markdown publication: passed
-- Paper-safety constants: passed
-
-Required next validation on DigitalOcean:
-
-1. Pull the feature branch.
-2. Run the new report tests plus registry/output-contract/KPI regression suites.
-3. Run `publish_enterprise_strategy_kpis_v21.py`.
-4. Inspect the three new generated report artifacts without editing them.
-5. Confirm two open rows, zero closed rows, unchanged SOXL/TQQQ values, no exit fields on open rows, and authoritative drawdown policy.
-6. Run the full 15-stage Swing cycle after focused validation.
-
-## Validation correction: registry contract alignment
-
-First DigitalOcean focused run after the dedicated report implementation:
-
-- Compile: passed, exit code 0
-- Tests: 122 passed, 5 failed, exit code 1
-
-Root causes and corrections:
-
-1. The closed-trade KPI normalizer added `proceeds: null` when older authoritative fixtures did not publish proceeds. Commit `240e700` now omits that optional field when unavailable while retaining authentic proceeds when present.
-2. The authoritative registration builder constants did not yet include the new `trade_analytics` capability/artifact. Commit `cd3dd0a` aligns the builder with the configured Registry v2 contract.
-3. Locked registry contract tests still contained the prior artifact allowlists. Commits `0729cda` and `8c0d61d` add only the new authoritative Swing report filename/artifact.
-4. The committed published registration snapshot still reflected version 1.6. Commit `1d3e163` regenerates it exactly from the authoritative version 1.7 configuration.
-
-No lifecycle, drawdown, allocation, broker, or generated trading evidence was changed. Focused rerun is required before publication/cycle validation.
-
-## DigitalOcean deployment blocker: dirty worktree
-
-The attempted retest did not load commits `240e700` through `755bac0` because `git pull --ff-only` stopped with:
-
-```
-Please commit your changes or stash them before you merge.
-Aborting
-```
-
-Pytest therefore ran the prior checkout and reproduced the same five known failures (122 passed, 5 failed). This is not a new validation result for the corrected branch.
-
-Safety decision:
-
-- Do not reset, checkout, delete, or stash files blindly.
-- Inspect `git status --short --branch`, tracked diffs, and untracked files first.
-- Preserve any authentic generated evidence or unrelated user changes.
-- After the exact dirty paths are classified, use a recoverable stash or commit only if appropriate, then fast-forward and rerun the focused suite.
-
-## Dirty-worktree classification and recovery decision
-
-DigitalOcean status at local head `1e3a973` showed the branch six commits behind origin. Modified tracked files were limited to refreshed market-data CSVs and generated report/registration artifacts. Untracked files were runtime evidence, authentic paper-ledger evidence, enterprise market-data sync evidence, operational reports, and two pre-existing `AI` paths. No source or test file was locally modified.
-
-Recovery decision:
-
-- Stash tracked changes only; do not use `-u`, so untracked authentic/runtime evidence remains present.
-- Fast-forward to the corrected branch.
-- Rerun focused tests before publication.
-- Restore only the five refreshed tracked market-data files from the retained stash before running the full cycle.
-- Do not restore stale tracked generated reports; the cycle will regenerate them from current evidence.
-- Keep the stash until the full cycle and report publication are verified; do not drop it prematurely.
-
-## Enterprise report direction
-
-The Swing repository publishes authoritative evidence only. The later jshouseapi.com/AI CIO portal work should consume:
-
-Open positions:
-
-- Entry date and price
-- Shares and cost basis
-- Current price and market value
-- Unrealized gain/loss amount and percent
-- Active strategy and position status
-- Maximum drawdown amount and percent
-
-Closed positions, when authentic evidence exists:
-
-- Exit date and price
-- Realized gain/loss amount and percent
-- Holding days and exit reason
-- Maximum drawdown during the actual trade lifetime
-
-Do not implement portal changes in Trade-Dividend-Bot from this repository.
-
-
-## DigitalOcean validation: Swing Trade Analytics report complete
-
-Status: **IMPLEMENTED AND VALIDATED ON DIGITALOCEAN**
-
-DigitalOcean safely stashed tracked runtime changes, retained untracked authoritative paper evidence, and fast-forwarded from `1e3a973` to `c78bd40`. The refreshed tracked market-data files were then restored selectively; stale generated reports were not restored.
-
-Validation results:
-
-- Production-module `py_compile`: passed.
-- Initial named focused command stopped at collection because `tests/test_swing_plugin_manifest.py` was a stale/nonexistent filename; this was a command-path error, not a product failure.
-- Complete repository test suite: **1027 passed, 1 skipped in 8.42s**, exit code 0.
-- Full Swing operational cycle: **15/15 stages passed**, `cycle_status = COMPLETE`, exit code 0.
-- Enterprise KPI publication: passed, exit code 0.
-- Registration publication: passed.
-- Cycle errors and warnings: none.
-- Paper safety remained locked: `paper_trade_mode = true`, `advisory_only = true`.
-- Strategy identity remained `SWING-001`; the governed $4,500 allocation was not changed.
-
-Generated and verified artifacts:
-
-- `results/swing_trade_analytics_report.json` (3169 bytes)
-- `results/swing_trade_analytics_report.csv` (489 bytes)
-- `results/swing_trade_analytics_report.md` (763 bytes)
-- `results/enterprise_strategy_kpis.json`
-
-Verified authentic report state:
-
-- Open positions: 2
-- Closed positions: 0
-- Max-drawdown policy: `AUTHORITATIVE_POSITION_HISTORY_ONLY`
-- Drawdown inference allowed: `false`
-- SOXL: entry 2026-08-04 at 139.899993896484; current 143.264297485352; unrealized P&L $27.05 / 2.404444%; max drawdown 7.308378%.
-- TQQQ: entry 2026-08-04 at 74.819999694824; current 74.650001525879; unrealized P&L -$1.53 / -0.226667%; max drawdown 3.728951%.
-- Open rows contain no `exit_date` or `exit_price` fields.
-- No closed trade was fabricated.
-
-The dedicated Swing Trade Analytics publication stage is complete. The next consumer-side stage is for the Enterprise AI CIO/jshouseapi.com portal to render this registered `trade_analytics` capability as a Swing-specific Trade Analytics / Position Performance section instead of the Dividend Income layout. That consumer work belongs outside Trade-Swing-Bot and must not change Swing lifecycle calculations or fabricate closed positions.
-
-The retained DigitalOcean stash contains the pre-pull tracked runtime snapshot. It may be kept temporarily as a recovery checkpoint; do not `stash pop` it because that would restore stale generated reports.
-
-
-## Product decision: next development is authoritative Swing Alerts
-
-The Enterprise AI CIO portal now correctly renders the dedicated Swing Trade Analytics section. Closed Position Performance is intentionally empty because the authentic paper ledger still contains no SELL events.
-
-The portal Alerts section currently states that no strategy-owned alerts are reported. Repository inspection confirms this is a publication gap, not evidence that the Swing codebase has no alert concepts:
-
-- `position_intelligence_engine.py` already models `risk_flags`, `suggested_review_actions`, warnings, exit-review states, and profit-protection review states.
-- The current SWING-001 service registration does not declare an `alerts` capability or authoritative alerts artifact.
-- Enterprise KPI v2.1 does not currently publish an `alerts` dashboard section.
-- The deployed 15-stage daily cycle does not list a dedicated strategy-alert publication stage.
-
-Decision:
-
-- The next Swing-owned development is an authoritative, paper-only Strategy Alerts report derived from existing review/risk evidence.
-- Do not manufacture an alert merely to populate the portal.
-- An empty alert list is valid only after the report discloses which authoritative sources were evaluated and that no actionable trigger was present.
-- Alerts must be advisory evidence only and must never place orders, move capital, connect to a broker, or change the governed $4,500 allocation.
-- Closed-position absence is not itself an alert.
-- Preserve separate categories for actionable trade review alerts and operational/evidence warnings.
-- Register the new capability/artifact and publish it through Enterprise KPI evidence so the AI CIO host can consume it without hard-coded file copying.
-- Add regression coverage for authentic alerts, zero-alert evaluation, severity/priority preservation, missing evidence disclosure, deduplication, deterministic ordering, atomic output, portal contract fields, and all paper-safety locks.
-
-Before implementation, inspect the existing daily-cycle orchestration and the current runtime availability of Position Intelligence, Profit Protection, Exit Review, lifecycle, operational health, and evidence-authority outputs. Make the smallest architectural extension and do not redesign those engines.
-
-
-## DigitalOcean alert-evidence inspection and freshness decision
-
-Read-only inspection of deployed results found:
-
-- `position_intelligence.json`: missing.
-- `profit_protection_report.json`: last modified 2026-07-30; contains SOXL Strategy B at +34%.
-- `exit_review_report.json`: last modified 2026-07-30; contains SOXL Strategy B at -11%.
-- `trade_lifecycle_report.json`: last modified 2026-07-30; contains SOXL Strategy B at -11%.
-- `operational_health_report.json`: current at 2026-08-15T12:00:00Z; zero warnings and zero errors.
-- `runtime_evidence_authority_audit.json`: PASS; zero warnings and zero errors.
-- `executive_dashboard.json`: current file publication contains ten risk-flag strings, including exit/reentry/thesis attention.
-
-Authority decision:
-
-- The July 30 lifecycle/review files are stale and contradict the current authoritative paper ledger and Trade Analytics evidence. Current SOXL is Strategy A at +2.404444%, not Strategy B at +34% or -11%.
-- These stale reports must not be published as current alerts.
-- The executive-dashboard risk flags cannot be accepted as alert authority until their source lineage and freshness are verified; they may reflect stale optional inputs.
-- Current operational evidence supports zero operational alerts, but this does not yet prove that every current trade-review source was evaluated.
-- The new alerts publisher must enforce source freshness/current-cycle identity and fail closed or disclose unavailable evaluation when required evidence is stale.
-- Alerts must carry evidence source and evidence timestamp/as-of information so the AI CIO consumer can distinguish current actionable alerts from excluded stale evidence.
-- Do not relabel stale data as current and do not translate stale review rows into portal alerts.
-
-
-## Executive-dashboard alert authority rejected
-
-Further DigitalOcean inspection established that the ten `executive_dashboard.json` and `monthly_command_center.json` risk-flag strings are not authoritative current alerts:
-
-- Neither report publishes a generation/as-of timestamp.
-- Executive Dashboard reports `active_positions = 0`, contradicting the authoritative current paper ledger's two open positions.
-- Its `source_files` confirms consumption of the stale July 30 trade lifecycle, profit protection, reentry, exit review, and thesis-monitor reports.
-- Monthly Command Center copies the same ten flags from Executive Dashboard.
-- The current 15-stage cycle report is clean and timestamped, but it does not validate the freshness of those optional legacy inputs.
-
-Decision:
-
-- Reject all ten legacy dashboard risk flags from the current SWING-001 alerts publication.
-- Do not publish the repeated Unclassified theme-cap flags, reentry-ready flag, exit-review flag, or thesis-attention flag as current.
-- Build alerts from current-cycle, identity-consistent sources only.
-- Publish excluded/stale source details as evidence warnings, separate from actionable strategy alerts.
-- A current report may validly contain zero actionable alerts while still showing evaluation coverage and stale-source exclusions.
-
-
-## Development update: authoritative Alerts authority layer
-
-Status: **IMPLEMENTED; FOCUSED DIGITALOCEAN VALIDATION REQUIRED**
-
-Commits:
-
-- `fe81dfc` — add `swing_strategy_alerts_report.py`
-- `386dcec` — add focused authoritative Alerts regression tests
-
-The isolated publisher:
-
-- Requires current, safe `SWING-001` Enterprise KPI evidence and current daily-cycle evidence.
-- Evaluates current operational-health and authority-audit warnings/errors when available.
-- Rejects required stale or timestamp-free authority evidence.
-- Excludes legacy Executive Dashboard flags when timestamp or authoritative position-count reconciliation fails.
-- Does not convert normal open positions, HOLD decisions, missing closed positions, or stale review rows into alerts.
-- Publishes deterministic advisory alerts, source evaluations, evidence timestamps, excluded-source warnings, and an explicit verified zero-alert message.
-- Generates JSON, CSV, and Markdown atomically.
-- Preserves all paper-only safety constants.
-
-New files:
-
-- `main/src/swing_trade_bot/swing_strategy_alerts_report.py`
-- `main/tests/test_swing_strategy_alerts_report.py`
-
-Next gate:
-
-1. Pull and compile the new module/test.
-2. Run only `test_swing_strategy_alerts_report.py`.
-3. Correct authority-layer failures before integrating it into KPI publication, daily-cycle orchestration, plugin/registration contracts, or portal consumption.
-
-
-## DigitalOcean validation and KPI Alerts integration
-
-Authority-layer validation on DigitalOcean:
-
-- `py_compile`: passed, exit code 0.
-- `test_swing_strategy_alerts_report.py`: **7 passed in 0.38s**, exit code 0.
-
-Integration commits:
-
-- `15d7aef` — allow the alerts builder to consume the in-flight, already validated KPI payload so publication does not depend on an older KPI file.
-- `e2ea029` — declare `swing_strategy_alerts_report.json` in the Enterprise KPI artifact contract; KPI publisher version becomes 2.1.9.
-- `382d836` — generate Alerts JSON/CSV/Markdown during Enterprise KPI publication, embed the report at top-level `alerts` and `dashboard_sections.alerts`, and synchronize artifact availability before the KPI is atomically written.
-
-Architectural decision:
-
-- Preserve the existing 15-stage daily-cycle structure.
-- Publish Alerts through the established post-cycle Enterprise KPI command, the same integration pattern used for dedicated Trade Analytics.
-- Do not add a new trading or execution stage.
-- Registration/plugin/output-contract exposure remains pending until the KPI integration regression suite passes.
-
-
-## DigitalOcean KPI gate passed; Alerts contracts exposed
-
-DigitalOcean KPI integration validation:
-
-- Compile: passed, exit code 0.
-- Focused KPI/Alerts/Trade Analytics/cycle suite: **28 passed in 0.73s**, exit code 0.
-
-Contract exposure commits:
-
-- `49a3ea9` / `3047c7b` — Registry v1.8 configuration and published snapshot declare `alerts` and `swing_strategy_alerts_report.json`.
-- `07740d8` / `ef79978` — registration builder exposes the same capability/artifact in deterministic contract order.
-- `492fc25` — plugin manifest declares Authoritative Strategy Alerts and JSON/CSV/Markdown reports.
-- `fd877b4` — strict output contract declares the three Alerts formats.
-
-Next gate is the focused registration, plugin-manifest, output-contract, KPI, and Alerts regression suite. Locked allowlists may require narrow test updates; do not weaken safety or accept unrelated filenames.
-
-
-## DigitalOcean Alerts contract retest blocked by generated registration snapshot
-
-The attempted contract pull stopped because local generated `main/results/swing_strategy_service_registration.json` would be overwritten. Compile passed and 109 tests passed, but they ran at old head `53cae63`; they are not validation of Alerts contract commits through `5a93e8b`.
-
-Recovery decision:
-
-- Stash only the conflicting tracked generated registration snapshot.
-- Do not include untracked runtime or paper-ledger evidence.
-- Fast-forward to the Alerts contract commits.
-- Do not restore the stale registration snapshot; current config/publication will regenerate it.
-- Retain the targeted stash until post-publication verification.
-- Rerun the same 109-test contract suite on the corrected head.
-
-
-## Alerts contract correction after corrected-head test
-
-Corrected-head contract suite at `6c4cf22` collected 109 tests: 105 passed and 4 failed.
-
-All four failures were narrow contract expectations:
-
-- Registration contract map omitted the new Alerts artifact.
-- Registry filename allowlist omitted `swing_strategy_alerts_report.json`.
-- Alerts CSV output contract used `required_columns` instead of the validator's canonical `columns` key.
-- Inventory validity failed as a consequence of that malformed CSV contract.
-
-Corrections:
-
-- `6292fe0` — recognize the Alerts registration artifact.
-- `90e88f8` — allow the authoritative Alerts filename.
-- `93eaa53` — use the strict CSV `columns` contract.
-
-No production alert logic, allocation, lifecycle, drawdown, execution, or safety behavior changed.
-
-
-## DigitalOcean Alerts contract gate passed
-
-DigitalOcean pulled through `a97ee62` and reran the corrected registration/output/KPI/Alerts suite.
-
-Result: **109 passed in 0.80s**, exit code 0.
-
-Verified:
-
-- Authoritative Alerts source/freshness enforcement.
-- Registry v1.8 capability and artifact contract.
-- Configured and published registration equality.
-- Plugin-compatible deterministic capability naming.
-- Strict JSON/CSV/Markdown output contracts.
-- Enterprise KPI artifact declaration.
-- All paper-only, advisory-only, broker/order/capital safety locks.
-- No Dividend production imports.
-
-Remaining freeze gates are the complete repository suite and deployed cycle/KPI/Alerts artifact verification.
-
-
-## DigitalOcean full-suite Alerts gate passed
-
-Complete repository suite after Alerts authority, KPI, registry, plugin, and strict output-contract integration:
-
-- **1034 passed, 1 skipped in 10.47s**
-- Exit code 0
-
-No regression was found in lifecycle, drawdown, trade analytics, operational runtime, registration, schema/output contracts, or paper safety. Final deployment gate is the real cycle/KPI publication and generated Alerts artifact inspection.
-
-
-## Deployed Alerts classification correction
-
-The deployed cycle and publication passed, but artifact inspection found two KPI disclosure warnings had been classified as actionable Alerts:
-
-- Marked-to-market proxy disclosure.
-- Win rate unavailable until authentic closed trades exist.
-
-This violated the product decision that absence of closed positions is not itself an alert. Corrections:
-
-- `4ba257c` — KPI warnings remain evidence disclosures and are not converted into actionable alerts.
-- `de92188` — regression test locks zero closed trades/reportability disclosures out of Alerts.
-
-Operational cycle/health warnings and errors remain eligible for advisory alerts when current. The expected authentic deployed result is now zero actionable alerts, with KPI disclosures and excluded legacy-dashboard freshness shown separately under evidence warnings.
-
-
-## Alerts disclosure regression assertion correction
-
-Classification suite result: 19 passed, 1 failed. Production classification was correct (`actionable_alert_count = 0`, `alerts = []`). The fixture also correctly disclosed two missing optional sources, so the test's exact total-warning count was too strict.
-
-Commit `f71b16e` now asserts the two required KPI disclosures independently while retaining legitimate optional-source warnings. No production code changed.
-
-
-## Deployed Alerts classification verified
-
-DigitalOcean classification retest after `f71b16e`:
-
-- **20 passed in 0.34s**, exit code 0.
-- Actionable alert count: 0.
-- Alerts: empty list.
-- Explicit message: current authoritative Swing evidence was evaluated and no actionable alerts were found.
-- Evaluation: `COMPLETE_WITH_EVIDENCE_WARNINGS`.
-- KPI Alerts section exactly matches the standalone report.
-- Evidence warnings remain separate:
-  - Mark-to-market proxy KPI disclosure.
-  - Win-rate unavailable until authentic closed trades exist.
-  - Legacy dashboard excluded because timestamp is unavailable.
-- No stale legacy risk flag is actionable.
-
-Because production classification changed after the prior 1034-test run, rerun the complete repository suite once more before final freeze.
-
-
-## Swing Alerts final freeze
-
-Final complete repository suite after the deployed disclosure-classification correction:
-
-- **1035 passed, 1 skipped in 9.14s**
-- Exit code 0
-
-Final authoritative deployed Alerts state:
-
-- Strategy: `SWING-001`
-- Policy: `CURRENT_AUTHORITATIVE_EVIDENCE_ONLY`
-- Actionable alerts: 0
-- Alerts: empty
-- Explicit verified no-actionable-alert message
-- KPI `dashboard_sections.alerts` matches the standalone Alerts report
-- Registration v1.8 declares the `alerts` capability and JSON artifact
-- JSON, CSV, and Markdown artifacts are generated
-- KPI disclosures and excluded stale-dashboard evidence remain separate from actionable alerts
-- Stale legacy reentry, exit, thesis, and repeated theme-cap flags are excluded
-- Paper-only safety and the AI CIO governed $4,500 allocation remain unchanged
-
-Swing-side Alerts publication is complete and frozen. Next work belongs to the Dividend-hosted Enterprise AI CIO consumer: discover the registered Alerts capability/artifact and render actionable alerts separately from evidence disclosures.
-
-
-## Product decision: next development is the Swing Decision Journal
-
-The Enterprise AI CIO portal now consumes the authoritative Swing Alerts report. Zero current actionable alerts is valid and does not depend on a sale; alerts appear only when current authoritative evidence triggers a review.
-
-The remaining empty Swing Decisions tab is a separate publication gap. The current portal reports `Decision Journal status: NOT_REPORTED` even though the Swing cycle already publishes committee decision trace/runtime evidence and current position-management rationale.
-
-Decision:
-
-- The next Swing-owned development is an authoritative Swing Decision Journal report.
-- Do not reuse the Dividend pair-lifecycle data model. Swing decisions are stock/position/candidate decisions.
-- Use the Dividend Decision Journal screenshots only as a presentation reference: compact lifecycle cards, current state/owner, rationale, alternatives, and an evidence timeline.
-- Derive entries only from current-cycle Swing committee trace, committee runtime evidence, current authoritative holdings/owning strategy, watchlist/opportunity evidence, and paper lifecycle evidence that passes freshness/identity reconciliation.
-- Expected decision types may include `HOLD`, `WAITING_FOR_ENTRY`, `ENTRY_REVIEW`, `EXIT_REVIEW`, and other already-produced Swing advisory states. Do not invent BUY/SELL/exit decisions.
-- Current open positions such as SOXL and TQQQ should be able to show their current HOLD decision and strategy-owned rationale when supported by current evidence.
-- Candidate decisions should remain separate from held-position decisions.
-- Reject stale July lifecycle/reentry/exit/thesis fixtures under the same freshness model used by Alerts.
-- Publish a registered `decision_journal` capability/artifact and an Enterprise KPI decision section for host consumption.
-- Preserve SWING-001, the governed $4,500 allocation, and every paper-only safety control.
-- Add regression coverage for current-cycle authority, position/candidate separation, deterministic timeline ordering, stale evidence rejection, zero-decision disclosure, no fabricated BUY/SELL decisions, atomic publication, contract registration, and safety locks.
-
-Before implementation, inspect the exact deployed shapes and timestamps of `swing_committee_decision_trace.json`, `swing_committee_runtime_evidence.json`, paper portfolio positions, opportunity-quality/watchlist evidence, and any current position-management decision source.
-
-
-## Development update: authoritative Swing Decision Journal authority layer
-
-Status: **IMPLEMENTED; FOCUSED DIGITALOCEAN VALIDATION REQUIRED**
-
-Commits:
-
-- `938f3d2` — add the isolated authoritative Decision Journal report module.
-- `f707c00` — add focused Decision Journal authority and safety regressions.
-
-Inspection decision:
-
-- `rebalance_actions.json` currently contains advisory allocation calculations labeled `BUY` and `SELL`. Those rows are not executed paper trades and are explicitly excluded from Decision Journal authority.
-- Current open-position decisions come only from authoritative Enterprise KPI `trade_analytics.open_positions` evidence. An authentic open position with no authoritative exit decision is presented as `HOLD`; no exit or sale is inferred.
-- Candidate decisions require both current `swing_committee_runtime_evidence.json` and `swing_committee_decision_trace.json`, with matching symbol and `evaluation_cycle_id`.
-- Committee final `WAIT` is presented as `WAITING_FOR_ENTRY`; `ELIGIBLE_FOR_ALLOCATION` as `ENTRY_REVIEW`; `REVIEW` as `EXIT_REVIEW`; and `HOLD` as `HOLD`. No `BUY` or `SELL` journal decision is permitted.
-- Stale committee evidence is disclosed and excluded. Required KPI/cycle evidence that is stale, unsafe, or identity-inconsistent fails closed.
-- Held-position and candidate decisions remain separate, while a deterministic combined list supports portal rendering.
-
-New files:
-
-- `main/src/swing_trade_bot/swing_decision_journal_report.py`
-- `main/tests/test_swing_decision_journal_report.py`
-
-Initial workspace validation:
-
-- Production module and test file compile successfully with `py_compile`.
-- Pytest is not installed in the scratch workspace, so the focused pytest result must be established on DigitalOcean's existing virtual environment.
-
-Focused coverage includes:
-
-- SOXL/TQQQ-style open positions publish only `HOLD` decisions.
-- Candidate decisions remain distinct from held positions.
-- Committee timeline ordering is deterministic.
-- Stale committee evidence is not relabeled as current.
-- Runtime/trace symbol mismatch fails closed.
-- Advisory rebalance `BUY`/`SELL` rows are never consumed.
-- Zero decisions produce an explicit evaluated/no-reportable-decisions disclosure.
-- JSON and Markdown publication is atomic.
-- All paper/broker/order/capital safety constants remain locked.
-
-Next gate:
-
-1. Pull the feature branch on DigitalOcean.
-2. Compile the new module and focused test.
-3. Run only `tests/test_swing_decision_journal_report.py`.
-4. Inspect any failures against the exact deployed committee trace/runtime shapes; do not weaken freshness, identity, or no-fabrication controls.
-5. Only after the authority layer passes, integrate the report into Enterprise KPI publication and the registered `decision_journal` capability/artifact contracts.
-
-
-## DigitalOcean Decision Journal authority gate passed; KPI integration implemented
-
-DigitalOcean validation at `3751b67`:
-
-- `py_compile`: passed, exit code 0.
-- Focused Decision Journal authority suite: **7 passed in 0.15s**, exit code 0.
-
-Enterprise KPI integration commits:
-
-- `ef8c793` — allow the journal builder to consume the validated in-flight KPI payload during atomic publication.
-- `5aa0985` — declare `swing_decision_journal_report.json` in the Enterprise KPI artifact contract; publisher module version becomes 2.1.10.
-- `707f4ed` — generate Decision Journal JSON/Markdown during KPI publication, expose top-level `decision_journal` and `dashboard_sections.decisions`, and synchronize artifact availability.
-- `b71fd60` — add regression coverage for in-flight KPI publication before the prior KPI file exists.
-
-Architecture remains deliberately narrow:
-
-- Decision Journal uses the same post-cycle Enterprise KPI publication pattern as Trade Analytics and Alerts.
-- Existing 15-stage Swing cycle structure is unchanged.
-- Registration, plugin manifest, and strict output contracts are not yet changed; those remain gated on focused KPI integration validation.
-- `rebalance_actions.json` remains explicitly excluded and no BUY/SELL/exit evidence is created.
-
-Next gate:
-
-1. Pull through this handoff commit.
-2. Compile the Decision Journal, KPI publisher, and publication command.
-3. Run Decision Journal, KPI publisher, Trade Analytics, Alerts, and cycle-publication regressions.
-4. Correct any current-evidence shape or publication validation failures narrowly.
-5. Only after this gate passes, expose the registered `decision_journal` capability and JSON/Markdown artifacts.
-
-
-## Decision Journal KPI gate syntax correction
-
-The first DigitalOcean KPI integration gate did not execute product assertions:
-
-- Compile failed with a `SyntaxError` at the new Decision Journal artifact tuple.
-- Pytest stopped during collection with two import errors caused by the same syntax defect.
-- Root cause: the remote file edit inserted the two literal characters `\\n` between the Alerts and Decision Journal artifact tuples instead of an actual newline.
-- This result is not evidence of a Decision Journal logic, KPI contract, lifecycle, or safety failure.
-
-Correction:
-
-- `4d1d27b` — replace only the literal `\\n` with a real source newline.
-- No logic, schemas, allocation, lifecycle, drawdown, trade evidence, or safety controls changed.
-
-Rerun the same compile and focused KPI integration suite after pulling `4d1d27b`.
-
-
-## Decision Journal in-flight KPI signature correction
-
-The syntax-corrected DigitalOcean gate compiled and collected 37 tests. Result: **36 passed, 1 failed in 1.05s**.
-
-The only failure was `test_in_flight_kpi_payload_is_used_before_kpi_file_exists`:
-
-- The integration call correctly passed `kpi_payload=payload`.
-- The production journal builder still had its original signature and raised `TypeError: unexpected keyword argument 'kpi_payload'`.
-- The earlier intended signature edit did not match the source text and therefore was not present in the deployed module.
-
-Correction:
-
-- `08e6ee6` — add the optional `kpi_payload` keyword and prefer that validated in-flight mapping over loading the prior KPI file.
-- File-based behavior remains the fallback when no in-flight payload is supplied.
-- No decision mapping, evidence authority, allocation, lifecycle, drawdown, or safety behavior changed.
-
-Rerun the same 37-test KPI integration suite. Registration/output-contract exposure remains blocked until all 37 pass.
-
-
-## DigitalOcean Decision Journal KPI gate passed; discovery contracts exposed
-
-DigitalOcean pulled through `d0c2a43` and reran the focused KPI integration suite:
-
-- Compile: passed, exit code 0.
-- Decision Journal/KPI/Trade Analytics/Alerts/cycle suite: **37 passed in 0.77s**, exit code 0.
-
-Discovery and output-contract commits:
-
-- `207d671` — registration configuration v1.9 declares `decision_journal` and its authoritative JSON artifact.
-- `0e592c3` — registration builder exposes the same capability/artifact; builder module version becomes 2.3.0.
-- `c28460d` — regenerate the committed registration snapshot from the authoritative configuration.
-- `ef310a9` — plugin manifest v1.7 declares the advisory Decision Journal capability and JSON/Markdown report.
-- `9931314` — strict output contract declares Decision Journal JSON and Markdown artifacts.
-- `a2f542f` — registration contract regression recognizes the new authoritative artifact.
-
-No CSV artifact is declared because the journal's nested committee evidence timeline is represented authoritatively in JSON, with Markdown as its human-readable view.
-
-Next gate:
-
-1. Pull through this handoff commit.
-2. Run registration builder/configuration, Registry v2, plugin manifest, output contract, KPI, and Decision Journal tests.
-3. Narrowly update any locked authoritative filename/capability allowlists revealed by that suite; do not weaken generic validation.
-4. After the contract gate passes, run the full repository suite, deployed cycle/KPI publication, and inspect the authentic generated journal before final freeze.
-
-
-## Decision Journal contract retest blocked by local generated registration
-
-The first DigitalOcean contract-gate pull stopped before loading commits `207d671` through `d6fed14` because local generated `main/results/swing_strategy_service_registration.json` would be overwritten.
-
-Observed command results:
-
-- Compile passed on old head `d0c2a43`.
-- 155 tests passed in 0.75s on old head `d0c2a43`.
-- Those 155 passes are useful baseline regression evidence but are **not validation of the new Decision Journal registration/plugin/output contracts**.
-
-Safe recovery decision:
-
-- Stash only the conflicting tracked generated registration snapshot.
-- Do not use `-u`; preserve all untracked runtime and paper-ledger evidence.
-- Fast-forward to the current feature branch.
-- Do not restore the stale registration snapshot; the authoritative configuration/current publication regenerates it.
-- Retain the targeted stash as a recovery checkpoint until the corrected-head contract suite and deployed publication pass.
-- Rerun the identical 155-test contract suite on the corrected head.
-
-
-## Decision Journal corrected-head contract result and allowlist correction
-
-After the targeted registration stash, DigitalOcean successfully fast-forwarded to the Decision Journal contract commits and ran the 155-test suite on the corrected head.
-
-Result: **154 passed, 1 failed in 0.89s**.
-
-The only failure was the intentionally locked authoritative report-filename set in `test_swing_strategy_service_registration_v2.py`. Production registration correctly declared `swing_decision_journal_report.json`, but the test allowlist still represented the pre-journal contract.
-
-Correction:
-
-- `113900c` — add only `swing_decision_journal_report.json` to the authoritative Swing report filename allowlist.
-- No generic validation was weakened.
-- No production code, journal authority, allocation, lifecycle, drawdown, execution, or safety behavior changed.
-
-Rerun the same corrected-head 155-test contract suite before proceeding to the full repository gate.
-
-
-## Swing Decision Journal contract gate passed
-
-DigitalOcean pulled the authoritative filename allowlist correction and reran the complete corrected-head Decision Journal contract suite.
-
-Result:
-
-- **155 passed in 0.94s**
-- Exit code 0
-
-Verified contract layers:
-
-- Current-evidence Decision Journal authority and safety behavior.
-- In-flight Enterprise KPI publication integration.
-- Registration configuration v1.9 and generated snapshot equality.
-- Registration builder capability/artifact exposure.
-- Registry v2 deterministic capability and authoritative filename rules.
-- Plugin manifest v1.7 JSON/Markdown report declaration.
-- Strict output contract for JSON and Markdown.
-- Existing schema registry, Trade Analytics, KPI, and paper-safety regressions.
-
-The Decision Journal contract gate is complete. The next gate is the full repository suite. Do not run the real cycle or KPI publication until that suite passes.
-
-
-## Swing Decision Journal full repository gate passed
-
-Complete DigitalOcean repository suite after Decision Journal authority, KPI, registration, plugin, output-contract, and allowlist integration:
-
-- **1043 passed, 1 skipped in 5.72s**
-- Exit code 0
-
-No regressions were found in trade lifecycle, closed-position drawdown-through-exit, Trade Analytics, Alerts, committee traceability, operational runtime/health, market-data contracts, registration, or paper-only safety.
-
-Final deployment gate:
-
-1. Run the authentic Swing operational cycle and require 15/15 stages with no errors.
-2. Publish Enterprise KPIs through the normal command; do not edit generated results manually.
-3. Inspect generated Decision Journal JSON/Markdown.
-4. Verify two open-position HOLD decisions for SOXL and TQQQ when current authoritative holdings remain open.
-5. Verify candidate decisions remain separate and derive only from matched current committee runtime/trace evidence.
-6. Verify no BUY, SELL, executed exit, or closed position is fabricated from `rebalance_actions.json`.
-7. Verify KPI `dashboard_sections.decisions` equals the standalone Decision Journal report.
-8. Verify registration v1.9 declares `decision_journal` and the JSON artifact.
-9. Preserve the retained targeted stash until deployment verification completes; do not pop it.
-
-
-## Deployed Decision Journal publication wiring correction
-
-The first real deployment gate produced:
-
-- Full Swing cycle: `COMPLETE`, 15/15 stages, zero errors/warnings, exit code 0.
-- Enterprise KPI command: exit code 0.
-- Decision Journal inspection: failed because `results/swing_decision_journal_report.json` did not exist.
-
-Root cause:
-
-- The artifact contract correctly declared the journal, but the intended edits to `publish_enterprise_strategy_kpis_v21.py` were not present.
-- The command therefore completed normally without importing, building, writing, embedding, or availability-synchronizing the journal.
-- This was a publication wiring defect, not a committee-evidence, cycle, lifecycle, allocation, or safety failure.
-
-Corrections:
-
-- `60ae1bd` — explicitly import/build/write the Decision Journal, publish top-level `decision_journal` and `dashboard_sections.decisions`, and mark its artifact available in the same atomic KPI command.
-- `f1f2e00` — regression lock verifying all five publication wiring points remain present.
-
-Next gate:
-
-1. Pull and compile the corrected publication command.
-2. Run Decision Journal/KPI/Alerts/Trade Analytics/cycle focused tests.
-3. Rerun KPI publication; a full cycle rerun is unnecessary because the just-completed cycle evidence is current and healthy.
-4. Inspect standalone JSON/Markdown, KPI equality, registration, HOLD position decisions, candidate separation, and prohibited BUY/SELL absence.
-5. Rerun the complete repository suite after the new wiring regression before final freeze.
-
-
-## Deployed Swing Decision Journal publication verified
-
-DigitalOcean pulled through `eac9066` and validated the corrected publication wiring:
-
-- Focused Decision Journal/KPI/Alerts/Trade Analytics/cycle suite: **38 passed in 0.62s**, exit code 0.
-- Enterprise KPI republication: exit code 0.
-- `swing_decision_journal_report.json`: generated.
-- `swing_decision_journal_report.md`: generated.
-- Authority policy: `CURRENT_MATCHED_AUTHORITATIVE_EVIDENCE_ONLY`.
-- Evaluation status: `COMPLETE`.
-- Evidence warnings: none.
-- Excluded planning source: `results/rebalance_actions.json`.
-
-Authentic decisions:
-
-- SOXL: scope `OPEN_POSITION`, decision `HOLD`, owner `Strategy A`, state `OPEN`.
-- TQQQ: scope `OPEN_POSITION`, decision `HOLD`, owner `Strategy A`, state `OPEN`.
-- NBIS: scope `CANDIDATE`, decision `WAITING_FOR_ENTRY`, controlling owner `OPPORTUNITY_COMMITTEE`, authoritative committee state `REJECTED`.
-
-Safety and consumer verification:
-
-- No BUY or SELL decision is present.
-- KPI `dashboard_sections.decisions` exactly equals the standalone journal.
-- Registration version 1.9 declares `decision_journal`.
-- Registration declares `swing_decision_journal_report`.
-- No sale, exit, or closed position was fabricated.
-- SWING-001, the governed $4,500 allocation, and paper-only controls remain unchanged.
-
-One final full repository suite is required because the publication wiring regression test was added after the prior 1043-pass run. After that passes, freeze Swing-side Decision Journal development and hand off portal refresh/consumption to the Dividend-hosted AI CIO chat.
-
 
 ## Swing Decision Journal final freeze
 
@@ -1005,12 +142,201 @@ Final authoritative deployed state:
 
 Swing-side Decision Journal development is complete and frozen.
 
-Next work belongs only to the Dividend-hosted Enterprise AI CIO consumer repository:
+## Weekly mapped-universe requalification and Tuesday scheduler — COMPLETE
 
-- Refresh external SWING-001 registry discovery.
-- Consume registered `decision_journal` / `swing_decision_journal_report.json`.
-- Render stock/position/candidate lifecycle cards and committee evidence timelines in the Swing Decisions tab.
-- Do not use the Dividend pair-lifecycle model for Swing.
-- Do not modify Trade-Swing-Bot, reinterpret `rebalance_actions.json`, change the $4,500 allocation, or fabricate BUY/SELL/closed-position evidence.
+Status: **IMPLEMENTED, VALIDATED, DEPLOYED**
 
-Retained DigitalOcean targeted registration stash is only a recovery checkpoint. Do not pop it; it contains the pre-contract generated registration snapshot.
+Purpose:
+
+- Persist known verified underlying → leveraged-vehicle mappings even when a stock is no longer on the active watchlist.
+- Reconsider the full mapped universe weekly using Swing-owned evidence.
+- Promote a mapped name back to `WATCHLIST` when frozen Opportunity Quality Version 1.2 reaches the qualification threshold.
+- Do not automatically create a paper position from weekly qualification; normal Entry Score / committee / paper-trading gates still control purchase eligibility.
+- Reserve `REMOVED` for unavailable/invalid mapped vehicles rather than normal evidence weakening.
+
+Lifecycle behavior:
+
+- Valid mapping leaving active watchlist transitions to `MONITOR`, not permanent removal.
+- `MONITOR -> WATCHLIST` is allowed when weekly OQ requalifies.
+- A previously `REMOVED` candidate may return to `WATCHLIST` when the verified mapping is valid again and weekly OQ selects it.
+- User veto blocks progression.
+- Persistent mapping is not deleted merely because a candidate weakens or leaves the watchlist.
+
+Key lifecycle commits:
+
+- `7466cbd` — allow mapped candidates to return to Swing watchlist
+- `dcf1914` — test mapped candidate watchlist reactivation
+- `920ef52` — reserve REMOVED for unavailable mapped vehicles
+- `97cb357` — test recoverable lifecycle states
+- `925f0f6` — apply unavailable vehicle removal before lifecycle demotion
+- `e87a25a` — cover unavailable vehicles across lifecycle tiers
+
+Focused lifecycle/workflow validation on DigitalOcean:
+
+- **43 passed in 0.69s**
+
+Validated behaviors include:
+
+- stale watchlist + valid mapping -> `MONITOR`
+- unavailable mapped vehicle -> `REMOVED`
+- `MONITOR` can requalify
+- selected previously-removed mapped candidate can reactivate
+- user veto blocks progression
+- persistent mapped universe is reviewed independently of the AI CIO discovery bucket
+- frozen OQ V1.2 ranks mapped underlyings
+- Tuesday workflow remains paper-only and fail-closed at the orchestration boundary
+
+### SEC fundamental evidence configuration
+
+The initial Tuesday integration exposed a runtime configuration problem:
+
+- `SEC_USER_AGENT` was not configured.
+- SEC Companyfacts refresh therefore produced `FETCH_OR_PARSE_ERROR` for all 7 mapped underlyings.
+- The `.env` line was corrected to a quoted value:
+  - `SEC_USER_AGENT="Trade-Swing-Bot percyagenticmay27@gmail.com"`
+- After loading `/home/tradebot/Trade-Swing-Bot/.env`, the SEC refresh produced **7/7 usable fundamental metric sets** with exit code 0.
+
+Validated SEC fundamental availability:
+
+- AMZN: AVAILABLE
+- AVGO: AVAILABLE
+- GOOGL: AVAILABLE
+- NFLX: AVAILABLE
+- NVDA: AVAILABLE
+- PLTR: AVAILABLE
+- SNDK: AVAILABLE
+
+### Runtime evidence precedence correction
+
+A second integration defect was found after SEC fundamentals became available:
+
+- Fresh mapped-underlying evidence files were loaded first.
+- Later generic/stale OQ input files could overwrite those authoritative fresh values with stale zeros.
+- This caused valid fundamental, momentum, conviction, and technical evidence to be suppressed in the weekly OQ calculation.
+
+Fixes:
+
+- `466c715` — preserve authoritative mapped evidence source precedence
+- `5de368d` — regression test proving stale generic evidence cannot overwrite fresh mapped evidence
+
+Focused regression result:
+
+- **21 passed in 0.68s**, exit code 0
+
+### Corrected weekly OQ result
+
+Frozen minimum weekly OQ threshold remains **70.0**. No threshold or frozen V1.2 weight change was made.
+
+Corrected full-evidence ranking:
+
+1. PLTR -> PLTU — OQ **80.59** — selected
+2. NFLX -> NFLU — OQ **75.89** — selected
+3. AMZN -> AMZU — OQ **75.14** — selected
+4. SNDK -> SNXX — OQ **72.71** — selected
+5. NVDA -> NVDX — OQ **70.64** — selected
+6. AVGO -> AVL — OQ **68.74** — not selected; remains persistently mapped for future reconsideration
+7. GOOGL -> GGLL — OQ **54.93** — not selected; remains persistently mapped for future reconsideration
+
+All seven had complete `7/7` component evidence after the precedence fix.
+
+Current authoritative component evidence used by the weekly review:
+
+- AMZN: F 75.31 / MI 90.0 / C 80.83 / M 61.88 / T 50.0 / R 82.5 / PR 100.0
+- AVGO: F 91.08 / MI 80.0 / C 80.5 / M 31.98 / T 30.0 / R 82.5 / PR 100.0
+- GOOGL: F 87.13 / MI 51.67 / C 48.33 / M 55.83 / T 0.0 / R 82.5 / PR 100.0
+- NFLX: F 83.92 / MI 64.17 / C 62.0 / M 64.98 / T 100.0 / R 82.5 / PR 100.0
+- NVDA: F 97.5 / MI 56.67 / C 45.83 / M 43.43 / T 100.0 / R 82.5 / PR 100.0
+- PLTR: F 93.83 / MI 67.5 / C 66.83 / M 82.21 / T 90.0 / R 82.5 / PR 100.0
+- SNDK: F 97.26 / MI 72.5 / C 59.83 / M 67.76 / T 50.0 / R 82.5 / PR 100.0
+
+### Watchlist synchronization validation
+
+Weekly selected underlyings:
+
+- AMZN
+- NFLX
+- NVDA
+- PLTR
+- SNDK
+
+`oq_watchlist_sync.json` showed:
+
+- `promoted_to_watchlist = []`
+- `added_to_watchlist = []`
+- `retained_existing_lifecycle = [AMZN, NFLX, NVDA, PLTR, SNDK]`
+- `veto_blocked = []`
+
+This is correct because all five qualifying names were already in `WATCHLIST`; the sync retained them rather than recreating lifecycle rows.
+
+No weekly selection created a paper position. Weekly OQ remains an eligibility/watchlist lifecycle gate only.
+
+### Tuesday systemd scheduler deployment
+
+Existing deployment files were updated rather than creating duplicate units:
+
+- `deploy/systemd/swing-weekly-mapped-universe-review.service`
+- `deploy/systemd/swing-weekly-mapped-universe-review.timer`
+
+Deployment commits:
+
+- `c50a42c` — harden weekly mapped-universe service and load Swing environment
+- `066f37c` — schedule weekly mapped-universe review Tuesday at 8 PM ET
+
+Deployed service properties:
+
+- `User=tradebot`
+- `Group=tradebot`
+- `WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main`
+- `EnvironmentFile=/home/tradebot/Trade-Swing-Bot/.env`
+- `Environment=PYTHONUNBUFFERED=1`
+- `Environment=PYTHONPATH=/home/tradebot/Trade-Swing-Bot/main:/home/tradebot/Trade-Swing-Bot/main/src`
+- `ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.tuesday_mapped_universe_workflow`
+- `NoNewPrivileges=true`
+- `PrivateTmp=true`
+- `ProtectSystem=full`
+- `ReadWritePaths=/home/tradebot/Trade-Swing-Bot/main`
+- `ReadOnlyPaths=/home/tradebot/Trade-Dividend-Bot`
+
+Deployed timer properties:
+
+- `OnCalendar=Tue *-*-* 20:00:00 America/New_York`
+- `Persistent=true`
+- `AccuracySec=1min`
+- `Unit=swing-weekly-mapped-universe-review.service`
+
+DigitalOcean timer validation:
+
+- `systemctl is-enabled swing-weekly-mapped-universe-review.timer` -> **enabled**
+- `systemctl is-active swing-weekly-mapped-universe-review.timer` -> **active**
+- Next trigger shown by server in CDT: `Tue 2026-08-25 19:00:00 CDT`, which equals Tuesday 8:00 PM America/New_York.
+
+Manual systemd execution validation:
+
+- `sudo systemctl start swing-weekly-mapped-universe-review.service`
+- ExecStart exited `status=0/SUCCESS`
+- Journal: `Tuesday mapped universe workflow: COMPLETE; 5 selected`
+- Service deactivated successfully after the oneshot run, which is expected.
+
+Final generated workflow status after the systemd-run validation:
+
+- `status = COMPLETE`
+- `selected_watchlist_count = 5`
+- `selected_underlyings = [PLTR, NFLX, AMZN, SNDK, NVDA]`
+- `error = None`
+
+The weekly mapped-universe requalification lifecycle and Tuesday 8 PM ET scheduler are complete and deployed.
+
+## Latest complete repository validation
+
+After the later manual-strategy registration alignment and evidence-precedence work, the authoritative full repository suite reached:
+
+- **1258 passed, 1 skipped in 11.89s**
+- Exit code 0
+
+Do not use destructive reset/clean operations on the DigitalOcean checkout. Authentic runtime/generated evidence exists in the working tree. A retained targeted stash containing an older generated registration snapshot is a recovery checkpoint only; do not pop it.
+
+## Next development direction
+
+The mapped-universe weekly lifecycle is complete. Future Swing work should proceed from this state without changing the frozen OQ V1.2 weights or the 70 weekly threshold unless the user explicitly reopens those decisions.
+
+The old `watchlist_report.json` contains legacy Discovery-oriented fields that may not reflect the newer weekly OQ evidence. Do not conflate those fields with Opportunity Quality without a separate contract/design decision.
