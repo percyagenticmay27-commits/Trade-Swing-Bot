@@ -37,6 +37,7 @@
     "daily_cycle_status",
     "decision_journal",
     "executive_dashboard",
+    "manual_strategy",
     "market_data_status",
     "monthly_command_center",
     "opportunity_quality",
@@ -62,6 +63,15 @@
       "artifact_id": "executive_dashboard",
       "artifact_type": "executive_dashboard",
       "path": "results/executive_dashboard.json",
+      "format": "json",
+      "scope": "STRATEGY",
+      "authoritative": true,
+      "required": false
+    },
+    {
+      "artifact_id": "manual_entry_strategy_form_contract",
+      "artifact_type": "manual_strategy",
+      "path": "results/manual_entry_strategy_form_contract.json",
       "format": "json",
       "scope": "STRATEGY",
       "authoritative": true,
