@@ -1,9 +1,10 @@
 [Unit]
-Description=Run Trade Swing Bot mapped-underlying strength review Tuesday after market close
+Description=Run Trade Swing Bot mapped-underlying strength review Tuesday at 8 PM ET
 
 [Timer]
-OnCalendar=Tue *-*-* 16:30:00 America/New_York
+OnCalendar=Tue *-*-* 20:00:00 America/New_York
 Persistent=true
+AccuracySec=1min
 Unit=swing-weekly-mapped-universe-review.service
 
 [Install]
