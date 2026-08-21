@@ -55,13 +55,19 @@ class EntryRule:
 
 @dataclass(frozen=True, slots=True)
 class ManualEntryStrategy:
-    """A user-defined entry strategy specification."""
+    """A user-defined entry strategy specification.
+
+    ``number_of_entries`` controls only how many equal slices the Swing capital
+    allocator may deploy for this strategy. The strategy never owns the dollar
+    allocation itself.
+    """
 
     strategy_id: str
     name: str
     timeframe: str
     rule_logic: RuleLogic
     rules: tuple[EntryRule, ...]
+    number_of_entries: int = 1
     enabled: bool = True
     description: str = ""
     paper_trade_mode: bool = True
@@ -80,6 +86,10 @@ class ManualEntryStrategy:
             raise ValueError("rule_logic must be ALL or ANY")
         if not self.rules:
             raise ValueError("at least one entry rule is required")
+        if not isinstance(self.number_of_entries, int) or isinstance(self.number_of_entries, bool):
+            raise ValueError("number_of_entries must be an integer")
+        if self.number_of_entries < 1:
+            raise ValueError("number_of_entries must be at least 1")
         if not self.paper_trade_mode:
             raise ValueError("paper_trade_mode=True is mandatory")
 
@@ -189,8 +199,9 @@ def write_manual_entry_strategy_registry(
     """Write a validated registry atomically."""
 
     payload = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "paper_trade_mode": True,
+        "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
         "default_strategy_id": registry.default_strategy_id,
         "strategies": [
             {
@@ -225,6 +236,7 @@ def _parse_strategy(item: dict[str, object]) -> ManualEntryStrategy:
         timeframe=str(item["timeframe"]).upper(),
         rule_logic=str(item.get("rule_logic", "ALL")),  # type: ignore[arg-type]
         rules=rules,
+        number_of_entries=int(item.get("number_of_entries", 1)),
         enabled=bool(item.get("enabled", True)),
         description=str(item.get("description", "")),
         paper_trade_mode=bool(item.get("paper_trade_mode", True)),
