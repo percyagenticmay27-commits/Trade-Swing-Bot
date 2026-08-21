@@ -83,7 +83,11 @@ def collect_runtime_evidence(*, results_dir: Path, source_paths: Sequence[Path] 
             target["sources"].append(str(path))
             for output_field, aliases in FIELD_ALIASES.items():
                 value = _first_numeric(row, aliases)
-                if value is not None:
+                # Source order is authoritative: the mapped-underlying evidence
+                # files are intentionally listed first.  Preserve the first
+                # usable value so stale generic/watchlist snapshots cannot
+                # overwrite freshly refreshed mapped-universe evidence.
+                if value is not None and output_field not in target:
                     target[output_field] = value
     return merged
 
