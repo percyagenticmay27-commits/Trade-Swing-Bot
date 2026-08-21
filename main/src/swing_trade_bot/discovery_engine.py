@@ -270,7 +270,7 @@ class DiscoveryEngine:
             if candidate.days_in_status >= 90 and (
                 source_count < 2 or confluence <= 2 or financial_health_score < 60.0
             ):
-                return "REMOVED"
+                return "MONITOR"
             return "WATCHLIST"
         if candidate.status == "MEDIUM":
             return "LOW" if candidate.win_rate < 35.0 or candidate.profit_factor < 1.25 else "MEDIUM"
