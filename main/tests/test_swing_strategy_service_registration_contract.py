@@ -7,6 +7,7 @@ EXPECTED_ROOT = "/home/tradebot/Trade-Swing-Bot/main"
 EXPECTED_ARTIFACTS = {
     "daily_cycle_status": "results/swing_daily_cycle_report.json",
     "executive_dashboard": "results/executive_dashboard.json",
+    "manual_entry_strategy_form_contract": "results/manual_entry_strategy_form_contract.json",
     "market_data_status": "results/market_data_refresh_status.json",
     "monthly_command_center": "results/monthly_command_center.json",
     "opportunity_quality": "results/opportunity_quality_report.json",
