@@ -81,6 +81,38 @@ def test_regime_filters_are_structured_not_comma_storage(tmp_path: Path) -> None
     assert fields["regime_logic"]["choices"] == ["ALL", "ANY"]
 
 
+def test_contract_documents_fields_with_help_and_examples(tmp_path: Path) -> None:
+    registry = tmp_path / "registry.json"
+    _registry(registry)
+    payload = build_manual_entry_strategy_form_contract(registry_path=registry)
+    fields = {item["name"]: item for item in payload["fields"]}
+
+    for name in (
+        "strategy_id",
+        "name",
+        "underlying_symbol",
+        "direction",
+        "timeframe",
+        "session",
+        "number_of_entries",
+        "rule_logic",
+        "rules",
+        "confirmation",
+        "regime_logic",
+        "regime_filters",
+        "exit_policy_id",
+        "reentry_cooldown",
+        "allocation_authority",
+        "paper_trade_mode",
+    ):
+        assert fields[name]["help"]
+        assert fields[name]["example"]
+
+    assert "NFLX" in fields["underlying_symbol"]["example"]
+    assert "close > ema" in fields["rules"]["example"]
+    assert "$600" in fields["number_of_entries"]["example"]
+
+
 def test_contract_is_paper_only_and_host_uses_swing_intake(tmp_path: Path) -> None:
     registry = tmp_path / "registry.json"
     _registry(registry)
