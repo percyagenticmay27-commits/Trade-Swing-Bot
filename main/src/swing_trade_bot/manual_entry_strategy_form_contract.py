@@ -18,15 +18,21 @@ from .manual_entry_strategy_registry import (
     load_manual_entry_strategy_registry,
 )
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 STRATEGY_ID = "SWING-001"
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
 DEFAULT_OUTPUT_PATH = Path("results/manual_entry_strategy_form_contract.json")
 
 
+def _strategy_payload(item: Any) -> dict[str, Any]:
+    payload = asdict(item)
+    payload["rules"] = [asdict(rule) for rule in item.rules]
+    payload["regime_filters"] = [asdict(rule) for rule in item.regime_filters]
+    return payload
+
+
 def build_manual_entry_strategy_form_contract(
-    *,
-    registry_path: Path = DEFAULT_REGISTRY_PATH,
+    *, registry_path: Path = DEFAULT_REGISTRY_PATH,
 ) -> dict[str, Any]:
     registry = load_manual_entry_strategy_registry(registry_path)
     return {
@@ -67,28 +73,24 @@ def build_manual_entry_strategy_form_contract(
         ],
         "current_registry": {
             "default_strategy_id": registry.default_strategy_id,
-            "strategies": [
-                {
-                    **{key: value for key, value in asdict(item).items() if key != "rules"},
-                    "rules": [asdict(rule) for rule in item.rules],
-                }
-                for item in registry.strategies
-            ],
+            "strategies": [_strategy_payload(item) for item in registry.strategies],
             "assignments": [asdict(item) for item in registry.assignments],
         },
         "submission_contract": {
             "mode": "SWING_VALIDATED_INTAKE",
             "host_direct_file_write_allowed": False,
             "paper_only": True,
-            "status": "INTAKE_HANDLER_PENDING",
+            "status": "INTAKE_HANDLER_AVAILABLE",
+            "handler_module": "swing_trade_bot.manual_entry_strategy_intake",
+            "handler_function": "apply_manual_entry_strategy_submission",
+            "allocation_fields_user_writable": False,
+            "execution_vehicle_user_writable": False,
         },
     }
 
 
 def write_manual_entry_strategy_form_contract(
-    payload: dict[str, Any],
-    *,
-    output_path: Path = DEFAULT_OUTPUT_PATH,
+    payload: dict[str, Any], *, output_path: Path = DEFAULT_OUTPUT_PATH,
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
@@ -98,9 +100,7 @@ def write_manual_entry_strategy_form_contract(
 
 
 def build_and_write_manual_entry_strategy_form_contract(
-    *,
-    registry_path: Path = DEFAULT_REGISTRY_PATH,
-    output_path: Path = DEFAULT_OUTPUT_PATH,
+    *, registry_path: Path = DEFAULT_REGISTRY_PATH, output_path: Path = DEFAULT_OUTPUT_PATH,
 ) -> dict[str, Any]:
     payload = build_manual_entry_strategy_form_contract(registry_path=registry_path)
     write_manual_entry_strategy_form_contract(payload, output_path=output_path)
