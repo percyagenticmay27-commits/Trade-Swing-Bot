@@ -6,6 +6,7 @@ import run_swing_bot_cycle
 def test_market_data_failure_blocks_cycle_state_sync_and_kpi_publication():
     with (
         patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_inputs", return_value={}) as discovery,
+        patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_leadership_context", return_value={}) as leadership,
         patch.object(run_swing_bot_cycle, "apply_active_vetoes_to_runtime_candidates", return_value={}) as veto,
         patch.object(run_swing_bot_cycle, "refresh_swing_market_data", return_value=2) as refresh,
         patch.object(run_swing_bot_cycle, "run_cycle") as cycle,
@@ -15,6 +16,7 @@ def test_market_data_failure_blocks_cycle_state_sync_and_kpi_publication():
         assert run_swing_bot_cycle.main() == 2
 
     discovery.assert_called_once_with()
+    leadership.assert_called_once_with()
     veto.assert_called_once_with()
     refresh.assert_called_once_with()
     cycle.assert_not_called()
@@ -25,6 +27,7 @@ def test_market_data_failure_blocks_cycle_state_sync_and_kpi_publication():
 def test_cycle_failure_blocks_state_sync_and_kpi_publication_after_market_data_succeeds():
     with (
         patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_inputs", return_value={}) as discovery,
+        patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_leadership_context", return_value={}) as leadership,
         patch.object(run_swing_bot_cycle, "apply_active_vetoes_to_runtime_candidates", return_value={}) as veto,
         patch.object(run_swing_bot_cycle, "refresh_swing_market_data", return_value=0) as refresh,
         patch.object(run_swing_bot_cycle, "run_cycle", return_value=1) as cycle,
@@ -34,6 +37,7 @@ def test_cycle_failure_blocks_state_sync_and_kpi_publication_after_market_data_s
         assert run_swing_bot_cycle.main() == 1
 
     discovery.assert_called_once_with()
+    leadership.assert_called_once_with()
     veto.assert_called_once_with()
     refresh.assert_called_once_with()
     cycle.assert_called_once_with()
@@ -52,6 +56,7 @@ def test_successful_cycle_keeps_ai_cio_nomination_separate_from_swing_scoring():
 
     with (
         patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_inputs", side_effect=record("discovery", {})),
+        patch.object(run_swing_bot_cycle, "refresh_enterprise_discovery_leadership_context", side_effect=record("leadership", {})),
         patch.object(run_swing_bot_cycle, "apply_active_vetoes_to_runtime_candidates", side_effect=record("veto", {})),
         patch.object(run_swing_bot_cycle, "refresh_swing_market_data", side_effect=record("market_data", 0)),
         patch.object(run_swing_bot_cycle, "run_cycle", side_effect=record("cycle", 0)),
@@ -60,7 +65,7 @@ def test_successful_cycle_keeps_ai_cio_nomination_separate_from_swing_scoring():
     ):
         assert run_swing_bot_cycle.main() == 0
 
-    assert order == ["discovery", "veto", "market_data", "cycle", "state_sync", "publish"]
+    assert order == ["discovery", "leadership", "veto", "market_data", "cycle", "state_sync", "publish"]
 
 
 def test_launcher_has_no_enterprise_financial_health_scoring_dependency():
