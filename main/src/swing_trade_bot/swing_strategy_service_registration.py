@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 MODULE_NAME = "swing_strategy_service_registration"
-MODULE_VERSION = "2.3.0"
+MODULE_VERSION = "2.4.0"
 SCHEMA_VERSION = "1.0"
 PLUGIN_CONTRACT_VERSION = "2.0"
 DEPLOYMENT_ROOT = "/home/tradebot/Trade-Swing-Bot/main"
@@ -26,6 +26,7 @@ CAPABILITIES: tuple[str, ...] = (
     "daily_cycle_status",
     "decision_journal",
     "executive_dashboard",
+    "manual_strategy",
     "market_data_status",
     "monthly_command_center",
     "opportunity_quality",
@@ -54,6 +55,7 @@ def _artifact(artifact_id: str, artifact_type: str, filename: str) -> dict[str, 
 DASHBOARD_ARTIFACTS: tuple[dict[str, object], ...] = (
     _artifact("daily_cycle_status", "daily_cycle_status", "swing_daily_cycle_report.json"),
     _artifact("executive_dashboard", "executive_dashboard", "executive_dashboard.json"),
+    _artifact("manual_entry_strategy_form_contract", "manual_strategy", "manual_entry_strategy_form_contract.json"),
     _artifact("market_data_status", "market_data_status", "market_data_refresh_status.json"),
     _artifact("monthly_command_center", "monthly_command_center", "monthly_command_center.json"),
     _artifact("opportunity_quality", "opportunity_quality", "opportunity_quality_report.json"),
