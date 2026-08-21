@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1",
+  "schema_version": "1.2",
   "paper_trade_mode": true,
   "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
   "default_strategy_id": "SWING_DAILY_TREND_V1",
@@ -8,10 +8,17 @@
       "strategy_id": "SWING_DAILY_TREND_V1",
       "name": "Swing Daily Trend Entry",
       "timeframe": "1D",
+      "direction": "LONG",
+      "session": "REGULAR_SESSION",
       "rule_logic": "ALL",
       "number_of_entries": 1,
       "enabled": true,
       "description": "Current daily WATCHLIST entry gate expressed as user-editable declarative rules. Swing owns total dollar allocation; number_of_entries only controls equal staged slices.",
+      "confirmation": null,
+      "regime_logic": "ALL",
+      "regime_filters": [],
+      "exit_policy_id": null,
+      "reentry_cooldown": null,
       "paper_trade_mode": true,
       "rules": [
         {
