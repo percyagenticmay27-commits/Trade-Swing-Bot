@@ -4,6 +4,12 @@ This module does not write watchlist_report.json and never creates positions. It
 updates only durable candidate lifecycle state so the existing daily DiscoveryEngine
 can continue to own watchlist reporting, Entry Score/timing, and later paper-only
 progression. Active user vetoes block progression but do not erase durable state.
+
+A verified underlying-to-leveraged-vehicle mapping is persistent strategy memory.
+A candidate that previously left the active watchlist may therefore be selected by
+the weekly mapped-universe Opportunity Quality review and promoted back to WATCHLIST.
+That promotion is watchlist attention only: it never creates a position, bypasses
+Entry Score, or authorizes broker execution.
 """
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ SCHEMA_VERSION = "1.0"
 DEFAULT_REVIEW_PATH = Path("results/weekly_mapped_universe_review.json")
 DEFAULT_REPORT_PATH = Path("results/oq_watchlist_sync.json")
 PRESERVE_STATUSES = {"WATCHLIST", "LOW", "MEDIUM", "HIGH"}
-PROMOTABLE_STATUSES = {"DISCOVERY", "MONITOR"}
+PROMOTABLE_STATUSES = {"DISCOVERY", "MONITOR", "REMOVED"}
 
 
 def _utc_now() -> str:
@@ -55,9 +61,11 @@ def synchronize_oq_watchlist_state(
 ) -> dict[str, Any]:
     """Apply OQ selection to durable candidate lifecycle without execution.
 
-    Selected DISCOVERY/MONITOR names become WATCHLIST. Existing WATCHLIST/LOW/
-    MEDIUM/HIGH states are preserved. REMOVED is never resurrected automatically.
-    Non-selected names are never promoted or forcibly demoted by this bridge.
+    Selected DISCOVERY/MONITOR/REMOVED names become WATCHLIST when the verified
+    persistent mapping still exists. Existing WATCHLIST/LOW/MEDIUM/HIGH states are
+    preserved. Non-selected names are never promoted or forcibly demoted by this
+    bridge. Active user vetoes always block progression without erasing mapping or
+    candidate state.
     """
     base = Path(root) if root is not None else Path.cwd()
     review = _load_review(base / Path(review_path))
@@ -76,6 +84,7 @@ def synchronize_oq_watchlist_state(
     index = {candidate.underlying_symbol.upper(): i for i, candidate in enumerate(updated)}
 
     promoted: list[str] = []
+    reactivated: list[str] = []
     retained: list[str] = []
     added: list[str] = []
     veto_blocked: list[str] = []
@@ -110,10 +119,6 @@ def synchronize_oq_watchlist_state(
             retained.append(symbol)
             metadata.setdefault(symbol, {})["lifecycle_reason"] = "OQ_V1_2_SELECTED_EXISTING_STATE_PRESERVED"
             continue
-        if status == "REMOVED":
-            removed_preserved.append(symbol)
-            metadata.setdefault(symbol, {})["lifecycle_reason"] = "OQ_V1_2_SELECTED_REMOVED_STATE_PRESERVED"
-            continue
         if status in PROMOTABLE_STATUSES:
             promoted_candidate = replace(
                 existing,
@@ -125,7 +130,11 @@ def synchronize_oq_watchlist_state(
             updated[index[symbol]] = promoted_candidate
             by_symbol[symbol] = promoted_candidate
             promoted.append(symbol)
-            metadata.setdefault(symbol, {})["lifecycle_reason"] = "OQ_V1_2_SELECTED_FOR_WATCHLIST"
+            if status == "REMOVED":
+                reactivated.append(symbol)
+                metadata.setdefault(symbol, {})["lifecycle_reason"] = "OQ_V1_2_SELECTED_REACTIVATED_WATCHLIST"
+            else:
+                metadata.setdefault(symbol, {})["lifecycle_reason"] = "OQ_V1_2_SELECTED_FOR_WATCHLIST"
             continue
         raise ValueError(f"Unsupported candidate lifecycle status for {symbol}: {existing.status}")
 
@@ -143,8 +152,10 @@ def synchronize_oq_watchlist_state(
         "entry_score_bypassed": False,
         "generated_at_utc": _utc_now(),
         "authority": "FROZEN_OPPORTUNITY_QUALITY_V1_2_SELECTION_TO_DURABLE_SWING_LIFECYCLE",
+        "persistent_mapping_requalification_enabled": True,
         "selected_underlyings": selected,
         "promoted_to_watchlist": promoted,
+        "reactivated_to_watchlist": reactivated,
         "retained_existing_lifecycle": retained,
         "added_to_watchlist": added,
         "veto_blocked": veto_blocked,
