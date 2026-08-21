@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "paper_trade_mode": true,
+  "default_strategy_id": "SWING_DAILY_TREND_V1",
+  "strategies": [
+    {
+      "strategy_id": "SWING_DAILY_TREND_V1",
+      "name": "Swing Daily Trend Entry",
+      "timeframe": "1D",
+      "rule_logic": "ALL",
+      "enabled": true,
+      "description": "Current daily WATCHLIST entry gate expressed as user-editable declarative rules.",
+      "paper_trade_mode": true,
+      "rules": [
+        {
+          "left": "close",
+          "operator": ">",
+          "right": "ema",
+          "period": 20,
+          "label": "Close above EMA(20)"
+        },
+        {
+          "left": "close",
+          "operator": ">",
+          "right": "sma",
+          "period": 50,
+          "label": "Close above SMA(50)"
+        },
+        {
+          "left": "rsi",
+          "operator": "between",
+          "right": [45.0, 65.0],
+          "period": 14,
+          "label": "RSI(14) between 45 and 65"
+        },
+        {
+          "left": "volume",
+          "operator": ">",
+          "right": "volume_average",
+          "period": 20,
+          "label": "Volume above prior 20-day average"
+        },
+        {
+          "left": "market_filter",
+          "operator": "==",
+          "right": 1.0,
+          "label": "Market filter satisfied"
+        }
+      ]
+    }
+  ],
+  "assignments": []
+}
