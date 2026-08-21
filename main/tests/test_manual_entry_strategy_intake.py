@@ -108,7 +108,9 @@ def test_intake_regenerates_host_readable_contract(tmp_path: Path) -> None:
     )
     contract = json.loads(form_path.read_text(encoding="utf-8"))
 
-    assert contract["submission_contract"]["status"] == "INTAKE_HANDLER_AVAILABLE"
+    assert contract["submission_contract"]["status"] == "AVAILABLE"
+    assert contract["submission_contract"]["host_route"] == "/strategy/manual-entry"
+    assert contract["submission_contract"]["host_transport"] == "LOCAL_SWING_CLI_STDIN_JSON"
     assert contract["current_registry"]["assignments"][0]["underlying_symbol"] == "NFLX"
     assert contract["current_registry"]["strategies"][0]["number_of_entries"] == 2
 
