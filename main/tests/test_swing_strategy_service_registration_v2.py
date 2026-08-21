@@ -17,6 +17,7 @@ PUBLISHED_PATH = Path("results/swing_strategy_service_registration.json")
 ALLOWED_REPORT_FILENAMES = {
     "opportunity_quality_report.json",
     "executive_dashboard.json",
+    "manual_entry_strategy_form_contract.json",
     "monthly_command_center.json",
     "portfolio_allocations.json",
     "trade_lifecycle_report.json",
