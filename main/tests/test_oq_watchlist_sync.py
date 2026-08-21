@@ -112,14 +112,41 @@ def test_active_veto_blocks_oq_progression_and_preserves_state(tmp_path: Path) -
     assert report["veto_blocked"] == ["NVDA"]
 
 
-def test_removed_candidate_is_not_resurrected(tmp_path: Path) -> None:
+def test_selected_removed_candidate_is_reactivated_from_persistent_mapping(tmp_path: Path) -> None:
     _registry(tmp_path)
     _review(tmp_path, ["NVDA"])
-    _state(tmp_path, [CandidateState("NVDA", "NVDX", status="REMOVED")])
+    _state(tmp_path, [CandidateState("NVDA", "NVDX", status="REMOVED", days_in_status=45, leveraged_vehicle_exists=False)])
+    report = synchronize_oq_watchlist_state(root=tmp_path)
+    candidates, metadata = load_candidate_state(root=tmp_path)
+    assert candidates[0].status == "WATCHLIST"
+    assert candidates[0].leveraged_symbol == "NVDX"
+    assert candidates[0].leveraged_vehicle_exists is True
+    assert candidates[0].days_in_status == 0
+    assert report["promoted_to_watchlist"] == ["NVDA"]
+    assert report["reactivated_to_watchlist"] == ["NVDA"]
+    assert report["removed_state_preserved"] == []
+    assert report["persistent_mapping_requalification_enabled"] is True
+    assert metadata["NVDA"]["lifecycle_reason"] == "OQ_V1_2_SELECTED_REACTIVATED_WATCHLIST"
+
+
+def test_active_veto_blocks_removed_candidate_reactivation_without_erasing_state(tmp_path: Path) -> None:
+    _registry(tmp_path)
+    _review(tmp_path, ["NVDA"])
+    _state(tmp_path, [CandidateState("NVDA", "NVDX", status="REMOVED", days_in_status=45)])
+    ledger = tmp_path / "results" / "user_veto_ledger.json"
+    ledger.write_text(json.dumps({
+        "schema_version": "1.0",
+        "strategy_id": "SWING-001",
+        "paper_trade_mode": True,
+        "approval_required": False,
+        "events": [{"symbol": "NVDA", "action": "VETO"}],
+    }), encoding="utf-8")
     report = synchronize_oq_watchlist_state(root=tmp_path)
     candidates, _ = load_candidate_state(root=tmp_path)
     assert candidates[0].status == "REMOVED"
-    assert report["removed_state_preserved"] == ["NVDA"]
+    assert candidates[0].days_in_status == 45
+    assert report["reactivated_to_watchlist"] == []
+    assert report["veto_blocked"] == ["NVDA"]
 
 
 def test_missing_selected_candidate_is_added_from_verified_mapping_only(tmp_path: Path) -> None:
