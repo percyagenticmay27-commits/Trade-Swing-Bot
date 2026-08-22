@@ -9,17 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .manual_entry_strategy_form_contract import (
-    DEFAULT_OUTPUT_PATH,
-    build_and_write_manual_entry_strategy_form_contract,
-)
-from .manual_entry_strategy_registry import (
-    ManualEntryStrategyRegistry,
-    UnderlyingEntryAssignment,
-    load_manual_entry_strategy_registry,
-    write_manual_entry_strategy_registry,
-)
-from .strategy_assignment_shadow_report import build_and_write_strategy_assignment_shadow_report
+from .manual_entry_strategy_form_contract import DEFAULT_OUTPUT_PATH, build_and_write_manual_entry_strategy_form_contract
+from .manual_entry_strategy_registry import ManualEntryStrategyRegistry, UnderlyingEntryAssignment, load_manual_entry_strategy_registry, write_manual_entry_strategy_registry
+from .strategy_assignment_shadow_report import DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH, build_and_write_strategy_assignment_shadow_report
 
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
 
@@ -48,6 +40,7 @@ def promote_shadow_strategy(
     user_confirmed: bool,
     registry_path: Path = DEFAULT_REGISTRY_PATH,
     form_contract_path: Path = DEFAULT_OUTPUT_PATH,
+    assignment_report_path: Path = DEFAULT_ASSIGNMENT_REPORT_PATH,
 ) -> ShadowPromotionResult:
     if not user_confirmed:
         raise PermissionError("explicit user confirmation is required for shadow promotion")
@@ -62,28 +55,11 @@ def promote_shadow_strategy(
     if target not in known:
         raise ValueError(f"Unknown strategy_id {target}")
 
-    shadow_match = next(
-        (
-            item for item in registry.assignments
-            if item.underlying_symbol == symbol
-            and item.strategy_id == target
-            and item.assignment_mode == "SHADOW"
-            and item.enabled
-        ),
-        None,
-    )
+    shadow_match = next((item for item in registry.assignments if item.underlying_symbol == symbol and item.strategy_id == target and item.assignment_mode == "SHADOW" and item.enabled), None)
     if shadow_match is None:
         raise ValueError("strategy must be an enabled SHADOW assignment before promotion")
 
-    previous_direct = next(
-        (
-            item for item in registry.assignments
-            if item.underlying_symbol == symbol
-            and item.assignment_mode == "DIRECT"
-            and item.enabled
-        ),
-        None,
-    )
+    previous_direct = next((item for item in registry.assignments if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" and item.enabled), None)
 
     assignments: list[UnderlyingEntryAssignment] = []
     for item in registry.assignments:
@@ -93,7 +69,6 @@ def promote_shadow_strategy(
         if item.strategy_id == target and item.assignment_mode == "SHADOW":
             continue
         if item.assignment_mode == "DIRECT":
-            # Preserve the previous direct as a shadow challenger.
             if item.strategy_id != target:
                 assignments.append(
                     UnderlyingEntryAssignment(
@@ -124,17 +99,12 @@ def promote_shadow_strategy(
         paper_trade_mode=True,
     )
     write_manual_entry_strategy_registry(registry_path, updated)
-    build_and_write_manual_entry_strategy_form_contract(
-        registry_path=registry_path,
-        output_path=form_contract_path,
-    )
-    build_and_write_strategy_assignment_shadow_report(registry_path=registry_path)
+    build_and_write_manual_entry_strategy_form_contract(registry_path=registry_path, output_path=form_contract_path)
+    build_and_write_strategy_assignment_shadow_report(registry_path=registry_path, output_path=assignment_report_path)
     return ShadowPromotionResult(
         status="PROMOTED",
         underlying_symbol=symbol,
         promoted_strategy_id=target,
-        previous_direct_strategy_id=(
-            None if previous_direct is None else previous_direct.strategy_id
-        ),
+        previous_direct_strategy_id=None if previous_direct is None else previous_direct.strategy_id,
         user_confirmed=True,
     )
