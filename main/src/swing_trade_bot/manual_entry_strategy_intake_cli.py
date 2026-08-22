@@ -14,8 +14,11 @@ from typing import Any
 
 from .manual_entry_strategy_intake import apply_manual_entry_strategy_submission
 
+PAPER_TRADE_MODE = True
+
 
 def run_cli(stdin_text: str) -> tuple[int, dict[str, Any]]:
+    """Run one intake request and always return a paper-only JSON envelope."""
     try:
         payload = json.loads(stdin_text)
         if not isinstance(payload, dict):
@@ -26,11 +29,12 @@ def run_cli(stdin_text: str) -> tuple[int, dict[str, Any]]:
             "paper_trade_mode": True,
             "result": asdict(result),
         }
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+    except Exception as exc:  # transport boundary must never leak a traceback to the host
         return 2, {
             "ok": False,
             "paper_trade_mode": True,
-            "error": str(exc),
+            "error": str(exc) or exc.__class__.__name__,
+            "error_type": exc.__class__.__name__,
         }
 
 
