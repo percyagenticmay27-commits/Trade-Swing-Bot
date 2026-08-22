@@ -3,7 +3,8 @@
 This module is configuration-only and paper-only. It lets a user define named
 entry strategies and assign one DIRECT strategy plus multiple SHADOW strategies
 to an underlying. DIRECT resolution alone may feed future entry authorization;
-SHADOW assignments are research-only and cannot create positions or move capital.
+SHADOW assignments are research-only and cannot create positions, move capital,
+or expose broker orders or live execution paths.
 """
 from __future__ import annotations
 
