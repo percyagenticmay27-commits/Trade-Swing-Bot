@@ -161,6 +161,75 @@ def _build_strategy(submission: Mapping[str, Any]) -> ManualEntryStrategy:
     )
 
 
+def _replace_direct_preserving_shadow_history(
+    assignments: tuple[UnderlyingEntryAssignment, ...],
+    incoming: UnderlyingEntryAssignment,
+) -> tuple[UnderlyingEntryAssignment, ...]:
+    """Install one DIRECT while preserving a displaced DIRECT as SHADOW research."""
+    symbol = incoming.underlying_symbol
+    current_direct = next(
+        (
+            item
+            for item in assignments
+            if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT"
+        ),
+        None,
+    )
+
+    # Re-saving the current DIRECT is idempotent: update that assignment only,
+    # and remove any legacy self-SHADOW so the active strategy never shadows itself.
+    if current_direct is not None and current_direct.strategy_id == incoming.strategy_id:
+        output = [
+            item
+            for item in assignments
+            if not (
+                item.underlying_symbol == symbol
+                and item.strategy_id == incoming.strategy_id
+                and item.assignment_mode in {"DIRECT", "SHADOW"}
+            )
+        ]
+        output.append(incoming)
+        return tuple(output)
+
+    output: list[UnderlyingEntryAssignment] = []
+    displaced_shadow: UnderlyingEntryAssignment | None = None
+    if current_direct is not None:
+        displaced_shadow = UnderlyingEntryAssignment(
+            underlying_symbol=current_direct.underlying_symbol,
+            strategy_id=current_direct.strategy_id,
+            assignment_mode="SHADOW",
+            enabled=current_direct.enabled,
+            note=current_direct.note,
+        )
+
+    shadow_reused = False
+    for item in assignments:
+        if item.underlying_symbol != symbol:
+            output.append(item)
+            continue
+        if item.assignment_mode == "DIRECT":
+            # The old DIRECT is replaced by the incoming DIRECT below.
+            continue
+        if item.strategy_id == incoming.strategy_id and item.assignment_mode == "SHADOW":
+            # A strategy promoted/assigned DIRECT must not simultaneously shadow itself.
+            continue
+        if (
+            displaced_shadow is not None
+            and item.strategy_id == displaced_shadow.strategy_id
+            and item.assignment_mode == "SHADOW"
+        ):
+            if not shadow_reused:
+                output.append(displaced_shadow)
+                shadow_reused = True
+            continue
+        output.append(item)
+
+    if displaced_shadow is not None and not shadow_reused:
+        output.append(displaced_shadow)
+    output.append(incoming)
+    return tuple(output)
+
+
 def apply_manual_entry_strategy_submission(
     submission: Mapping[str, Any],
     *,
@@ -192,9 +261,7 @@ def apply_manual_entry_strategy_submission(
         note=str(submission.get("assignment_note", "")),
     )
     if mode == "DIRECT":
-        assignments = tuple(assignment if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" else item for item in registry.assignments)
-        if not any(item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" for item in registry.assignments):
-            assignments += (assignment,)
+        assignments = _replace_direct_preserving_shadow_history(registry.assignments, assignment)
     else:
         assignments = tuple(assignment if item.underlying_symbol == symbol and item.strategy_id == strategy.strategy_id and item.assignment_mode == "SHADOW" else item for item in registry.assignments)
         if assignment_key not in assignment_keys:
