@@ -105,11 +105,18 @@ def test_shadow_signals_use_underlying_but_pl_uses_verified_vehicle(tmp_path: Pa
     assert row["evidence_status"] == "AVAILABLE"
     assert row["simulated_allocation"] == 600.0
     assert row["trade_count"] == 1
-    assert row["net_pl"] == -200.0
-    assert row["max_drawdown"] <= -200.0
+    # The runner waits through its warm-up window, so the first qualifying entry
+    # is the fourth bar: NFLU $50. The next underlying exit occurs at NFLU $20.
+    # $600 / $50 = 12 shares; 12 * ($20 - $50) = -$360.
+    assert row["net_pl"] == -360.0
+    assert row["max_drawdown"] <= -360.0
     assert result["signal_price_authority"] == "UNDERLYING_MARKET_DATA"
     assert result["pnl_price_authority"] == "VERIFIED_MAPPED_VEHICLE_MARKET_DATA"
     assert result["ledger_rows"][0]["vehicle_symbol"] == "NFLU"
+    assert result["ledger_rows"][0]["event"] == "ENTRY"
+    assert result["ledger_rows"][0]["vehicle_price"] == 50.0
+    assert result["ledger_rows"][1]["event"] == "EXIT"
+    assert result["ledger_rows"][1]["vehicle_price"] == 20.0
 
 
 def test_missing_mapping_allocation_and_market_data_fail_closed(tmp_path: Path) -> None:
@@ -164,7 +171,7 @@ def test_runner_writes_separate_ledger_performance_and_assignment_report(tmp_pat
     assert performance_payload["rows"][0]["promotion_recommended"] is False
     shadow = assignment_payload["rows"][0]["shadow_strategies"][0]
     assert shadow["strategy_id"] == "SHADOW_A"
-    assert shadow["net_pl"] == -200.0
+    assert shadow["net_pl"] == -360.0
     assert shadow["promotion_recommended"] is False
 
 
