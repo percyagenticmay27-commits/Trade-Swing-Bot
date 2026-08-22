@@ -49,4 +49,21 @@ def test_cli_rejects_invalid_json_without_traceback() -> None:
     code, response = cli.run_cli("not-json")
     assert code == 2
     assert response["ok"] is False
+    assert response["paper_trade_mode"] is True
     assert "error" in response
+
+
+def test_cli_wraps_unexpected_intake_error_in_paper_only_json(monkeypatch) -> None:
+    def boom(payload):
+        raise RuntimeError("unexpected intake failure")
+
+    monkeypatch.setattr(cli, "apply_manual_entry_strategy_submission", boom)
+    code, response = cli.run_cli(json.dumps({"strategy_id": "NFLX_TEST"}))
+
+    assert code == 2
+    assert response == {
+        "ok": False,
+        "paper_trade_mode": True,
+        "error": "unexpected intake failure",
+        "error_type": "RuntimeError",
+    }
