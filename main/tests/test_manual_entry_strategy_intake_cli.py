@@ -10,10 +10,12 @@ def test_cli_delegates_valid_json_to_swing_intake(monkeypatch) -> None:
         status = "SAVED"
         strategy_id = "NFLX_TEST"
         underlying_symbol = "NFLX"
+        assignment_mode = "DIRECT"
         created_strategy = True
         created_assignment = True
         registry_path = "configs/manual_entry_strategies.json"
         form_contract_path = "results/manual_entry_strategy_form_contract.json"
+        assignment_report_path = "results/strategy_assignment_shadow_report.json"
 
     def fake_apply(payload):
         captured.update(payload)
@@ -22,10 +24,12 @@ def test_cli_delegates_valid_json_to_swing_intake(monkeypatch) -> None:
             status=Result.status,
             strategy_id=Result.strategy_id,
             underlying_symbol=Result.underlying_symbol,
+            assignment_mode=Result.assignment_mode,
             created_strategy=Result.created_strategy,
             created_assignment=Result.created_assignment,
             registry_path=Result.registry_path,
             form_contract_path=Result.form_contract_path,
+            assignment_report_path=Result.assignment_report_path,
         )
 
     monkeypatch.setattr(cli, "apply_manual_entry_strategy_submission", fake_apply)
@@ -35,6 +39,8 @@ def test_cli_delegates_valid_json_to_swing_intake(monkeypatch) -> None:
     assert response["ok"] is True
     assert response["paper_trade_mode"] is True
     assert response["result"]["strategy_id"] == "NFLX_TEST"
+    assert response["result"]["assignment_mode"] == "DIRECT"
+    assert response["result"]["assignment_report_path"] == "results/strategy_assignment_shadow_report.json"
     assert captured["strategy_id"] == "NFLX_TEST"
 
 
