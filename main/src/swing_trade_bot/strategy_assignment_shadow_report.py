@@ -89,21 +89,8 @@ def build_strategy_assignment_shadow_report(
     symbols = sorted({item.underlying_symbol for item in registry.assignments})
     rows: list[dict[str, Any]] = []
     for symbol in symbols:
-        direct = next(
-            (
-                item for item in registry.assignments
-                if item.underlying_symbol == symbol
-                and item.assignment_mode == "DIRECT"
-                and item.enabled
-            ),
-            None,
-        )
-        shadows = [
-            item for item in registry.assignments
-            if item.underlying_symbol == symbol
-            and item.assignment_mode == "SHADOW"
-            and item.enabled
-        ]
+        direct = next((item for item in registry.assignments if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" and item.enabled), None)
+        shadows = [item for item in registry.assignments if item.underlying_symbol == symbol and item.assignment_mode == "SHADOW" and item.enabled]
         shadow_rows: list[dict[str, Any]] = []
         for assignment in shadows:
             strategy = by_id[assignment.strategy_id]
@@ -162,9 +149,19 @@ def write_strategy_assignment_shadow_report(payload: Mapping[str, Any], *, outpu
     return output_path
 
 
-def build_and_write_strategy_assignment_shadow_report(**kwargs: Any) -> dict[str, Any]:
-    payload = build_strategy_assignment_shadow_report(**kwargs)
-    write_strategy_assignment_shadow_report(payload)
+def build_and_write_strategy_assignment_shadow_report(
+    *,
+    registry_path: Path = DEFAULT_REGISTRY_PATH,
+    allocation_path: Path = DEFAULT_ALLOCATION_PATH,
+    shadow_performance_path: Path = DEFAULT_SHADOW_PERFORMANCE_PATH,
+    output_path: Path = DEFAULT_OUTPUT_PATH,
+) -> dict[str, Any]:
+    payload = build_strategy_assignment_shadow_report(
+        registry_path=registry_path,
+        allocation_path=allocation_path,
+        shadow_performance_path=shadow_performance_path,
+    )
+    write_strategy_assignment_shadow_report(payload, output_path=output_path)
     return payload
 
 
