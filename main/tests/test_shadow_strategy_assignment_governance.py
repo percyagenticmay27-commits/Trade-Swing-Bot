@@ -10,7 +10,7 @@ from swing_trade_bot.strategy_assignment_shadow_report import build_strategy_ass
 
 
 def _registry(path: Path) -> None:
-    path.write_text(json.dumps({"schema_version": "1.3", "paper_trade_mode": True, "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR", "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY", "default_strategy_id": None, "strategies": [], "assignments": []}), encoding="utf-8")
+    path.write_text(json.dumps({"schema_version": "1.4", "paper_trade_mode": True, "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR", "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY", "default_strategy_id": None, "strategies": [], "assignments": []}), encoding="utf-8")
 
 
 def _submission(strategy_id: str, mode: str) -> dict:
@@ -28,13 +28,14 @@ def test_one_direct_and_multiple_shadows_can_coexist(tmp_path: Path) -> None:
     assert len(registry.assignments) == 3
 
 
-def test_saving_new_direct_replaces_only_direct_and_preserves_shadows(tmp_path: Path) -> None:
+def test_saving_new_direct_demotes_old_direct_and_preserves_existing_shadows(tmp_path: Path) -> None:
     registry_path = tmp_path / "registry.json"; form_path = tmp_path / "form.json"; _registry(registry_path)
     for sid, mode in (("DIRECT_A", "DIRECT"), ("SHADOW_B", "SHADOW"), ("DIRECT_D", "DIRECT")):
         apply_manual_entry_strategy_submission(_submission(sid, mode), registry_path=registry_path, form_contract_path=form_path)
     registry = load_manual_entry_strategy_registry(registry_path)
     assert registry.resolve("NFLX").strategy_id == "DIRECT_D"
-    assert [item.strategy_id for item in registry.shadow_strategies("NFLX")] == ["SHADOW_B"]
+    assert {item.strategy_id for item in registry.shadow_strategies("NFLX")} == {"DIRECT_A", "SHADOW_B"}
+    assert len([item for item in registry.assignments if item.underlying_symbol == "NFLX" and item.assignment_mode == "DIRECT"]) == 1
 
 
 def test_shadow_report_uses_same_current_swing_allocation_as_simulated_only(tmp_path: Path) -> None:
