@@ -1,7 +1,8 @@
 {
-  "schema_version": "1.2",
+  "schema_version": "1.3",
   "paper_trade_mode": true,
   "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
+  "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
   "default_strategy_id": "SWING_DAILY_TREND_V1",
   "strategies": [
     {
