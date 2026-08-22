@@ -47,6 +47,7 @@ class ManualStrategyIntakeResult:
     status: str
     strategy_id: str
     underlying_symbol: str
+    assignment_mode: str
     created_strategy: bool
     created_assignment: bool
     registry_path: str
@@ -94,6 +95,9 @@ def _validate_submission_authority(submission: Mapping[str, Any]) -> None:
         raise ValueError("paper_trade_mode=True is mandatory")
     if submission.get("direction", "LONG").upper() != "LONG":
         raise ValueError("Only LONG manual entry strategies are supported")
+    mode = str(submission.get("assignment_mode", "DIRECT")).strip().upper()
+    if mode not in {"DIRECT", "SHADOW"}:
+        raise ValueError("assignment_mode must be DIRECT or SHADOW")
 
 
 def _build_strategy(submission: Mapping[str, Any]) -> ManualEntryStrategy:
@@ -133,16 +137,21 @@ def apply_manual_entry_strategy_submission(
     registry_path: Path = DEFAULT_REGISTRY_PATH,
     form_contract_path: Path = DEFAULT_OUTPUT_PATH,
 ) -> ManualStrategyIntakeResult:
-    """Validate and atomically persist one strategy + underlying assignment."""
+    """Validate and atomically persist one strategy + DIRECT/SHADOW assignment."""
     _validate_submission_authority(submission)
     strategy = _build_strategy(submission)
     symbol = str(submission["underlying_symbol"]).strip().upper()
-    if not symbol or symbol != str(submission["underlying_symbol"]).strip().upper():
+    mode = str(submission.get("assignment_mode", "DIRECT")).strip().upper()
+    if not symbol:
         raise ValueError("underlying_symbol is required")
 
     registry = load_manual_entry_strategy_registry(registry_path)
     strategy_ids = {item.strategy_id for item in registry.strategies}
-    assigned_symbols = {item.underlying_symbol for item in registry.assignments}
+    assignment_key = (symbol, strategy.strategy_id, mode)
+    assignment_keys = {
+        (item.underlying_symbol, item.strategy_id, item.assignment_mode)
+        for item in registry.assignments
+    }
 
     strategies = tuple(
         strategy if item.strategy_id == strategy.strategy_id else item
@@ -154,15 +163,38 @@ def apply_manual_entry_strategy_submission(
     assignment = UnderlyingEntryAssignment(
         underlying_symbol=symbol,
         strategy_id=strategy.strategy_id,
+        assignment_mode=mode,  # type: ignore[arg-type]
         enabled=bool(submission.get("assignment_enabled", True)),
         note=str(submission.get("assignment_note", "")),
     )
-    assignments = tuple(
-        assignment if item.underlying_symbol == symbol else item
-        for item in registry.assignments
-    )
-    if symbol not in assigned_symbols:
-        assignments += (assignment,)
+
+    if mode == "DIRECT":
+        # Replace only the one DIRECT assignment for this symbol. Preserve every shadow.
+        assignments = tuple(
+            assignment
+            if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT"
+            else item
+            for item in registry.assignments
+        )
+        if not any(
+            item.underlying_symbol == symbol and item.assignment_mode == "DIRECT"
+            for item in registry.assignments
+        ):
+            assignments += (assignment,)
+    else:
+        # Upsert this symbol+strategy shadow while preserving the Direct and other shadows.
+        assignments = tuple(
+            assignment
+            if (
+                item.underlying_symbol == symbol
+                and item.strategy_id == strategy.strategy_id
+                and item.assignment_mode == "SHADOW"
+            )
+            else item
+            for item in registry.assignments
+        )
+        if assignment_key not in assignment_keys:
+            assignments += (assignment,)
 
     updated = ManualEntryStrategyRegistry(
         strategies=strategies,
@@ -179,8 +211,9 @@ def apply_manual_entry_strategy_submission(
         status="SAVED",
         strategy_id=strategy.strategy_id,
         underlying_symbol=symbol,
+        assignment_mode=mode,
         created_strategy=strategy.strategy_id not in strategy_ids,
-        created_assignment=symbol not in assigned_symbols,
+        created_assignment=assignment_key not in assignment_keys,
         registry_path=str(registry_path),
         form_contract_path=str(form_contract_path),
     )
