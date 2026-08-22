@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from .manual_entry_strategy_form_contract import DEFAULT_OUTPUT_PATH, build_and_write_manual_entry_strategy_form_contract
 from .manual_entry_strategy_registry import (
+    SUPPORTED_SOURCES,
     ConditionalExit,
     EntryRule,
     ManualEntryStrategy,
@@ -46,13 +47,22 @@ class ManualStrategyIntakeResult:
     assignment_report_path: str
 
 
+def _canonical_rule_token(value: object) -> str:
+    text = str(value).strip()
+    lowered = text.lower()
+    return lowered if lowered in SUPPORTED_SOURCES else text
+
+
 def _rule(raw: Mapping[str, Any], field: str) -> EntryRule:
     if "left" not in raw or "operator" not in raw or "right" not in raw:
         raise ValueError(f"{field} requires left, operator, and right")
+    right = raw["right"]
+    if isinstance(right, str):
+        right = _canonical_rule_token(right)
     return EntryRule(
-        left=str(raw["left"]),  # type: ignore[arg-type]
-        operator=str(raw["operator"]),  # type: ignore[arg-type]
-        right=raw["right"],  # type: ignore[arg-type]
+        left=_canonical_rule_token(raw["left"]),  # type: ignore[arg-type]
+        operator=str(raw["operator"]).strip(),  # type: ignore[arg-type]
+        right=right,  # type: ignore[arg-type]
         period=None if raw.get("period") in (None, "") else int(raw["period"]),
         label=str(raw.get("label", "")),
         factor=None if raw.get("factor") in (None, "") else float(raw["factor"]),
