@@ -42,6 +42,7 @@ def _rule_field(name: str, label: str, *, required: bool, help_text: str, exampl
         "smoothing_choices": sorted(SUPPORTED_SMOOTHING),
         "price_source_choices": sorted(SUPPORTED_PRICE_SOURCES),
         "parameter_columns": ["period", "factor", "smoothing", "price_source"],
+        "storage": "STRUCTURED_LIST_NOT_COMMA_STRING",
         "help": help_text,
         "example": example,
     }
