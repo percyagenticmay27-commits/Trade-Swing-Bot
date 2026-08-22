@@ -91,10 +91,7 @@ def test_shadow_signals_use_underlying_but_pl_uses_verified_vehicle(tmp_path: Pa
     _mapping(mapping)
     _allocation(allocation, 600.0)
 
-    # Underlying rises enough to trigger entry, then falls enough to trigger exit.
     _bars(data / "NFLX.csv", [10, 11, 12, 13, 8, 7])
-    # EMA(2) first qualifies on bar 2. Vehicle returns are deliberately different
-    # so the dollar result proves P/L authority is NFLU rather than NFLX.
     _bars(data / "NFLU.csv", [20, 30, 40, 50, 20, 20])
 
     result = run_shadow_strategies(
@@ -108,7 +105,6 @@ def test_shadow_signals_use_underlying_but_pl_uses_verified_vehicle(tmp_path: Pa
     assert row["evidence_status"] == "AVAILABLE"
     assert row["simulated_allocation"] == 600.0
     assert row["trade_count"] == 1
-    # Entry occurs at NFLU 30 and exit at NFLU 20: $600 * (-10/30) = -$200.
     assert row["net_pl"] == -200.0
     assert row["max_drawdown"] <= -200.0
     assert result["signal_price_authority"] == "UNDERLYING_MARKET_DATA"
@@ -135,13 +131,14 @@ def test_missing_mapping_allocation_and_market_data_fail_closed(tmp_path: Path) 
     assert no_data["rows"][0]["evidence_status"] == "MISSING_MARKET_DATA"
 
 
-def test_runner_writes_separate_ledger_and_performance_artifacts(tmp_path: Path) -> None:
+def test_runner_writes_separate_ledger_performance_and_assignment_report(tmp_path: Path) -> None:
     registry = tmp_path / "registry.json"
     mapping = tmp_path / "mapping.csv"
     allocation = tmp_path / "allocation.json"
     data = tmp_path / "data"
     ledger = tmp_path / "ledger.json"
     performance = tmp_path / "performance.json"
+    assignment_report = tmp_path / "assignment_report.json"
     _registry(registry)
     _mapping(mapping)
     _allocation(allocation)
@@ -155,14 +152,20 @@ def test_runner_writes_separate_ledger_and_performance_artifacts(tmp_path: Path)
         data_dir=data,
         ledger_path=ledger,
         performance_path=performance,
+        assignment_report_path=assignment_report,
     )
 
     ledger_payload = json.loads(ledger.read_text(encoding="utf-8"))
     performance_payload = json.loads(performance.read_text(encoding="utf-8"))
+    assignment_payload = json.loads(assignment_report.read_text(encoding="utf-8"))
     assert ledger_payload["rows"]
     assert "trade_count" not in ledger_payload["rows"][0]
     assert performance_payload["rows"][0]["trade_count"] == 1
     assert performance_payload["rows"][0]["promotion_recommended"] is False
+    shadow = assignment_payload["rows"][0]["shadow_strategies"][0]
+    assert shadow["strategy_id"] == "SHADOW_A"
+    assert shadow["net_pl"] == -200.0
+    assert shadow["promotion_recommended"] is False
 
 
 def test_shadow_runner_has_no_execution_capital_or_promotion_authority() -> None:
