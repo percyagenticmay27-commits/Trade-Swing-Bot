@@ -1,8 +1,8 @@
-"""Validated SWING-001 intake for user-authored manual entry strategies.
+"""Validated SWING-001 intake for user-authored manual trading strategies.
 
-The Enterprise host may submit a form payload to this layer, but only Swing owns
-validation and persistence. The handler cannot move capital, write paper trades,
-create positions, choose allocation dollars, or override verified execution mapping.
+Only Swing owns validation and persistence. This handler cannot move capital,
+write paper trades, create positions, choose allocation dollars, override verified
+execution mapping, or place broker orders.
 """
 from __future__ import annotations
 
@@ -11,7 +11,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .manual_entry_strategy_form_contract import DEFAULT_OUTPUT_PATH, build_and_write_manual_entry_strategy_form_contract
-from .manual_entry_strategy_registry import EntryRule, ManualEntryStrategy, ManualEntryStrategyRegistry, UnderlyingEntryAssignment, load_manual_entry_strategy_registry, write_manual_entry_strategy_registry
+from .manual_entry_strategy_registry import (
+    ConditionalExit,
+    EntryRule,
+    ManualEntryStrategy,
+    ManualEntryStrategyRegistry,
+    UnderlyingEntryAssignment,
+    load_manual_entry_strategy_registry,
+    write_manual_entry_strategy_registry,
+)
 from .strategy_assignment_shadow_report import DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH, build_and_write_strategy_assignment_shadow_report
 
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
@@ -38,6 +46,21 @@ class ManualStrategyIntakeResult:
     assignment_report_path: str
 
 
+def _rule(raw: Mapping[str, Any], field: str) -> EntryRule:
+    if "left" not in raw or "operator" not in raw or "right" not in raw:
+        raise ValueError(f"{field} requires left, operator, and right")
+    return EntryRule(
+        left=str(raw["left"]),  # type: ignore[arg-type]
+        operator=str(raw["operator"]),  # type: ignore[arg-type]
+        right=raw["right"],  # type: ignore[arg-type]
+        period=None if raw.get("period") in (None, "") else int(raw["period"]),
+        label=str(raw.get("label", "")),
+        factor=None if raw.get("factor") in (None, "") else float(raw["factor"]),
+        smoothing=None if raw.get("smoothing") in (None, "") else str(raw["smoothing"]).upper(),
+        price_source=None if raw.get("price_source") in (None, "") else str(raw["price_source"]).upper(),
+    )
+
+
 def _rules(value: object, field: str) -> tuple[EntryRule, ...]:
     if value is None:
         return ()
@@ -47,9 +70,7 @@ def _rules(value: object, field: str) -> tuple[EntryRule, ...]:
     for index, raw in enumerate(value):
         if not isinstance(raw, Mapping):
             raise ValueError(f"{field}[{index}] must be an object")
-        if "left" not in raw or "operator" not in raw or "right" not in raw:
-            raise ValueError(f"{field}[{index}] requires left, operator, and right")
-        parsed.append(EntryRule(left=str(raw["left"]), operator=str(raw["operator"]), right=raw["right"], period=None if raw.get("period") in (None, "") else int(raw["period"]), label=str(raw.get("label", ""))))  # type: ignore[arg-type]
+        parsed.append(_rule(raw, f"{field}[{index}]"))
     return tuple(parsed)
 
 
@@ -61,13 +82,40 @@ def _optional_mapping(value: object, field: str) -> dict[str, Any] | None:
     return dict(value)
 
 
+def _conditional_exits(value: object) -> tuple[ConditionalExit, ...]:
+    if value in (None, []):
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("conditional_exits must be a structured list")
+    output: list[ConditionalExit] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"conditional_exits[{index}] must be an object")
+        condition = raw.get("condition")
+        if not isinstance(condition, Mapping):
+            raise ValueError(f"conditional_exits[{index}].condition must be an object")
+        output.append(
+            ConditionalExit(
+                condition=_rule(condition, f"conditional_exits[{index}].condition"),
+                rule_logic=str(raw.get("rule_logic", "ANY")).upper(),  # type: ignore[arg-type]
+                rules=_rules(raw.get("rules", []), f"conditional_exits[{index}].rules"),
+                action=str(raw.get("action", "SELL")).upper(),
+                label=str(raw.get("label", "")),
+                cooldown_bars=int(raw.get("cooldown_bars", 0)),
+                cooldown_unit=str(raw.get("cooldown_unit", "TRADING_DAY")).upper(),
+                reset_entry_confirmation=bool(raw.get("reset_entry_confirmation", True)),
+            )
+        )
+    return tuple(output)
+
+
 def _validate_submission_authority(submission: Mapping[str, Any]) -> None:
     forbidden = sorted(field for field in FORBIDDEN_USER_FIELDS if field in submission)
     if forbidden:
         raise ValueError("User submission cannot control Swing-owned fields: " + ", ".join(forbidden))
     if submission.get("paper_trade_mode", True) is not True:
         raise ValueError("paper_trade_mode=True is mandatory")
-    if submission.get("direction", "LONG").upper() != "LONG":
+    if str(submission.get("direction", "LONG")).upper() != "LONG":
         raise ValueError("Only LONG manual entry strategies are supported")
     mode = str(submission.get("assignment_mode", "DIRECT")).strip().upper()
     if mode not in {"DIRECT", "SHADOW"}:
@@ -91,8 +139,12 @@ def _build_strategy(submission: Mapping[str, Any]) -> ManualEntryStrategy:
         direction=str(submission.get("direction", "LONG")).strip().upper(),
         session=str(submission.get("session", "REGULAR_SESSION")).strip(),
         confirmation=_optional_mapping(submission.get("confirmation"), "confirmation"),
+        confirmation_bars=int(submission.get("confirmation_bars", 1)),
         regime_logic=str(submission.get("regime_logic", "ALL")).strip().upper(),  # type: ignore[arg-type]
         regime_filters=_rules(submission.get("regime_filters", []), "regime_filters"),
+        normal_exit_logic=str(submission.get("normal_exit_logic", "ANY")).strip().upper(),  # type: ignore[arg-type]
+        normal_exit_rules=_rules(submission.get("normal_exit_rules", []), "normal_exit_rules"),
+        conditional_exits=_conditional_exits(submission.get("conditional_exits", [])),
         exit_policy_id=None if submission.get("exit_policy_id") in (None, "") else str(submission["exit_policy_id"]).strip(),
         reentry_cooldown=_optional_mapping(submission.get("reentry_cooldown"), "reentry_cooldown"),
         paper_trade_mode=True,
@@ -118,7 +170,6 @@ def apply_manual_entry_strategy_submission(
     strategy_ids = {item.strategy_id for item in registry.strategies}
     assignment_key = (symbol, strategy.strategy_id, mode)
     assignment_keys = {(item.underlying_symbol, item.strategy_id, item.assignment_mode) for item in registry.assignments}
-
     strategies = tuple(strategy if item.strategy_id == strategy.strategy_id else item for item in registry.strategies)
     if strategy.strategy_id not in strategy_ids:
         strategies += (strategy,)
@@ -130,7 +181,6 @@ def apply_manual_entry_strategy_submission(
         enabled=bool(submission.get("assignment_enabled", True)),
         note=str(submission.get("assignment_note", "")),
     )
-
     if mode == "DIRECT":
         assignments = tuple(assignment if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" else item for item in registry.assignments)
         if not any(item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" for item in registry.assignments):
