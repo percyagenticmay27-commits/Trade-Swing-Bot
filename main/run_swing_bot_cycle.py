@@ -21,7 +21,7 @@ from swing_trade_bot.enterprise_discovery_bucket import refresh_enterprise_disco
 from swing_trade_bot.enterprise_discovery_leadership_context import (
     refresh_enterprise_discovery_leadership_context,
 )
-from swing_trade_bot.manual_strategy_shadow_runner import build_and_write_shadow_strategies
+from swing_trade_bot.manual_strategy_shadow_workflow import build_and_write_shadow_strategies
 from swing_trade_bot.swing_daily_cycle import main as run_cycle
 from swing_trade_bot.swing_market_data_refresh import refresh_swing_market_data
 from swing_trade_bot.user_veto_control import apply_active_vetoes_to_runtime_candidates
