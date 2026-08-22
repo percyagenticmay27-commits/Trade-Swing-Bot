@@ -1,8 +1,9 @@
 """Manual entry-strategy registry and underlying assignment authority.
 
 This module is configuration-only and paper-only. It lets a user define named
-entry strategies and explicitly assign them to underlying symbols. It does not
-evaluate market data, create paper positions, or place broker orders.
+entry strategies and assign one DIRECT strategy plus multiple SHADOW strategies
+to an underlying. DIRECT resolution alone may feed future entry authorization;
+SHADOW assignments are research-only and cannot create positions or move capital.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from typing import Any, Literal
 RuleOperator = Literal[">", ">=", "<", "<=", "==", "between"]
 RuleSource = Literal["close", "volume", "ema", "sma", "rsi", "volume_average", "market_filter"]
 RuleLogic = Literal["ALL", "ANY"]
+AssignmentMode = Literal["DIRECT", "SHADOW"]
 
 SUPPORTED_TIMEFRAMES = {"1D", "4H", "1H", "30M", "15M", "5M"}
 SUPPORTED_OPERATORS = {">", ">=", "<", "<=", "==", "between"}
@@ -21,6 +23,7 @@ SUPPORTED_SOURCES = {
     "close", "volume", "ema", "sma", "rsi", "volume_average", "market_filter",
 }
 SUPPORTED_DIRECTIONS = {"LONG"}
+SUPPORTED_ASSIGNMENT_MODES = {"DIRECT", "SHADOW"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +102,7 @@ class ManualEntryStrategy:
 class UnderlyingEntryAssignment:
     underlying_symbol: str
     strategy_id: str
+    assignment_mode: AssignmentMode = "DIRECT"
     enabled: bool = True
     note: str = ""
 
@@ -107,6 +111,8 @@ class UnderlyingEntryAssignment:
             raise ValueError("underlying_symbol must be uppercase and trimmed")
         if not self.strategy_id or self.strategy_id != self.strategy_id.strip().upper():
             raise ValueError("strategy_id must be uppercase and trimmed")
+        if self.assignment_mode not in SUPPORTED_ASSIGNMENT_MODES:
+            raise ValueError("assignment_mode must be DIRECT or SHADOW")
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,9 +128,22 @@ class ManualEntryStrategyRegistry:
         strategy_ids = [item.strategy_id for item in self.strategies]
         if len(strategy_ids) != len(set(strategy_ids)):
             raise ValueError("duplicate strategy_id is not allowed")
-        assignment_symbols = [item.underlying_symbol for item in self.assignments]
-        if len(assignment_symbols) != len(set(assignment_symbols)):
-            raise ValueError("an underlying can have only one manual entry strategy assignment")
+
+        direct_symbols = [
+            item.underlying_symbol
+            for item in self.assignments
+            if item.assignment_mode == "DIRECT"
+        ]
+        if len(direct_symbols) != len(set(direct_symbols)):
+            raise ValueError("an underlying can have only one DIRECT strategy assignment")
+
+        assignment_keys = [
+            (item.underlying_symbol, item.strategy_id, item.assignment_mode)
+            for item in self.assignments
+        ]
+        if len(assignment_keys) != len(set(assignment_keys)):
+            raise ValueError("duplicate strategy assignment is not allowed")
+
         known = set(strategy_ids)
         for assignment in self.assignments:
             if assignment.strategy_id not in known:
@@ -133,16 +152,37 @@ class ManualEntryStrategyRegistry:
             raise ValueError("default_strategy_id must reference a registered strategy")
 
     def resolve(self, underlying_symbol: str) -> ManualEntryStrategy | None:
+        """Resolve only the DIRECT strategy. SHADOW assignments never affect entry authority."""
         symbol = underlying_symbol.strip().upper()
         by_id = {item.strategy_id: item for item in self.strategies}
         for assignment in self.assignments:
-            if assignment.underlying_symbol == symbol and assignment.enabled:
+            if (
+                assignment.underlying_symbol == symbol
+                and assignment.assignment_mode == "DIRECT"
+                and assignment.enabled
+            ):
                 strategy = by_id[assignment.strategy_id]
                 return strategy if strategy.enabled else None
         if self.default_strategy_id is None:
             return None
         strategy = by_id[self.default_strategy_id]
         return strategy if strategy.enabled else None
+
+    def shadow_strategies(self, underlying_symbol: str) -> tuple[ManualEntryStrategy, ...]:
+        """Return enabled research-only strategies shadowing one underlying."""
+        symbol = underlying_symbol.strip().upper()
+        by_id = {item.strategy_id: item for item in self.strategies}
+        output: list[ManualEntryStrategy] = []
+        for assignment in self.assignments:
+            if (
+                assignment.underlying_symbol == symbol
+                and assignment.assignment_mode == "SHADOW"
+                and assignment.enabled
+            ):
+                strategy = by_id[assignment.strategy_id]
+                if strategy.enabled:
+                    output.append(strategy)
+        return tuple(output)
 
 
 def _parse_rule(rule: dict[str, object]) -> EntryRule:
@@ -196,6 +236,7 @@ def load_manual_entry_strategy_registry(path: Path) -> ManualEntryStrategyRegist
         UnderlyingEntryAssignment(
             underlying_symbol=str(item["underlying_symbol"]).strip().upper(),
             strategy_id=str(item["strategy_id"]).strip().upper(),
+            assignment_mode=str(item.get("assignment_mode", "DIRECT")).strip().upper(),  # type: ignore[arg-type]
             enabled=bool(item.get("enabled", True)),
             note=str(item.get("note", "")),
         )
@@ -221,9 +262,10 @@ def _strategy_to_dict(strategy: ManualEntryStrategy) -> dict[str, object]:
 
 def write_manual_entry_strategy_registry(path: Path, registry: ManualEntryStrategyRegistry) -> Path:
     payload = {
-        "schema_version": "1.2",
+        "schema_version": "1.3",
         "paper_trade_mode": True,
         "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
+        "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
         "default_strategy_id": registry.default_strategy_id,
         "strategies": [_strategy_to_dict(strategy) for strategy in registry.strategies],
         "assignments": [asdict(item) for item in registry.assignments],
