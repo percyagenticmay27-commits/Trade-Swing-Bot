@@ -15,7 +15,7 @@ def _registry(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "schema_version": "1.2",
+                "schema_version": "1.4",
                 "paper_trade_mode": True,
                 "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
                 "default_strategy_id": None,
@@ -27,11 +27,12 @@ def _registry(path: Path) -> None:
     )
 
 
-def _submission() -> dict[str, object]:
+def _submission(strategy_id: str = "NFLX_DAILY_KELTNER", symbol: str = "NFLX", mode: str = "DIRECT") -> dict[str, object]:
     return {
-        "strategy_id": "NFLX_DAILY_KELTNER",
-        "name": "NFLX Daily Keltner",
-        "underlying_symbol": "NFLX",
+        "strategy_id": strategy_id,
+        "name": strategy_id.replace("_", " ").title(),
+        "underlying_symbol": symbol,
+        "assignment_mode": mode,
         "enabled": True,
         "direction": "LONG",
         "timeframe": "1D",
@@ -130,6 +131,82 @@ def test_intake_updates_existing_strategy_and_assignment_without_duplicates(tmp_
     assert len(registry.assignments) == 1
     assert registry.strategies[0].number_of_entries == 3
     assert registry.strategies[0].name == "NFLX Revised"
+    assert registry.assignments[0].assignment_mode == "DIRECT"
+
+
+def test_new_direct_demotes_previous_direct_to_shadow_and_preserves_definition(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    first = _submission("STRATEGY_A")
+    first["assignment_enabled"] = False
+    first["assignment_note"] = "preserve me"
+    apply_manual_entry_strategy_submission(first, registry_path=registry_path, form_contract_path=form_path)
+    apply_manual_entry_strategy_submission(_submission("STRATEGY_C"), registry_path=registry_path, form_contract_path=form_path)
+
+    registry = load_manual_entry_strategy_registry(registry_path)
+    direct = [a for a in registry.assignments if a.underlying_symbol == "NFLX" and a.assignment_mode == "DIRECT"]
+    shadows = [a for a in registry.assignments if a.underlying_symbol == "NFLX" and a.assignment_mode == "SHADOW"]
+
+    assert [a.strategy_id for a in direct] == ["STRATEGY_C"]
+    assert [a.strategy_id for a in shadows] == ["STRATEGY_A"]
+    assert shadows[0].enabled is False
+    assert shadows[0].note == "preserve me"
+    assert {s.strategy_id for s in registry.strategies} == {"STRATEGY_A", "STRATEGY_C"}
+
+
+def test_new_direct_preserves_unrelated_shadows_and_other_symbols(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    for submission in (
+        _submission("STRATEGY_A"),
+        _submission("STRATEGY_B", mode="SHADOW"),
+        _submission("GOOG_DIRECT", symbol="GOOG"),
+        _submission("STRATEGY_C"),
+    ):
+        apply_manual_entry_strategy_submission(submission, registry_path=registry_path, form_contract_path=form_path)
+
+    registry = load_manual_entry_strategy_registry(registry_path)
+    nflx_shadows = {a.strategy_id for a in registry.assignments if a.underlying_symbol == "NFLX" and a.assignment_mode == "SHADOW"}
+    goog_direct = [a for a in registry.assignments if a.underlying_symbol == "GOOG" and a.assignment_mode == "DIRECT"]
+    assert nflx_shadows == {"STRATEGY_A", "STRATEGY_B"}
+    assert [a.strategy_id for a in goog_direct] == ["GOOG_DIRECT"]
+
+
+def test_displaced_direct_reuses_existing_equivalent_shadow_without_duplicate(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    apply_manual_entry_strategy_submission(_submission("STRATEGY_A"), registry_path=registry_path, form_contract_path=form_path)
+    registry = load_manual_entry_strategy_registry(registry_path)
+    # Construct a legacy-but-valid registry state containing an equivalent shadow.
+    payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    payload["assignments"].append({
+        "underlying_symbol": "NFLX",
+        "strategy_id": "STRATEGY_A",
+        "assignment_mode": "SHADOW",
+        "enabled": True,
+        "note": "older shadow",
+    })
+    registry_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    apply_manual_entry_strategy_submission(_submission("STRATEGY_C"), registry_path=registry_path, form_contract_path=form_path)
+    registry = load_manual_entry_strategy_registry(registry_path)
+    equivalent = [a for a in registry.assignments if a.underlying_symbol == "NFLX" and a.strategy_id == "STRATEGY_A" and a.assignment_mode == "SHADOW"]
+    assert len(equivalent) == 1
+
+
+def test_resubmitting_current_direct_is_idempotent_and_creates_no_shadow(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    submission = _submission("STRATEGY_A")
+    apply_manual_entry_strategy_submission(submission, registry_path=registry_path, form_contract_path=form_path)
+    apply_manual_entry_strategy_submission(submission, registry_path=registry_path, form_contract_path=form_path)
+    registry = load_manual_entry_strategy_registry(registry_path)
+
+    assert [(a.strategy_id, a.assignment_mode) for a in registry.assignments if a.underlying_symbol == "NFLX"] == [("STRATEGY_A", "DIRECT")]
 
 
 def test_intake_regenerates_host_readable_contract(tmp_path: Path) -> None:
@@ -160,6 +237,16 @@ def test_intake_rejects_user_allocation_or_execution_authority(tmp_path: Path) -
             apply_manual_entry_strategy_submission(
                 submission, registry_path=registry_path, form_contract_path=form_path
             )
+
+
+def test_paper_trade_mode_false_is_rejected(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    submission = _submission()
+    submission["paper_trade_mode"] = False
+    with pytest.raises(ValueError, match="paper_trade_mode=True"):
+        apply_manual_entry_strategy_submission(submission, registry_path=registry_path, form_contract_path=form_path)
 
 
 def test_invalid_submission_does_not_modify_registry(tmp_path: Path) -> None:
