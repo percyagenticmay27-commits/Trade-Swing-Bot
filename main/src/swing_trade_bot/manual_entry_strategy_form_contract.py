@@ -12,13 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from .manual_entry_strategy_registry import (
+    SUPPORTED_ASSIGNMENT_MODES,
     SUPPORTED_OPERATORS,
     SUPPORTED_SOURCES,
     SUPPORTED_TIMEFRAMES,
     load_manual_entry_strategy_registry,
 )
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 STRATEGY_ID = "SWING-001"
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
 DEFAULT_OUTPUT_PATH = Path("results/manual_entry_strategy_form_contract.json")
@@ -31,10 +32,108 @@ def _strategy_payload(item: Any) -> dict[str, Any]:
     return payload
 
 
-def build_manual_entry_strategy_form_contract(
-    *, registry_path: Path = DEFAULT_REGISTRY_PATH,
-) -> dict[str, Any]:
+def build_manual_entry_strategy_form_contract(*, registry_path: Path = DEFAULT_REGISTRY_PATH) -> dict[str, Any]:
     registry = load_manual_entry_strategy_registry(registry_path)
+    fields = [
+        {
+            "name": "strategy_id", "label": "Strategy ID", "type": "text", "required": True,
+            "help": "Permanent machine-readable identifier. Keep it stable after saving.",
+            "example": "NFLX_DAILY_KELTNER_V1",
+        },
+        {
+            "name": "name", "label": "Strategy Name", "type": "text", "required": True,
+            "help": "Friendly name shown in reports and assignments.",
+            "example": "NFLX Daily Keltner Entry",
+        },
+        {
+            "name": "enabled", "label": "Enabled", "type": "boolean", "required": True, "default": True,
+            "help": "Controls whether the strategy can be used for future evaluation. It never places or closes a trade by itself.",
+            "example": "Enabled",
+        },
+        {
+            "name": "underlying_symbol", "label": "Underlying Symbol", "type": "symbol", "required": True,
+            "help": "Ticker whose market data generates the strategy signal. Enter the underlying, not the leveraged vehicle.",
+            "example": "NFLX",
+        },
+        {
+            "name": "assignment_mode", "label": "Assignment Mode", "type": "select", "required": True,
+            "choices": sorted(SUPPORTED_ASSIGNMENT_MODES), "default": "DIRECT",
+            "help": "DIRECT makes this the symbol's active entry strategy. SHADOW runs it in the background for research only and can never create a paper position, reserve capital, move SGOV, or replace the Direct strategy automatically.",
+            "example": "DIRECT for the active strategy; SHADOW for a challenger being evaluated",
+        },
+        {
+            "name": "execution_symbol", "label": "Execution Vehicle", "type": "readonly_mapping", "required": False,
+            "help": "Read-only leveraged vehicle resolved from Swing's verified mapping. The user cannot override it here.",
+            "example": "NFLX → NFLU",
+        },
+        {
+            "name": "direction", "label": "Direction", "type": "select", "required": True, "choices": ["LONG"],
+            "help": "Trade direction supported by this manual-entry layer.", "example": "LONG",
+        },
+        {
+            "name": "timeframe", "label": "Timeframe", "type": "select", "required": True,
+            "choices": sorted(SUPPORTED_TIMEFRAMES), "help": "Bar interval on which entry and regime rules are evaluated.",
+            "example": "1D",
+        },
+        {
+            "name": "session", "label": "Session", "type": "text", "required": True, "default": "REGULAR_SESSION",
+            "help": "Trading session whose bars are eligible. REGULAR_SESSION is the normal Daily-stock choice.",
+            "example": "REGULAR_SESSION",
+        },
+        {
+            "name": "number_of_entries", "label": "Number of Entries", "type": "integer", "required": True,
+            "minimum": 1, "default": 1,
+            "help": "How many staged entries the strategy may use. Swing divides its authorized allocation equally across this many entries.",
+            "example": "2 means a $600 Swing allocation becomes two $300 entry slices",
+        },
+        {
+            "name": "rule_logic", "label": "Entry Rule Logic", "type": "select", "required": True,
+            "choices": ["ALL", "ANY"], "help": "ALL requires every entry rule; ANY requires at least one.",
+            "example": "ALL",
+        },
+        {
+            "name": "rules", "label": "Entry Rules", "type": "rule_list", "required": True,
+            "source_choices": sorted(SUPPORTED_SOURCES), "operator_choices": sorted(SUPPORTED_OPERATORS),
+            "help": "Conditions that trigger an entry stage. Specify source/indicator, comparison, value/indicator, and period when needed.",
+            "example": "close > ema, period 20; RSI between 45,65, period 14",
+        },
+        {
+            "name": "confirmation", "label": "Confirmation", "type": "structured_optional", "required": False,
+            "help": "Optional persistence requirement before entry qualifies.",
+            "example": "2 consecutive qualifying Daily closes",
+        },
+        {
+            "name": "regime_logic", "label": "Regime Filter Logic", "type": "select", "required": False,
+            "choices": ["ALL", "ANY"], "default": "ALL",
+            "help": "Controls how multiple regime filters are combined.", "example": "ALL",
+        },
+        {
+            "name": "regime_filters", "label": "Regime Filters", "type": "rule_list", "required": False,
+            "source_choices": sorted(SUPPORTED_SOURCES), "operator_choices": sorted(SUPPORTED_OPERATORS),
+            "storage": "STRUCTURED_LIST_NOT_COMMA_STRING",
+            "help": "Optional market-environment requirements. Add each filter as its own structured row.",
+            "example": "CHOP(14) < 60; market_filter == satisfied",
+        },
+        {
+            "name": "exit_policy_id", "label": "Exit Policy", "type": "reference", "required": False,
+            "help": "Optional reference to an existing Swing exit-management policy.", "example": "TIERED_TRAILING",
+        },
+        {
+            "name": "reentry_cooldown", "label": "Re-entry Cooldown / Reset", "type": "structured_optional", "required": False,
+            "help": "Optional wait/reset after an exit before a new entry cycle.", "example": "1 bar",
+        },
+        {
+            "name": "allocation_authority", "label": "Allocation Authority", "type": "readonly",
+            "value": "SWING_PORTFOLIO_ALLOCATOR",
+            "help": "Read-only. Swing decides total dollars. Shadow uses the same current allocation only as simulated research capital.",
+            "example": "SWING_PORTFOLIO_ALLOCATOR",
+        },
+        {
+            "name": "paper_trade_mode", "label": "Paper Only", "type": "readonly", "value": True,
+            "help": "Mandatory safety mode. Manual strategy entry cannot enable live trading or broker execution.",
+            "example": "TRUE",
+        },
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "strategy_id": STRATEGY_ID,
@@ -46,171 +145,17 @@ def build_manual_entry_strategy_form_contract(
         "order_placement_enabled": False,
         "capital_movement_enabled": False,
         "allocation_authority": "SWING_PORTFOLIO_ALLOCATOR",
+        "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
         "assignment_authority": "UNDERLYING_SYMBOL",
+        "assignment_modes": {
+            "DIRECT": "One active entry strategy per underlying.",
+            "SHADOW": "Multiple research-only strategies per underlying; no automatic promotion.",
+        },
         "execution_vehicle_authority": "VERIFIED_SWING_MAPPING",
         "persistence_authority": "SWING_MANUAL_ENTRY_STRATEGY_REGISTRY",
         "host_may_render": True,
         "host_may_write_strategy_storage_directly": False,
-        "fields": [
-            {
-                "name": "strategy_id",
-                "label": "Strategy ID",
-                "type": "text",
-                "required": True,
-                "help": "Permanent machine-readable identifier for this strategy. Use letters, numbers, and underscores; keep it stable after saving.",
-                "example": "NFLX_DAILY_KELTNER_V1",
-            },
-            {
-                "name": "name",
-                "label": "Strategy Name",
-                "type": "text",
-                "required": True,
-                "help": "Friendly name shown to the user in reports and assignments.",
-                "example": "NFLX Daily Keltner Entry",
-            },
-            {
-                "name": "enabled",
-                "label": "Enabled",
-                "type": "boolean",
-                "required": True,
-                "default": True,
-                "help": "Controls whether this strategy may be resolved for future entry evaluation. Disabling it does not place or close a trade.",
-                "example": "Enabled",
-            },
-            {
-                "name": "underlying_symbol",
-                "label": "Underlying Symbol",
-                "type": "symbol",
-                "required": True,
-                "help": "Ticker whose market data and indicators generate the entry signal. Enter the underlying company, not the leveraged vehicle.",
-                "example": "NFLX",
-            },
-            {
-                "name": "execution_symbol",
-                "label": "Execution Vehicle",
-                "type": "readonly_mapping",
-                "required": False,
-                "help": "Read-only leveraged vehicle resolved from Swing's verified mapping. The user cannot override it here.",
-                "example": "NFLX → NFLU",
-            },
-            {
-                "name": "direction",
-                "label": "Direction",
-                "type": "select",
-                "required": True,
-                "choices": ["LONG"],
-                "help": "Trade direction supported by this manual-entry layer. Version 1 currently supports LONG only.",
-                "example": "LONG",
-            },
-            {
-                "name": "timeframe",
-                "label": "Timeframe",
-                "type": "select",
-                "required": True,
-                "choices": sorted(SUPPORTED_TIMEFRAMES),
-                "help": "Chart/bar interval on which all entry and regime rules are evaluated.",
-                "example": "1D",
-            },
-            {
-                "name": "session",
-                "label": "Session",
-                "type": "text",
-                "required": True,
-                "default": "REGULAR_SESSION",
-                "help": "Trading session whose bars are eligible for the strategy. For Daily stock strategies, REGULAR_SESSION is the normal choice.",
-                "example": "REGULAR_SESSION",
-            },
-            {
-                "name": "number_of_entries",
-                "label": "Number of Entries",
-                "type": "integer",
-                "required": True,
-                "minimum": 1,
-                "default": 1,
-                "help": "How many staged purchases are allowed. Swing divides its authorized allocation equally across this many entries; the final slice absorbs rounding.",
-                "example": "2 means a $600 Swing allocation becomes two $300 entry slices",
-            },
-            {
-                "name": "rule_logic",
-                "label": "Entry Rule Logic",
-                "type": "select",
-                "required": True,
-                "choices": ["ALL", "ANY"],
-                "help": "ALL requires every entry rule to be true. ANY requires at least one entry rule to be true.",
-                "example": "ALL",
-            },
-            {
-                "name": "rules",
-                "label": "Entry Rules",
-                "type": "rule_list",
-                "required": True,
-                "source_choices": sorted(SUPPORTED_SOURCES),
-                "operator_choices": sorted(SUPPORTED_OPERATORS),
-                "help": "Conditions that trigger an entry stage. Enter a left source/indicator, comparison operator, right value or indicator, and an indicator period when needed.",
-                "example": "close > ema, period 20; RSI between 45,65, period 14",
-            },
-            {
-                "name": "confirmation",
-                "label": "Confirmation",
-                "type": "structured_optional",
-                "required": False,
-                "help": "Optional persistence requirement before entry qualifies, such as requiring the setup to remain true for consecutive bars.",
-                "example": "2 consecutive qualifying Daily closes",
-            },
-            {
-                "name": "regime_logic",
-                "label": "Regime Filter Logic",
-                "type": "select",
-                "required": False,
-                "choices": ["ALL", "ANY"],
-                "default": "ALL",
-                "help": "Controls how multiple market/regime filters are combined. ALL is the safer default.",
-                "example": "ALL",
-            },
-            {
-                "name": "regime_filters",
-                "label": "Regime Filters",
-                "type": "rule_list",
-                "required": False,
-                "source_choices": sorted(SUPPORTED_SOURCES),
-                "operator_choices": sorted(SUPPORTED_OPERATORS),
-                "storage": "STRUCTURED_LIST_NOT_COMMA_STRING",
-                "help": "Optional conditions that describe the market environment required before entry rules may act. Add each filter as its own structured row.",
-                "example": "CHOP(14) < 60; market_filter == satisfied",
-            },
-            {
-                "name": "exit_policy_id",
-                "label": "Exit Policy",
-                "type": "reference",
-                "required": False,
-                "help": "Optional reference to an existing Swing exit-management policy. This form does not redefine the exit engine.",
-                "example": "TIERED_TRAILING",
-            },
-            {
-                "name": "reentry_cooldown",
-                "label": "Re-entry Cooldown / Reset",
-                "type": "structured_optional",
-                "required": False,
-                "help": "Optional wait/reset requirement after an exit before the strategy may start a new entry cycle.",
-                "example": "1 bar",
-            },
-            {
-                "name": "allocation_authority",
-                "label": "Allocation Authority",
-                "type": "readonly",
-                "value": "SWING_PORTFOLIO_ALLOCATOR",
-                "help": "Read-only. Swing decides the total dollars allocated to the opportunity; the manual strategy never sets position dollars.",
-                "example": "SWING_PORTFOLIO_ALLOCATOR",
-            },
-            {
-                "name": "paper_trade_mode",
-                "label": "Paper Only",
-                "type": "readonly",
-                "value": True,
-                "help": "Mandatory safety mode. Manual strategy entry cannot enable live trading or broker execution.",
-                "example": "TRUE",
-            },
-        ],
+        "fields": fields,
         "current_registry": {
             "default_strategy_id": registry.default_strategy_id,
             "strategies": [_strategy_payload(item) for item in registry.strategies],
@@ -227,13 +172,12 @@ def build_manual_entry_strategy_form_contract(
             "host_transport": "LOCAL_SWING_CLI_STDIN_JSON",
             "allocation_fields_user_writable": False,
             "execution_vehicle_user_writable": False,
+            "assignment_mode_user_writable": True,
         },
     }
 
 
-def write_manual_entry_strategy_form_contract(
-    payload: dict[str, Any], *, output_path: Path = DEFAULT_OUTPUT_PATH,
-) -> Path:
+def write_manual_entry_strategy_form_contract(payload: dict[str, Any], *, output_path: Path = DEFAULT_OUTPUT_PATH) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -241,9 +185,7 @@ def write_manual_entry_strategy_form_contract(
     return output_path
 
 
-def build_and_write_manual_entry_strategy_form_contract(
-    *, registry_path: Path = DEFAULT_REGISTRY_PATH, output_path: Path = DEFAULT_OUTPUT_PATH,
-) -> dict[str, Any]:
+def build_and_write_manual_entry_strategy_form_contract(*, registry_path: Path = DEFAULT_REGISTRY_PATH, output_path: Path = DEFAULT_OUTPUT_PATH) -> dict[str, Any]:
     payload = build_manual_entry_strategy_form_contract(registry_path=registry_path)
     write_manual_entry_strategy_form_contract(payload, output_path=output_path)
     return payload
