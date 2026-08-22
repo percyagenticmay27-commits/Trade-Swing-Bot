@@ -93,8 +93,9 @@ def test_shadow_signals_use_underlying_but_pl_uses_verified_vehicle(tmp_path: Pa
 
     # Underlying rises enough to trigger entry, then falls enough to trigger exit.
     _bars(data / "NFLX.csv", [10, 11, 12, 13, 8, 7])
-    # Vehicle has deliberately different returns so P/L proves price authority.
-    _bars(data / "NFLU.csv", [20, 20, 30, 40, 20, 20])
+    # EMA(2) first qualifies on bar 2. Vehicle returns are deliberately different
+    # so the dollar result proves P/L authority is NFLU rather than NFLX.
+    _bars(data / "NFLU.csv", [20, 30, 40, 50, 20, 20])
 
     result = run_shadow_strategies(
         registry_path=registry,
@@ -145,7 +146,7 @@ def test_runner_writes_separate_ledger_and_performance_artifacts(tmp_path: Path)
     _mapping(mapping)
     _allocation(allocation)
     _bars(data / "NFLX.csv", [10, 11, 12, 13, 8, 7])
-    _bars(data / "NFLU.csv", [20, 20, 30, 40, 20, 20])
+    _bars(data / "NFLU.csv", [20, 30, 40, 50, 20, 20])
 
     build_and_write_shadow_strategies(
         registry_path=registry,
