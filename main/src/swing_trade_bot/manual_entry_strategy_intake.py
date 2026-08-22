@@ -10,29 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .manual_entry_strategy_form_contract import (
-    DEFAULT_OUTPUT_PATH,
-    build_and_write_manual_entry_strategy_form_contract,
-)
-from .manual_entry_strategy_registry import (
-    EntryRule,
-    ManualEntryStrategy,
-    ManualEntryStrategyRegistry,
-    UnderlyingEntryAssignment,
-    load_manual_entry_strategy_registry,
-    write_manual_entry_strategy_registry,
-)
+from .manual_entry_strategy_form_contract import DEFAULT_OUTPUT_PATH, build_and_write_manual_entry_strategy_form_contract
+from .manual_entry_strategy_registry import EntryRule, ManualEntryStrategy, ManualEntryStrategyRegistry, UnderlyingEntryAssignment, load_manual_entry_strategy_registry, write_manual_entry_strategy_registry
+from .strategy_assignment_shadow_report import DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH, build_and_write_strategy_assignment_shadow_report
 
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
-FORBIDDEN_USER_FIELDS = {
-    "allocation",
-    "allocation_amount",
-    "allocated_capital",
-    "capital_amount",
-    "execution_symbol",
-    "execution_vehicle",
-    "position_size",
-}
+FORBIDDEN_USER_FIELDS = {"allocation", "allocation_amount", "allocated_capital", "capital_amount", "execution_symbol", "execution_vehicle", "position_size"}
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -52,6 +35,7 @@ class ManualStrategyIntakeResult:
     created_assignment: bool
     registry_path: str
     form_contract_path: str
+    assignment_report_path: str
 
 
 def _rules(value: object, field: str) -> tuple[EntryRule, ...]:
@@ -65,15 +49,7 @@ def _rules(value: object, field: str) -> tuple[EntryRule, ...]:
             raise ValueError(f"{field}[{index}] must be an object")
         if "left" not in raw or "operator" not in raw or "right" not in raw:
             raise ValueError(f"{field}[{index}] requires left, operator, and right")
-        parsed.append(
-            EntryRule(
-                left=str(raw["left"]),  # type: ignore[arg-type]
-                operator=str(raw["operator"]),  # type: ignore[arg-type]
-                right=raw["right"],  # type: ignore[arg-type]
-                period=None if raw.get("period") in (None, "") else int(raw["period"]),
-                label=str(raw.get("label", "")),
-            )
-        )
+        parsed.append(EntryRule(left=str(raw["left"]), operator=str(raw["operator"]), right=raw["right"], period=None if raw.get("period") in (None, "") else int(raw["period"]), label=str(raw.get("label", ""))))  # type: ignore[arg-type]
     return tuple(parsed)
 
 
@@ -88,9 +64,7 @@ def _optional_mapping(value: object, field: str) -> dict[str, Any] | None:
 def _validate_submission_authority(submission: Mapping[str, Any]) -> None:
     forbidden = sorted(field for field in FORBIDDEN_USER_FIELDS if field in submission)
     if forbidden:
-        raise ValueError(
-            "User submission cannot control Swing-owned fields: " + ", ".join(forbidden)
-        )
+        raise ValueError("User submission cannot control Swing-owned fields: " + ", ".join(forbidden))
     if submission.get("paper_trade_mode", True) is not True:
         raise ValueError("paper_trade_mode=True is mandatory")
     if submission.get("direction", "LONG").upper() != "LONG":
@@ -119,14 +93,8 @@ def _build_strategy(submission: Mapping[str, Any]) -> ManualEntryStrategy:
         confirmation=_optional_mapping(submission.get("confirmation"), "confirmation"),
         regime_logic=str(submission.get("regime_logic", "ALL")).strip().upper(),  # type: ignore[arg-type]
         regime_filters=_rules(submission.get("regime_filters", []), "regime_filters"),
-        exit_policy_id=(
-            None
-            if submission.get("exit_policy_id") in (None, "")
-            else str(submission["exit_policy_id"]).strip()
-        ),
-        reentry_cooldown=_optional_mapping(
-            submission.get("reentry_cooldown"), "reentry_cooldown"
-        ),
+        exit_policy_id=None if submission.get("exit_policy_id") in (None, "") else str(submission["exit_policy_id"]).strip(),
+        reentry_cooldown=_optional_mapping(submission.get("reentry_cooldown"), "reentry_cooldown"),
         paper_trade_mode=True,
     )
 
@@ -136,6 +104,7 @@ def apply_manual_entry_strategy_submission(
     *,
     registry_path: Path = DEFAULT_REGISTRY_PATH,
     form_contract_path: Path = DEFAULT_OUTPUT_PATH,
+    assignment_report_path: Path | None = None,
 ) -> ManualStrategyIntakeResult:
     """Validate and atomically persist one strategy + DIRECT/SHADOW assignment."""
     _validate_submission_authority(submission)
@@ -148,15 +117,9 @@ def apply_manual_entry_strategy_submission(
     registry = load_manual_entry_strategy_registry(registry_path)
     strategy_ids = {item.strategy_id for item in registry.strategies}
     assignment_key = (symbol, strategy.strategy_id, mode)
-    assignment_keys = {
-        (item.underlying_symbol, item.strategy_id, item.assignment_mode)
-        for item in registry.assignments
-    }
+    assignment_keys = {(item.underlying_symbol, item.strategy_id, item.assignment_mode) for item in registry.assignments}
 
-    strategies = tuple(
-        strategy if item.strategy_id == strategy.strategy_id else item
-        for item in registry.strategies
-    )
+    strategies = tuple(strategy if item.strategy_id == strategy.strategy_id else item for item in registry.strategies)
     if strategy.strategy_id not in strategy_ids:
         strategies += (strategy,)
 
@@ -169,44 +132,19 @@ def apply_manual_entry_strategy_submission(
     )
 
     if mode == "DIRECT":
-        # Replace only the one DIRECT assignment for this symbol. Preserve every shadow.
-        assignments = tuple(
-            assignment
-            if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT"
-            else item
-            for item in registry.assignments
-        )
-        if not any(
-            item.underlying_symbol == symbol and item.assignment_mode == "DIRECT"
-            for item in registry.assignments
-        ):
+        assignments = tuple(assignment if item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" else item for item in registry.assignments)
+        if not any(item.underlying_symbol == symbol and item.assignment_mode == "DIRECT" for item in registry.assignments):
             assignments += (assignment,)
     else:
-        # Upsert this symbol+strategy shadow while preserving the Direct and other shadows.
-        assignments = tuple(
-            assignment
-            if (
-                item.underlying_symbol == symbol
-                and item.strategy_id == strategy.strategy_id
-                and item.assignment_mode == "SHADOW"
-            )
-            else item
-            for item in registry.assignments
-        )
+        assignments = tuple(assignment if item.underlying_symbol == symbol and item.strategy_id == strategy.strategy_id and item.assignment_mode == "SHADOW" else item for item in registry.assignments)
         if assignment_key not in assignment_keys:
             assignments += (assignment,)
 
-    updated = ManualEntryStrategyRegistry(
-        strategies=strategies,
-        assignments=assignments,
-        default_strategy_id=registry.default_strategy_id,
-        paper_trade_mode=True,
-    )
+    updated = ManualEntryStrategyRegistry(strategies=strategies, assignments=assignments, default_strategy_id=registry.default_strategy_id, paper_trade_mode=True)
     write_manual_entry_strategy_registry(registry_path, updated)
-    build_and_write_manual_entry_strategy_form_contract(
-        registry_path=registry_path,
-        output_path=form_contract_path,
-    )
+    build_and_write_manual_entry_strategy_form_contract(registry_path=registry_path, output_path=form_contract_path)
+    report_path = assignment_report_path or (DEFAULT_ASSIGNMENT_REPORT_PATH if registry_path == DEFAULT_REGISTRY_PATH else form_contract_path.with_name("strategy_assignment_shadow_report.json"))
+    build_and_write_strategy_assignment_shadow_report(registry_path=registry_path, output_path=report_path)
     return ManualStrategyIntakeResult(
         status="SAVED",
         strategy_id=strategy.strategy_id,
@@ -216,4 +154,5 @@ def apply_manual_entry_strategy_submission(
         created_assignment=assignment_key not in assignment_keys,
         registry_path=str(registry_path),
         form_contract_path=str(form_contract_path),
+        assignment_report_path=str(report_path),
     )
