@@ -84,14 +84,14 @@ def test_invalid_number_of_entries_is_rejected() -> None:
         _strategy(number_of_entries=0)
 
 
-def test_duplicate_underlying_assignment_is_rejected() -> None:
+def test_duplicate_underlying_direct_assignment_is_rejected() -> None:
     strategy = _strategy()
-    with pytest.raises(ValueError, match="only one manual entry strategy"):
+    with pytest.raises(ValueError, match="only one DIRECT strategy assignment"):
         ManualEntryStrategyRegistry(
             strategies=(strategy,),
             assignments=(
-                UnderlyingEntryAssignment("NFLX", "TEST_DAILY"),
-                UnderlyingEntryAssignment("NFLX", "TEST_DAILY"),
+                UnderlyingEntryAssignment("NFLX", "TEST_DAILY", assignment_mode="DIRECT"),
+                UnderlyingEntryAssignment("NFLX", "TEST_DAILY", assignment_mode="DIRECT"),
             ),
         )
 
@@ -130,8 +130,9 @@ def test_load_and_atomic_write_round_trip(tmp_path: Path) -> None:
 
     assert loaded == registry
     assert payload["paper_trade_mode"] is True
-    assert payload["schema_version"] == "1.2"
+    assert payload["schema_version"] == "1.3"
     assert payload["allocation_authority"] == "SWING_PORTFOLIO_ALLOCATOR"
+    assert payload["shadow_allocation_model"] == "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY"
     assert payload["strategies"][0]["number_of_entries"] == 3
 
 
