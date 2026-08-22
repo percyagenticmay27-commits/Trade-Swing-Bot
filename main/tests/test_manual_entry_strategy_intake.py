@@ -76,6 +76,39 @@ def test_intake_creates_strategy_and_underlying_assignment(tmp_path: Path) -> No
     assert strategy.reentry_cooldown == {"bars": 1}
 
 
+def test_intake_normalizes_user_facing_indicator_case(tmp_path: Path) -> None:
+    registry_path = tmp_path / "registry.json"
+    form_path = tmp_path / "form.json"
+    _registry(registry_path)
+    submission = _submission()
+    submission["rules"] = [
+        {"left": "Close", "operator": ">", "right": "EMA", "period": 14},
+        {
+            "left": "Close",
+            "operator": ">",
+            "right": "KELTNER_MIDDLE",
+            "period": 14,
+            "factor": 1,
+            "smoothing": "WILDER",
+            "price_source": "OHLC_AVERAGE",
+        },
+    ]
+    submission["regime_filters"] = [
+        {"left": "CHOP", "operator": "<", "right": 60, "period": 14}
+    ]
+
+    apply_manual_entry_strategy_submission(
+        submission, registry_path=registry_path, form_contract_path=form_path
+    )
+    strategy = load_manual_entry_strategy_registry(registry_path).resolve("NFLX")
+
+    assert strategy is not None
+    assert strategy.rules[0].left == "close"
+    assert strategy.rules[0].right == "ema"
+    assert strategy.rules[1].right == "keltner_middle"
+    assert strategy.regime_filters[0].left == "chop"
+
+
 def test_intake_updates_existing_strategy_and_assignment_without_duplicates(tmp_path: Path) -> None:
     registry_path = tmp_path / "registry.json"
     form_path = tmp_path / "form.json"
