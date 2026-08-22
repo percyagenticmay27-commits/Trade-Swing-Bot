@@ -18,6 +18,10 @@ from .indicators import ema, rsi, sma, volume_average
 from .manual_entry_strategy_registry import EntryRule, ManualEntryStrategy, load_manual_entry_strategy_registry
 from .paper_runner import load_csv
 from .position_state import MarketBar
+from .strategy_assignment_shadow_report import (
+    DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH,
+    build_and_write_strategy_assignment_shadow_report,
+)
 
 DEFAULT_REGISTRY_PATH = Path("configs/manual_entry_strategies.json")
 DEFAULT_ALLOCATION_PATH = Path("results/portfolio_allocations.json")
@@ -39,24 +43,8 @@ AUTO_PROMOTION_ENABLED = False
 def _load_json(path: Path) -> Mapping[str, Any]:
     if not path.is_file():
         return {}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return {}
+    value = json.loads(path.read_text(encoding="utf-8"))
     return value if isinstance(value, Mapping) else {}
-
-
-def _mapping(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        return {}
-    result: dict[str, str] = {}
-    with path.open(newline="", encoding="utf-8-sig") as handle:
-        for row in csv.DictReader(handle):
-            underlying = str(row.get("underlying_symbol") or "").strip().upper()
-            vehicle = str(row.get("leveraged_symbol") or "").strip().upper()
-            if underlying and vehicle:
-                result[underlying] = vehicle
-    return result
 
 
 def _allocation(payload: Mapping[str, Any], underlying: str, vehicle: str) -> float | None:
@@ -65,12 +53,12 @@ def _allocation(payload: Mapping[str, Any], underlying: str, vehicle: str) -> fl
         rows = payload.get("rows")
     if not isinstance(rows, list):
         return None
-    wanted = {underlying.upper(), vehicle.upper()}
     for row in rows:
         if not isinstance(row, Mapping):
             continue
-        symbol = str(row.get("underlying_symbol") or row.get("symbol") or row.get("vehicle_symbol") or "").strip().upper()
-        if symbol not in wanted:
+        symbol = str(row.get("underlying_symbol") or row.get("symbol") or "").strip().upper()
+        execution = str(row.get("vehicle_symbol") or row.get("execution_symbol") or "").strip().upper()
+        if symbol != underlying and execution != vehicle:
             continue
         for key in ("allocated_capital", "allocation", "allocation_amount", "dollar_allocation"):
             value = row.get(key)
@@ -79,33 +67,24 @@ def _allocation(payload: Mapping[str, Any], underlying: str, vehicle: str) -> fl
     return None
 
 
-def _wma(values: Sequence[float], period: int) -> float | None:
-    if period <= 0 or len(values) < period:
-        return None
-    weights = range(1, period + 1)
-    denominator = period * (period + 1) / 2
-    return sum(value * weight for value, weight in zip(values[-period:], weights)) / denominator
-
-
-def _hma(values: Sequence[float], period: int) -> float | None:
-    if period <= 0:
-        return None
-    half = max(1, period // 2)
-    root = max(1, int(math.sqrt(period)))
-    if len(values) < period + root - 1:
-        return None
-    transformed: list[float] = []
-    for end in range(period, len(values) + 1):
-        window = values[:end]
-        fast = _wma(window, half)
-        slow = _wma(window, period)
-        if fast is not None and slow is not None:
-            transformed.append(2 * fast - slow)
-    return _wma(transformed, root)
+def _mapping(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            underlying = str(row.get("underlying_symbol", "")).strip().upper()
+            vehicle = str(row.get("leveraged_symbol", "")).strip().upper()
+            if underlying and vehicle:
+                result[underlying] = vehicle
+    return result
 
 
 def _wilder(values: Sequence[float], period: int) -> float | None:
-    if period <= 0 or len(values) < period:
+    if period <= 0:
+        raise ValueError("period must be positive")
+    if len(values) < period:
         return None
     result = sum(values[:period]) / period
     for value in values[period:]:
@@ -113,188 +92,220 @@ def _wilder(values: Sequence[float], period: int) -> float | None:
     return result
 
 
-def _ohlc_average(bar: MarketBar) -> float | None:
-    if bar.open is None or bar.high is None or bar.low is None:
+def _atr(bars: Sequence[MarketBar], period: int) -> float | None:
+    if len(bars) < period + 1:
         return None
-    return (bar.open + bar.high + bar.low + bar.close) / 4.0
-
-
-def _true_ranges(bars: Sequence[MarketBar]) -> list[float] | None:
-    if not bars or any(bar.high is None or bar.low is None for bar in bars):
-        return None
-    output: list[float] = []
-    previous_close: float | None = None
-    for bar in bars:
-        assert bar.high is not None and bar.low is not None
-        if previous_close is None:
-            output.append(bar.high - bar.low)
-        else:
-            output.append(max(bar.high - bar.low, abs(bar.high - previous_close), abs(bar.low - previous_close)))
-        previous_close = bar.close
-    return output
+    values: list[float] = []
+    for previous, current in zip(bars, bars[1:]):
+        high = current.high if current.high is not None else current.close
+        low = current.low if current.low is not None else current.close
+        values.append(max(high - low, abs(high - previous.close), abs(low - previous.close)))
+    return _wilder(values, period)
 
 
 def _chop(bars: Sequence[MarketBar], period: int) -> float | None:
-    if period <= 1 or len(bars) < period + 1:
+    if len(bars) < period + 1:
         return None
-    window = bars[-period:]
-    if any(bar.high is None or bar.low is None for bar in window):
-        return None
-    ranges = _true_ranges(bars)
-    if ranges is None:
-        return None
-    high = max(float(bar.high) for bar in window if bar.high is not None)
-    low = min(float(bar.low) for bar in window if bar.low is not None)
-    span = high - low
+    atr1_values: list[float] = []
+    for previous, current in zip(bars, bars[1:]):
+        high = current.high if current.high is not None else current.close
+        low = current.low if current.low is not None else current.close
+        atr1_values.append(max(high - low, abs(high - previous.close), abs(low - previous.close)))
+    recent = bars[-period:]
+    highs = [(bar.high if bar.high is not None else bar.close) for bar in recent]
+    lows = [(bar.low if bar.low is not None else bar.close) for bar in recent]
+    span = max(highs) - min(lows)
     if span <= 0:
-        return None
-    total = sum(ranges[-period:])
-    if total <= 0:
-        return None
-    return 100.0 * math.log10(total / span) / math.log10(period)
+        return 100.0
+    total_tr = sum(atr1_values[-period:])
+    return 100.0 * math.log10(total_tr / span) / math.log10(period)
 
 
-def _indicator(token: object, rule: EntryRule, bars: Sequence[MarketBar], position_pl: float) -> float | str | None:
+def _wma(values: Sequence[float], period: int) -> float | None:
+    if len(values) < period:
+        return None
+    weights = range(1, period + 1)
+    denominator = period * (period + 1) / 2
+    return sum(value * weight for value, weight in zip(values[-period:], weights)) / denominator
+
+
+def _hma(values: Sequence[float], period: int) -> float | None:
+    if period <= 1 or len(values) < period + int(math.sqrt(period)) - 1:
+        return None
+    half = max(1, period // 2)
+    root = max(1, int(math.sqrt(period)))
+    derived: list[float] = []
+    for end in range(period, len(values) + 1):
+        window = values[:end]
+        full = _wma(window, period)
+        short = _wma(window, half)
+        if full is not None and short is not None:
+            derived.append((2.0 * short) - full)
+    return _wma(derived, root)
+
+
+def _price_series(bars: Sequence[MarketBar], source: str | None) -> list[float]:
+    if source != "OHLC_AVERAGE":
+        return [bar.close for bar in bars]
+    return [
+        ((bar.open if bar.open is not None else bar.close)
+         + (bar.high if bar.high is not None else bar.close)
+         + (bar.low if bar.low is not None else bar.close)
+         + bar.close) / 4.0
+        for bar in bars
+    ]
+
+
+def _indicator(token: object, rule: EntryRule, bars: Sequence[MarketBar]) -> float | str | None:
     if isinstance(token, (int, float)):
         return float(token)
-    text = str(token).strip()
-    lowered = text.lower()
-    closes = [bar.close for bar in bars]
-    period = rule.period or 14
-    if lowered == "close":
-        return closes[-1]
-    if lowered == "volume":
-        return bars[-1].volume
-    if lowered == "ema":
-        return ema(closes, period)
-    if lowered == "sma":
-        return sma(closes, period)
-    if lowered == "rsi":
-        return rsi(closes, period)
-    if lowered == "volume_average":
-        return volume_average([bar.volume for bar in bars], period)
-    if lowered == "hma":
-        return _hma(closes, period)
-    if lowered == "chop":
-        return _chop(bars, period)
-    if lowered == "position_pl":
-        return position_pl
-    if lowered == "keltner_middle":
-        if (rule.smoothing or "WILDER").upper() != "WILDER":
-            return None
-        source = (rule.price_source or "OHLC_AVERAGE").upper()
-        if source == "OHLC_AVERAGE":
-            values = [_ohlc_average(bar) for bar in bars]
-            if any(value is None for value in values):
-                return None
-            return _wilder([float(value) for value in values if value is not None], period)
-        if source == "CLOSE":
-            return _wilder(closes, period)
+    if isinstance(token, list):
         return None
-    return text
+    name = str(token).strip().lower()
+    closes = [bar.close for bar in bars]
+    if name == "close":
+        return bars[-1].close
+    if name == "ema":
+        return ema(closes, rule.period or 14)
+    if name == "sma":
+        return sma(closes, rule.period or 20)
+    if name == "rsi":
+        return rsi(closes, rule.period or 14)
+    if name == "volume":
+        return bars[-1].volume
+    if name == "volume_average":
+        return volume_average([bar.volume for bar in bars], rule.period or 20)
+    if name == "hma":
+        return _hma(closes, rule.period or 50)
+    if name == "chop":
+        return _chop(bars, rule.period or 14)
+    if name == "keltner_middle":
+        values = _price_series(bars, rule.price_source)
+        period = rule.period or 14
+        if str(rule.smoothing or "EMA").upper() == "WILDER":
+            return _wilder(values, period)
+        return ema(values, period)
+    if name == "market_filter":
+        return "satisfied"
+    return str(token)
 
 
-def _compare(left: float | str | None, operator: str, right: float | str | list[float] | None) -> bool:
-    if left is None or right is None:
-        return False
+def _compare(left: object, operator: str, right: object) -> bool:
     if operator == "between":
-        if not isinstance(right, list) or len(right) != 2:
+        if not isinstance(right, list) or len(right) != 2 or not isinstance(left, (int, float)):
             return False
         return float(right[0]) <= float(left) <= float(right[1])
-    if isinstance(left, str) or isinstance(right, str):
-        return operator == "==" and str(left).lower() == str(right).lower()
-    a, b = float(left), float(right)
-    return {">": a > b, ">=": a >= b, "<": a < b, "<=": a <= b, "==": a == b}.get(operator, False)
+    if operator == "==":
+        return left == right
+    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+        return False
+    return {
+        ">": left > right,
+        ">=": left >= right,
+        "<": left < right,
+        "<=": left <= right,
+    }.get(operator, False)
 
 
-def _rule_passes(rule: EntryRule, bars: Sequence[MarketBar], position_pl: float) -> bool:
-    left = _indicator(rule.left, rule, bars, position_pl)
-    if isinstance(rule.right, list):
-        right: float | str | list[float] | None = rule.right
-    else:
-        right = _indicator(rule.right, rule, bars, position_pl)
+def _rule_passes(rule: EntryRule, bars: Sequence[MarketBar]) -> bool:
+    left = _indicator(rule.left, rule, bars)
+    right = rule.right if isinstance(rule.right, list) else _indicator(rule.right, rule, bars)
     return _compare(left, rule.operator, right)
 
 
-def _rules_pass(rules: Sequence[EntryRule], logic: str, bars: Sequence[MarketBar], position_pl: float) -> bool:
+def _rules_pass(rules: Sequence[EntryRule], logic: str, bars: Sequence[MarketBar]) -> bool:
     if not rules:
         return True
-    values = [_rule_passes(rule, bars, position_pl) for rule in rules]
-    return all(values) if logic == "ALL" else any(values)
+    values = [_rule_passes(rule, bars) for rule in rules]
+    return any(values) if logic == "ANY" else all(values)
 
 
-def _vehicle_close_map(bars: Sequence[MarketBar]) -> dict[Any, float]:
-    return {bar.date: bar.close for bar in bars}
+def _minimum_bars(strategy: ManualEntryStrategy) -> int:
+    periods = [2]
+    for rule in (*strategy.rules, *strategy.regime_filters, *strategy.normal_exit_rules):
+        periods.append(rule.period or 1)
+    for conditional in strategy.conditional_exits:
+        periods.append(conditional.condition.period or 1)
+        periods.extend(rule.period or 1 for rule in conditional.rules)
+    return max(periods) + 2
 
 
 def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allocation: float, signal_bars: Sequence[MarketBar], vehicle_bars: Sequence[MarketBar]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if strategy.timeframe != "1D":
-        return [], {"evidence_status": "UNSUPPORTED_TIMEFRAME", "reason": f"Shadow runner currently requires 1D data; strategy uses {strategy.timeframe}"}
-    prices = _vehicle_close_map(vehicle_bars)
+    vehicle_by_date = {bar.date: bar for bar in vehicle_bars}
+    minimum = _minimum_bars(strategy)
     ledger: list[dict[str, Any]] = []
     slices: list[dict[str, float]] = []
+    confirmation = 0
+    cooldown = 0
     realized = 0.0
     gross_profit = 0.0
     gross_loss = 0.0
-    wins = losses = 0
-    confirmation = 0
-    cooldown = 0
+    wins = 0
+    losses = 0
     equity_peak = 0.0
     max_drawdown = 0.0
     slice_amount = allocation / strategy.number_of_entries
 
-    def open_pl(price: float) -> float:
-        return sum(item["shares"] * (price - item["price"]) for item in slices)
+    def open_pl(vehicle_price: float) -> float:
+        return sum((vehicle_price - item["price"]) * item["shares"] for item in slices)
 
-    for index, bar in enumerate(signal_bars):
-        vehicle_price = prices.get(bar.date)
-        if vehicle_price is None:
+    for index in range(minimum - 1, len(signal_bars)):
+        bars = signal_bars[: index + 1]
+        bar = bars[-1]
+        vehicle_bar = vehicle_by_date.get(bar.date)
+        if vehicle_bar is None:
             continue
-        history = signal_bars[: index + 1]
-        unrealized = open_pl(vehicle_price)
-        equity = realized + unrealized
-        equity_peak = max(equity_peak, equity)
-        max_drawdown = min(max_drawdown, equity - equity_peak)
+        vehicle_price = vehicle_bar.close
+        current_open_pl = open_pl(vehicle_price) if slices else 0.0
+        current_equity = realized + current_open_pl
+        equity_peak = max(equity_peak, current_equity)
+        max_drawdown = min(max_drawdown, current_equity - equity_peak)
+
+        normal_exit = bool(slices) and _rules_pass(strategy.normal_exit_rules, strategy.normal_exit_logic, bars)
+        conditional_exit = False
+        conditional_cooldown = 0
+        if slices:
+            for conditional in strategy.conditional_exits:
+                condition = conditional.condition
+                condition_left: object
+                if str(condition.left).lower() == "position_pl":
+                    condition_left = current_open_pl
+                else:
+                    condition_left = _indicator(condition.left, condition, bars)
+                condition_right = condition.right if isinstance(condition.right, list) else _indicator(condition.right, condition, bars)
+                if _compare(condition_left, condition.operator, condition_right) and _rules_pass(conditional.rules, conditional.rule_logic, bars):
+                    conditional_exit = True
+                    conditional_cooldown = conditional.cooldown_bars
+                    break
+
+        if slices and (normal_exit or conditional_exit):
+            trade_pl = current_open_pl
+            realized += trade_pl
+            if trade_pl > 0:
+                wins += 1
+                gross_profit += trade_pl
+            elif trade_pl < 0:
+                losses += 1
+                gross_loss += trade_pl
+            ledger.append({
+                "date": bar.date.isoformat(), "underlying_symbol": underlying, "vehicle_symbol": vehicle,
+                "strategy_id": strategy.strategy_id, "event": "EXIT", "exit_reason": "CONDITIONAL" if conditional_exit else "NORMAL",
+                "vehicle_price": round(vehicle_price, 6), "simulated_allocation": round(allocation, 2),
+                "realized_pl": round(trade_pl, 2), "cumulative_realized_pl": round(realized, 2),
+            })
+            slices = []
+            confirmation = 0
+            cooldown = conditional_cooldown if conditional_exit else 0
+            continue
 
         if slices:
-            normal_exit = bool(strategy.normal_exit_rules) and _rules_pass(strategy.normal_exit_rules, strategy.normal_exit_logic, history, unrealized)
-            conditional_exit = False
-            conditional_label = ""
-            conditional_cooldown = 0
-            for branch in strategy.conditional_exits:
-                if _rule_passes(branch.condition, history, unrealized) and _rules_pass(branch.rules, branch.rule_logic, history, unrealized):
-                    conditional_exit = True
-                    conditional_label = branch.label or "CONDITIONAL_EXIT"
-                    conditional_cooldown = branch.cooldown_bars
-                    break
-            if normal_exit or conditional_exit:
-                trade_pl = unrealized
-                realized += trade_pl
-                if trade_pl > 0:
-                    wins += 1
-                    gross_profit += trade_pl
-                elif trade_pl < 0:
-                    losses += 1
-                    gross_loss += trade_pl
-                ledger.append({
-                    "date": bar.date.isoformat(), "underlying_symbol": underlying, "vehicle_symbol": vehicle,
-                    "strategy_id": strategy.strategy_id, "event": "EXIT", "vehicle_price": round(vehicle_price, 6),
-                    "simulated_allocation": round(sum(item["amount"] for item in slices), 2), "trade_pl": round(trade_pl, 2),
-                    "realized_pl": round(realized, 2), "exit_reason": conditional_label if conditional_exit else "NORMAL_EXIT",
-                })
-                slices.clear()
-                confirmation = 0
-                cooldown = conditional_cooldown
-                continue
-
+            continue
         if cooldown > 0:
             cooldown -= 1
             confirmation = 0
             continue
 
-        if len(slices) >= strategy.number_of_entries:
-            continue
-        entry_ok = _rules_pass(strategy.rules, strategy.rule_logic, history, unrealized) and _rules_pass(strategy.regime_filters, strategy.regime_logic, history, unrealized)
+        entry_ok = _rules_pass(strategy.rules, strategy.rule_logic, bars) and _rules_pass(strategy.regime_filters, strategy.regime_logic, bars)
         confirmation = confirmation + 1 if entry_ok else 0
         if confirmation >= strategy.confirmation_bars:
             shares = slice_amount / vehicle_price
@@ -307,7 +318,7 @@ def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allo
             })
             confirmation = 0
 
-    final_price = prices.get(signal_bars[-1].date) if signal_bars else None
+    final_price = vehicle_by_date.get(signal_bars[-1].date).close if signal_bars and vehicle_by_date.get(signal_bars[-1].date) is not None else None
     final_open = open_pl(final_price) if final_price is not None and slices else 0.0
     net_pl = realized + final_open
     closed = wins + losses
@@ -387,7 +398,7 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> Path:
     return path
 
 
-def build_and_write_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_PATH, allocation_path: Path = DEFAULT_ALLOCATION_PATH, mapping_path: Path = DEFAULT_MAPPING_PATH, data_dir: Path = DEFAULT_DATA_DIR, ledger_path: Path = DEFAULT_LEDGER_PATH, performance_path: Path = DEFAULT_PERFORMANCE_PATH) -> dict[str, Any]:
+def build_and_write_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_PATH, allocation_path: Path = DEFAULT_ALLOCATION_PATH, mapping_path: Path = DEFAULT_MAPPING_PATH, data_dir: Path = DEFAULT_DATA_DIR, ledger_path: Path = DEFAULT_LEDGER_PATH, performance_path: Path = DEFAULT_PERFORMANCE_PATH, assignment_report_path: Path = DEFAULT_ASSIGNMENT_REPORT_PATH) -> dict[str, Any]:
     payload = run_shadow_strategies(registry_path=registry_path, allocation_path=allocation_path, mapping_path=mapping_path, data_dir=data_dir)
     ledger_payload = {key: value for key, value in payload.items() if key != "rows"}
     ledger_payload["rows"] = payload["ledger_rows"]
@@ -395,6 +406,12 @@ def build_and_write_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_
     performance_payload = {key: value for key, value in payload.items() if key != "ledger_rows"}
     _atomic_json(ledger_path, ledger_payload)
     _atomic_json(performance_path, performance_payload)
+    build_and_write_strategy_assignment_shadow_report(
+        registry_path=registry_path,
+        allocation_path=allocation_path,
+        shadow_performance_path=performance_path,
+        output_path=assignment_report_path,
+    )
     return payload
 
 
