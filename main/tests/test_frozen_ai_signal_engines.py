@@ -24,12 +24,15 @@ def test_only_recovered_engines_are_exposed() -> None:
 
 
 def test_zero_lag_requires_warmup_and_emits_confirmed_transition() -> None:
-    cold = [_bar(i, 100.0) for i in range(5)]
-    assert evaluate_frozen_signal("ZERO_LAG", {"length": 2, "multiplier": 0.1}, cold).diagnostics["ready"] is False
+    # ZERO_LAG needs enough history for the handoff's highest(ATR(length), length*3)
+    # volatility window. Use length=10 so the synthetic regression fixture has a
+    # realistic 30-bar warmup while remaining compact.
+    cold = [_bar(i, 100.0) for i in range(20)]
+    assert evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1}, cold).diagnostics["ready"] is False
 
-    bars = [_bar(i, 100.0) for i in range(10)]
-    bars.append(_bar(10, 110.0, high=111.0, low=109.0))
-    decision = evaluate_frozen_signal("ZERO_LAG", {"length": 2, "multiplier": 0.1}, bars)
+    bars = [_bar(i, 100.0) for i in range(35)]
+    bars.append(_bar(35, 120.0, high=121.0, low=119.0))
+    decision = evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1}, bars)
     assert decision.diagnostics["ready"] is True
     assert decision.diagnostics["large_green"] is True
     assert decision.entry_signal is True
@@ -37,10 +40,10 @@ def test_zero_lag_requires_warmup_and_emits_confirmed_transition() -> None:
 
 
 def test_zero_lag_chop_filter_can_block_an_entry_transition() -> None:
-    bars = [_bar(i, 100.0) for i in range(20)]
-    bars.append(_bar(20, 110.0, high=111.0, low=109.0))
-    unfiltered = evaluate_frozen_signal("ZERO_LAG", {"length": 2, "multiplier": 0.1}, bars)
-    filtered = evaluate_frozen_signal("ZERO_LAG", {"length": 2, "multiplier": 0.1, "chop_max": 0.0001}, bars)
+    bars = [_bar(i, 100.0) for i in range(35)]
+    bars.append(_bar(35, 120.0, high=121.0, low=119.0))
+    unfiltered = evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1}, bars)
+    filtered = evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1, "chop_max": 0.0001}, bars)
     assert unfiltered.entry_signal is True
     assert filtered.diagnostics["filter_ok"] is False
     assert filtered.entry_signal is False
