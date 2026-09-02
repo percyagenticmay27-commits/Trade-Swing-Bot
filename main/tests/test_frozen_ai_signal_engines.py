@@ -18,7 +18,13 @@ def _bar(index: int, close: float, *, high: float | None = None, low: float | No
 
 
 def test_only_recovered_engines_are_exposed() -> None:
-    assert SUPPORTED_ENGINES == {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA"}
+    assert SUPPORTED_ENGINES == {
+        "ZERO_LAG",
+        "BIGBELUGA_RANGE",
+        "VOL_VIDYA",
+        "STRATEGY_F",
+        "KELTNER_LONG",
+    }
     with pytest.raises(ValueError, match="unsupported frozen engine"):
         evaluate_frozen_signal("LOOKALIKE", {}, [_bar(0, 100.0)])
 
