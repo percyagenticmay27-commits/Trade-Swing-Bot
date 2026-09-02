@@ -1,13 +1,13 @@
 """Paper-only signal-to-execution workflow for frozen DIRECT Primary strategies.
 
 This workflow bridges the frozen signal engine to the governed paper-ledger
-execution boundary.  It processes only the current DIRECT Primary for each
-frozen symbol stack.  SHADOW strategies remain research-only.
+execution boundary. It processes only the current DIRECT Primary for each
+frozen symbol stack. SHADOW strategies remain research-only.
 
-The first run establishes a non-retroactive cursor at the latest available chart
-bar and adopts no historical signal.  Later runs process only chart bars newer
-than that cursor.  Confirmed strategy signals execute at the next chart-bar open,
-matching the frozen research contract.  A pending signal is persisted when its
+The first run establishes a non-retroactive cursor at the latest completed chart
+bar and adopts no historical signal. Later runs process only chart bars newer
+than that cursor. Confirmed strategy signals execute at the next chart-bar open,
+matching the frozen research contract. A pending signal is persisted when its
 next chart bar is not available yet.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import json
 import math
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -50,7 +50,7 @@ def run_frozen_primary_signal_execution(
     report_path: Path = DEFAULT_REPORT_PATH,
     source_timezone: str = "America/New_York",
 ) -> dict[str, Any]:
-    """Process new frozen DIRECT Primary chart bars into paper-only events."""
+    """Process new completed frozen DIRECT Primary chart bars into paper events."""
     stacks = load_frozen_symbol_stacks(config_path)
     state = _load_state(state_path)
     symbols_state = dict(state.get("symbols", {}))
@@ -72,15 +72,19 @@ def run_frozen_primary_signal_execution(
             raw_rows = load_intraday_csv(market_path, source_timezone=source_timezone)
             session_rows = regular_session_rows(raw_rows)
             chart_bars = build_chart_bars(session_rows, primary.timeframe)  # type: ignore[arg-type]
+            completed_bars = _completed_chart_bars(chart_bars, session_rows, primary.timeframe)
         except (OSError, ValueError, TypeError) as exc:
             rows.append(_row(symbol, primary.strategy_id, "MARKET_DATA_ERROR", error=f"{type(exc).__name__}: {exc}"))
             continue
         if not chart_bars:
             rows.append(_row(symbol, primary.strategy_id, "NO_CHART_BARS"))
             continue
+        if not completed_bars:
+            rows.append(_row(symbol, primary.strategy_id, "NO_COMPLETED_CHART_BARS"))
+            continue
 
         symbol_state = dict(symbols_state.get(symbol, {}))
-        latest_timestamp = chart_bars[-1].timestamp.isoformat()
+        latest_timestamp = completed_bars[-1].timestamp.isoformat()
         if not symbol_state:
             budget = _current_position_cost_basis(Path(ledger_dir), symbol)
             symbols_state[symbol] = {
@@ -99,7 +103,7 @@ def run_frozen_primary_signal_execution(
             continue
 
         # Promotion changes DIRECT authority without retroactively replaying the new
-        # strategy over old bars.  Re-baseline that symbol from the current bar.
+        # strategy over old bars. Re-baseline that symbol from the latest completed bar.
         if str(symbol_state.get("strategy_id", "")) != primary.strategy_id:
             symbol_state["strategy_id"] = primary.strategy_id
             symbol_state["last_processed_chart_bar"] = latest_timestamp
@@ -119,6 +123,7 @@ def run_frozen_primary_signal_execution(
                 symbol=symbol,
                 primary=primary,
                 chart_bars=chart_bars,
+                completed_bars=completed_bars,
                 ledger_dir=Path(ledger_dir),
                 config_path=Path(config_path),
                 symbol_state=symbol_state,
@@ -144,7 +149,34 @@ def run_frozen_primary_signal_execution(
     return report
 
 
-def _process_symbol(*, symbol, primary, chart_bars, ledger_dir: Path, config_path: Path, symbol_state: dict[str, Any]) -> dict[str, Any]:
+def _completed_chart_bars(chart_bars, session_rows, timeframe: str):
+    """Return only chart bars whose full frozen NY-RTH bucket has elapsed.
+
+    The intraday archive may contain the currently-forming 1H/4H bucket. Its open
+    may be used to fill a prior confirmed signal, but its close must never be used
+    to generate a new signal until the bucket is complete.
+    """
+    if not session_rows:
+        return []
+    latest_raw = session_rows[-1].timestamp
+    completed = []
+    for bar in chart_bars:
+        local = bar.timestamp
+        if timeframe == "1H":
+            if local.hour == 15 and local.minute == 30:
+                cutoff = local + timedelta(minutes=29)
+            else:
+                cutoff = local + timedelta(minutes=59)
+        elif timeframe == "4H":
+            cutoff = local + timedelta(minutes=239 if local.hour == 9 else 149)
+        else:
+            cutoff = local + timedelta(minutes=389)
+        if latest_raw >= cutoff:
+            completed.append(bar)
+    return completed
+
+
+def _process_symbol(*, symbol, primary, chart_bars, completed_bars, ledger_dir: Path, config_path: Path, symbol_state: dict[str, Any]) -> dict[str, Any]:
     last_processed = str(symbol_state.get("last_processed_chart_bar", ""))
     if not last_processed:
         raise ValueError("last_processed_chart_bar is required after initialization")
@@ -152,12 +184,14 @@ def _process_symbol(*, symbol, primary, chart_bars, ledger_dir: Path, config_pat
     index_by_timestamp = {value: index for index, value in enumerate(timestamps)}
     if last_processed not in index_by_timestamp:
         raise ValueError("saved chart-bar cursor is no longer present in intraday archive")
+    completed_timestamps = {bar.timestamp.isoformat() for bar in completed_bars}
 
     pending = symbol_state.get("pending_signal")
     executed: list[dict[str, Any]] = []
     start_index = index_by_timestamp[last_processed] + 1
 
-    # A signal confirmed on the prior run executes at the next chart-bar open.
+    # A signal confirmed on the prior run executes as soon as the next chart-bar
+    # open exists. That fill bar may still be forming and is not marked processed.
     if isinstance(pending, Mapping) and start_index < len(chart_bars):
         fill_bar = chart_bars[start_index]
         event = _event_from_pending(
@@ -174,6 +208,8 @@ def _process_symbol(*, symbol, primary, chart_bars, ledger_dir: Path, config_pat
 
     for index in range(start_index, len(chart_bars)):
         bar = chart_bars[index]
+        if bar.timestamp.isoformat() not in completed_timestamps:
+            continue
         decision = evaluate_frozen_signal(primary.engine_id, primary.parameters, chart_bars[: index + 1])
         position_open = _has_open_position(ledger_dir, symbol)
         desired_side = None
@@ -199,17 +235,16 @@ def _process_symbol(*, symbol, primary, chart_bars, ledger_dir: Path, config_pat
                 )
                 applied = execute_frozen_primary_event(event, config_path=config_path, ledger_dir=ledger_dir)
                 executed.append(applied)
-                # Do not independently evaluate the fill bar for another signal;
-                # it is the execution bar for the just-confirmed event.
-                symbol_state["last_processed_chart_bar"] = fill_bar.timestamp.isoformat()
                 pending = None
-                continue
-            pending = {
-                "side": desired_side,
-                "signal_chart_bar": bar.timestamp.isoformat(),
-                "reason": reason,
-            }
+            else:
+                pending = {
+                    "side": desired_side,
+                    "signal_chart_bar": bar.timestamp.isoformat(),
+                    "reason": reason,
+                }
 
+        # Cursor advances only after this bar's close was eligible for signal
+        # evaluation. A partial fill bar remains available for later evaluation.
         symbol_state["last_processed_chart_bar"] = bar.timestamp.isoformat()
 
     symbol_state["pending_signal"] = pending
