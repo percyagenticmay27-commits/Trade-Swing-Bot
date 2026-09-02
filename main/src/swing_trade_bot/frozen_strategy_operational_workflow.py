@@ -2,9 +2,10 @@
 
 The workflow loads frozen symbol assignments, resolves timestamped NY-session
 intraday data, simulates the DIRECT Primary and all active SHADOWS with the exact
-same current Primary paper-position share quantity, and publishes research
-evidence. It does not place orders, create paper positions, reserve/move capital,
-or promote strategies.
+same persistent Primary reference share quantity, and publishes research
+evidence. The reference quantity survives periods when the DIRECT Primary is
+flat, so Shadow comparisons do not stop after a Primary exit. It does not place
+orders, create paper positions, reserve/move capital, or promote strategies.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from .frozen_strategy_assignment_registry import DEFAULT_CONFIG_PATH, load_froze
 from .frozen_strategy_shadow_runtime import run_frozen_shadow_spec
 
 DEFAULT_INTRADAY_DATA_DIR = Path("data/intraday")
-DEFAULT_PRIMARY_POSITIONS_PATH = Path("results/paper_ledger/current_portfolio_positions.csv")
+DEFAULT_PRIMARY_POSITIONS_PATH = Path("results/frozen_primary_reference_positions.csv")
 DEFAULT_PERFORMANCE_PATH = Path("results/frozen_strategy_performance.json")
 DEFAULT_LEDGER_PATH = Path("results/frozen_strategy_ledger.json")
 INTRADAY_DATA_DIR_ENV = "SWING_INTRADAY_DATA_DIR"
@@ -82,7 +83,7 @@ def build_frozen_strategy_evidence(
     intraday_data_dir: Path | None = None,
     primary_positions_path: Path = DEFAULT_PRIMARY_POSITIONS_PATH,
 ) -> dict[str, Any]:
-    """Run every frozen DIRECT/SHADOW assignment using current Primary shares."""
+    """Run every frozen DIRECT/SHADOW assignment using persistent Primary shares."""
     data_dir = _intraday_dir(intraday_data_dir)
     rows: list[dict[str, Any]] = []
     ledger_rows: list[dict[str, Any]] = []
