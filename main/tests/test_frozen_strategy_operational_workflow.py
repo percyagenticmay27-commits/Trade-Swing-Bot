@@ -23,6 +23,8 @@ NY = ZoneInfo("America/New_York")
 
 def _config(path: Path) -> None:
     path.write_text(json.dumps({
+        "schema_version": "1.0",
+        "strategy_id": "SWING-001",
         "paper_trade_mode": True,
         "strategies": [
             {
@@ -76,10 +78,8 @@ def _intraday(path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=["timestamp", "open", "high", "low", "close", "volume"])
         writer.writeheader()
-        current = start
         price = 100.0
         for minute in range(60 * 6 * 15):
-            # Skip overnight by starting a fresh regular session every 390 rows.
             day = minute // 390
             slot = minute % 390
             timestamp = (start + timedelta(days=day)).replace(hour=9, minute=30) + timedelta(minutes=slot)
