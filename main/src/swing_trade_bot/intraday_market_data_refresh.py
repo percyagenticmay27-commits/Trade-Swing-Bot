@@ -3,7 +3,8 @@
 This module keeps timestamped 1-minute NY regular-session OHLCV history separate
 from the existing daily market-data pipeline. Recent provider rows are merged into
 an append-preserving local archive so older valid intraday history is never lost
-when the provider's rolling window moves forward.
+when the provider's rolling window moves forward. Both signal symbols and traded
+vehicle symbols referenced by frozen specs are refreshed.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from .frozen_strategy_assignment_registry import DEFAULT_CONFIG_PATH, load_froze
 from .intraday_chart_bars import IntradayBar, NY_TZ, load_intraday_csv, regular_session_rows
 
 STRATEGY_ID = "SWING-001"
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 PROVIDER = "YFINANCE"
 INTERVAL = "1m"
 DEFAULT_PERIOD = "7d"
@@ -174,9 +175,15 @@ def refresh_intraday_market_data(
     fetch_recent: FetchRecentBars | None = None,
     generated_at_utc: str | None = None,
 ) -> dict[str, object]:
-    """Refresh all symbols present in the frozen registry and preserve local history."""
+    """Refresh every frozen signal and vehicle symbol and preserve local history."""
     fetcher = fetch_recent or fetch_yfinance_recent_1m
-    symbols = sorted({stack.symbol for stack in load_frozen_symbol_stacks(config_path)})
+    stacks = load_frozen_symbol_stacks(config_path)
+    symbols = sorted({
+        symbol
+        for stack in stacks
+        for spec in (stack.primary, *stack.shadows)
+        for symbol in (spec.signal_symbol, spec.vehicle_symbol)
+    })
     results: list[IntradayRefreshSymbolResult] = []
 
     for symbol in symbols:
