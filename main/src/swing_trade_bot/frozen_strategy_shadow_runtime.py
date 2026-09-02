@@ -1,10 +1,10 @@
 """Paper-only runtime for frozen 1H/4H AI-Suggestions strategies.
 
 This runtime is deliberately separate from the legacy declarative manual-strategy
-runner. It preserves the frozen signal engines, NY-session chart-bar contract,
-next-chart-bar-open execution, exact Primary-share shadow sizing, and optional
-raw-intraday catastrophic stop monitoring without creating paper positions,
-orders, brokerage calls, or capital movement.
+runner. It preserves frozen engine-specific execution timing, NY-session chart
+bars, exact Primary-share shadow sizing, and optional raw-intraday catastrophic
+stop monitoring without creating paper positions, orders, brokerage calls, or
+capital movement.
 """
 from __future__ import annotations
 
@@ -14,7 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .frozen_ai_signal_engines import SUPPORTED_ENGINES, evaluate_frozen_signal
+from .frozen_ai_signal_engines import (
+    SUPPORTED_ENGINES,
+    evaluate_frozen_signal,
+    frozen_engine_execution_timing,
+)
 from .intraday_chart_bars import IntradayBar, build_chart_bars, load_intraday_csv, regular_session_rows
 from .manual_strategy_shadow_runner import _primary_share_quantity
 
@@ -77,15 +81,12 @@ def simulate_frozen_strategy(
     *,
     test_quantity: float,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Simulate one frozen strategy using confirmed signals and next-bar opens.
-
-    The signal engine evaluates each completed chart bar. Entry and technical exit
-    execute at the next chart-bar open. If configured, a catastrophic stop is
-    monitored against raw NY-session vehicle rows while a position is open.
-    """
+    """Simulate one frozen strategy using its authoritative execution timing."""
     if not math.isfinite(test_quantity) or test_quantity <= 0:
         raise ValueError("test_quantity must be a positive finite number")
 
+    execution_timing = frozen_engine_execution_timing(spec.engine_id)
+    close_execution = execution_timing == "CONFIRMED_SIGNAL_BAR_CLOSE"
     signal_chart = build_chart_bars(signal_rows, spec.timeframe)  # type: ignore[arg-type]
     vehicle_chart = build_chart_bars(vehicle_rows, spec.timeframe)  # type: ignore[arg-type]
     vehicle_chart_by_ts = _bars_by_timestamp(vehicle_chart)
@@ -136,36 +137,41 @@ def simulate_frozen_strategy(
         entry_timestamp = None
         pending_exit = False
 
+    def open_trade(timestamp: datetime, price: float, reason: str) -> None:
+        nonlocal position_open, entry_price, entry_timestamp
+        entry_price = price
+        entry_timestamp = timestamp
+        position_open = True
+        ledger.append({
+            "timestamp": timestamp.isoformat(),
+            "signal_symbol": spec.signal_symbol,
+            "vehicle_symbol": spec.vehicle_symbol,
+            "strategy_id": spec.strategy_id,
+            "event": "ENTRY",
+            "entry_reason": reason,
+            "vehicle_price": round(entry_price, 6),
+            "shares": round(test_quantity, 8),
+            "simulated_notional": round(entry_price * test_quantity, 2),
+            "primary_reference_quantity": round(test_quantity, 8),
+            "shadow_test_quantity": round(test_quantity, 8),
+            "sizing_basis": SHADOW_SIZING_BASIS,
+        })
+
     for index, signal_bar in enumerate(signal_chart):
         vehicle_bar = vehicle_chart_by_ts.get(signal_bar.timestamp)
         if vehicle_bar is None:
             continue
 
-        # Execute a signal confirmed on the prior chart bar at this bar's open.
-        if pending_exit and position_open:
-            close_trade(signal_bar.timestamp, vehicle_bar.open, "TECHNICAL_NEXT_BAR_OPEN")
-        if pending_entry and not position_open:
-            entry_price = vehicle_bar.open
-            entry_timestamp = signal_bar.timestamp
-            position_open = True
-            ledger.append({
-                "timestamp": signal_bar.timestamp.isoformat(),
-                "signal_symbol": spec.signal_symbol,
-                "vehicle_symbol": spec.vehicle_symbol,
-                "strategy_id": spec.strategy_id,
-                "event": "ENTRY",
-                "entry_reason": "CONFIRMED_SIGNAL_NEXT_BAR_OPEN",
-                "vehicle_price": round(entry_price, 6),
-                "shares": round(test_quantity, 8),
-                "simulated_notional": round(entry_price * test_quantity, 2),
-                "primary_reference_quantity": round(test_quantity, 8),
-                "shadow_test_quantity": round(test_quantity, 8),
-                "sizing_basis": SHADOW_SIZING_BASIS,
-            })
-        pending_entry = False
-        pending_exit = False
+        if not close_execution:
+            if pending_exit and position_open:
+                close_trade(signal_bar.timestamp, vehicle_bar.open, "TECHNICAL_NEXT_BAR_OPEN")
+            if pending_entry and not position_open:
+                open_trade(signal_bar.timestamp, vehicle_bar.open, "CONFIRMED_SIGNAL_NEXT_BAR_OPEN")
+            pending_entry = False
+            pending_exit = False
 
-        # Raw-intraday catastrophic stop monitoring for the current chart bucket.
+        # Stops are checked before a Strategy F close-of-bar entry, so raw rows
+        # earlier in the same bucket cannot stop a position that did not yet exist.
         if position_open and entry_price is not None and spec.catastrophic_stop_percent is not None:
             next_timestamp = signal_chart[index + 1].timestamp if index + 1 < len(signal_chart) else datetime.max.replace(tzinfo=signal_bar.timestamp.tzinfo)
             stop_price = entry_price * (1.0 - spec.catastrophic_stop_percent / 100.0)
@@ -174,17 +180,23 @@ def simulate_frozen_strategy(
                     close_trade(raw.timestamp, stop_price, "CATASTROPHIC_STOP_RAW_INTRADAY")
                     break
 
+        decision = evaluate_frozen_signal(spec.engine_id, spec.parameters, signal_chart[: index + 1])
+        if close_execution:
+            if position_open and decision.exit_signal:
+                close_trade(signal_bar.timestamp, vehicle_bar.close, "TECHNICAL_CONFIRMED_BAR_CLOSE")
+            elif not position_open and decision.entry_signal:
+                open_trade(signal_bar.timestamp, vehicle_bar.close, "CONFIRMED_SIGNAL_BAR_CLOSE")
+        else:
+            if position_open and decision.exit_signal:
+                pending_exit = True
+            elif not position_open and decision.entry_signal:
+                pending_entry = True
+
         current_price = vehicle_bar.close
         open_pl = 0.0 if not position_open or entry_price is None else (current_price - entry_price) * test_quantity
         equity = realized + open_pl
         equity_peak = max(equity_peak, equity)
         max_drawdown = min(max_drawdown, equity - equity_peak)
-
-        decision = evaluate_frozen_signal(spec.engine_id, spec.parameters, signal_chart[: index + 1])
-        if position_open and decision.exit_signal:
-            pending_exit = True
-        elif not position_open and decision.entry_signal:
-            pending_entry = True
 
     final_open_pl = 0.0
     if position_open and entry_price is not None and vehicle_chart:
@@ -215,7 +227,7 @@ def simulate_frozen_strategy(
         "primary_reference_quantity": round(test_quantity, 8),
         "shadow_test_quantity": round(test_quantity, 8),
         "sizing_basis": SHADOW_SIZING_BASIS,
-        "execution_timing": "CONFIRMED_SIGNAL_NEXT_CHART_BAR_OPEN",
+        "execution_timing": execution_timing,
         "catastrophic_stop_percent": spec.catastrophic_stop_percent,
         "catastrophic_stop_authority": "RAW_INTRADAY_VEHICLE_ROWS" if spec.catastrophic_stop_percent is not None else None,
         "promotion_recommended": False,
