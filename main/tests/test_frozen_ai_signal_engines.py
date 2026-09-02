@@ -82,6 +82,45 @@ def test_zero_lag_exposes_current_frozen_band_diagnostics() -> None:
     assert decision.diagnostics["lower_band"] < decision.diagnostics["zlema"] < decision.diagnostics["upper_band"]
 
 
+def test_zero_lag_adx_wilder_reference_reaches_100_in_persistent_uptrend() -> None:
+    # TradingView ta.dmi(14, 14) uses Wilder/RMA smoothing. In a persistent
+    # one-directional uptrend, -DI remains zero and DX is 100 for every valid
+    # sample, so the seeded and subsequently smoothed ADX must be exactly 100.
+    bars = [
+        _bar(i, 100.0 + i, high=101.0 + i, low=99.0 + i)
+        for i in range(60)
+    ]
+    decision = evaluate_frozen_signal(
+        "ZERO_LAG",
+        {"length": 10, "multiplier": 1.0, "adx_min": 20.0},
+        bars,
+    )
+    assert decision.diagnostics["ready"] is True
+    assert decision.diagnostics["adx"] == pytest.approx(100.0, abs=1e-12)
+    assert decision.diagnostics["filter_ok"] is True
+
+
+def test_zero_lag_adx_threshold_is_strictly_greater_than_frozen_threshold() -> None:
+    bars = [
+        _bar(i, 100.0 + i, high=101.0 + i, low=99.0 + i)
+        for i in range(60)
+    ]
+    passes = evaluate_frozen_signal(
+        "ZERO_LAG",
+        {"length": 10, "multiplier": 1.0, "adx_min": 99.999},
+        bars,
+    )
+    blocked = evaluate_frozen_signal(
+        "ZERO_LAG",
+        {"length": 10, "multiplier": 1.0, "adx_min": 100.0},
+        bars,
+    )
+    assert passes.diagnostics["adx"] == pytest.approx(100.0, abs=1e-12)
+    assert passes.diagnostics["filter_ok"] is True
+    assert blocked.diagnostics["adx"] == pytest.approx(100.0, abs=1e-12)
+    assert blocked.diagnostics["filter_ok"] is False
+
+
 def test_bigbeluga_recovered_area_range_green_arrow() -> None:
     bars = [_bar(i, 100.0) for i in range(313)]
     # The recovered Pine initializes the Area Range at bar_index == 301.
