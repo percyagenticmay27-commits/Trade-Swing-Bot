@@ -24,17 +24,28 @@ COMPONENTS = (
     "portfolio_risk_adjustment_score",
     "entry_score",
 )
+
+# Source order is intentional. Dedicated Opportunity Quality evidence remains
+# authoritative when present. Mapped-underlying evidence fills the same frozen
+# components for the leveraged Swing universe. The ranked watchlist is retained
+# as a final fundamental fallback through financial_health_score; it must not
+# overwrite richer mapped-underlying evidence with a zero placeholder.
 SOURCES = (
-    "watchlist_report.json",
     "fundamental_analysis.json",
     "market_intelligence.json",
-    "confidence_report.json",
-    "confidence_report.csv",
     "momentum_scores.json",
     "technical_analysis.json",
     "market_regime.json",
     "portfolio_risk_report.json",
     "entry_score_report.json",
+    "mapped_underlying_fundamental_evidence.json",
+    "mapped_underlying_intelligence_evidence.json",
+    "mapped_underlying_quantitative_evidence.json",
+    "mapped_underlying_market_regime_evidence.json",
+    "mapped_underlying_portfolio_risk_evidence.json",
+    "confidence_report.json",
+    "confidence_report.csv",
+    "watchlist_report.json",
 )
 
 
