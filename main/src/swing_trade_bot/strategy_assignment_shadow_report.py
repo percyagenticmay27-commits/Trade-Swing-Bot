@@ -2,8 +2,10 @@
 
 The report is descriptive and paper-only. DIRECT identifies the one strategy that
 may be resolved for entry authority. SHADOW identifies research-only strategies
-that may simulate against the same current Swing allocation without reserving or
-moving capital. Optional shadow performance evidence is joined when available.
+that simulate using the current Primary paper-position share quantity without
+reserving or moving capital. Current Swing allocation is retained as comparison
+normalization context only. Optional shadow performance evidence is joined when
+available.
 
 A qualified shadow does not require affirmative user approval. Qualification is
 followed by a veto opportunity; absent a veto, the promotion lifecycle may promote
@@ -108,7 +110,11 @@ def build_strategy_assignment_shadow_report(
                     "timeframe": strategy.timeframe,
                     "number_of_entries": strategy.number_of_entries,
                     "simulated_allocation": allocations.get(symbol),
-                    "allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
+                    "allocation_model": "SAME_PRIMARY_SHARE_QUANTITY_SIMULATED_ONLY",
+                    "normalization_basis": "CURRENT_SWING_ALLOCATION",
+                    "primary_reference_quantity": ev.get("primary_reference_quantity"),
+                    "shadow_test_quantity": ev.get("shadow_test_quantity"),
+                    "sizing_basis": ev.get("sizing_basis"),
                     "trade_count": ev.get("trade_count"),
                     "wins": ev.get("wins"),
                     "losses": ev.get("losses"),
@@ -136,14 +142,16 @@ def build_strategy_assignment_shadow_report(
         )
 
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "strategy_id": "SWING-001",
         "paper_trade_mode": True,
         "auto_promotion_enabled": True,
         "promotion_authority": "AUTOMATIC_AFTER_QUALIFICATION_AND_VETO_WINDOW",
         "affirmative_approval_required": False,
         "user_veto_allowed": True,
-        "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
+        "shadow_allocation_model": "SAME_PRIMARY_SHARE_QUANTITY_SIMULATED_ONLY",
+        "shadow_sizing_basis": "PRIMARY_SHARE_QUANTITY",
+        "normalization_basis": "CURRENT_SWING_ALLOCATION",
         "shadow_capital_reserved": False,
         "shadow_capital_movement_enabled": False,
         "rows": rows,
