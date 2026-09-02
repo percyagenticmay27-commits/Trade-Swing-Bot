@@ -1,8 +1,10 @@
 """Assemble frozen Opportunity Quality inputs from existing paper-only evidence.
 
-Candidate selection is owned by the current ranked watchlist. Opportunity Quality
-inputs must not depend on committee runtime evidence because committees consume
-the resulting Opportunity Quality report later in the same cycle.
+Candidate coverage is owned by the current ranked watchlist. Every active ranked
+candidate must reach Opportunity Quality evaluation; rank selects ordering, not
+exclusive admission. Opportunity Quality inputs must not depend on committee
+runtime evidence because committees consume the resulting Opportunity Quality
+report later in the same cycle.
 """
 from __future__ import annotations
 
@@ -40,20 +42,49 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
     if not paper_trade_mode:
         raise ValueError("Opportunity Quality inputs require paper_trade_mode=True")
     root = Path(results_dir)
-    symbol, underlying, leveraged = _selected_watchlist_context(root)
-    aliases = {symbol, underlying, leveraged} - {""}
+    contexts = _ranked_watchlist_contexts(root)
+    primary_symbol, primary_underlying, primary_leveraged = contexts[0]
 
-    rows: list[tuple[str, Mapping[str, Any]]] = []
     available: list[str] = []
+    source_rows: list[tuple[str, Mapping[str, Any]]] = []
     for name in SOURCES:
         path = root / name
         if not path.is_file():
             continue
         available.append(f"results/{name}")
-        for row in _read_rows(path):
-            if _symbol(row) in aliases:
-                rows.append((name, row))
+        source_rows.extend((name, row) for row in _read_rows(path))
 
+    outputs: list[dict[str, Any]] = []
+    provenance_by_symbol: dict[str, dict[str, str | None]] = {}
+    for symbol, underlying, leveraged in contexts:
+        aliases = {symbol, underlying, leveraged} - {""}
+        rows = [(name, row) for name, row in source_rows if _symbol(row) in aliases]
+        output, provenance = _build_candidate_input(symbol, rows)
+        outputs.append(output)
+        provenance_by_symbol[symbol] = provenance
+
+    return {
+        "paper_trade_mode": True,
+        "missing_evidence_rule": "missing evidence = 0",
+        "entry_score_display_only": True,
+        "selected_by": "highest evidence rank",
+        "candidate_coverage": "all active ranked watchlist candidates",
+        "selection_source": "results/watchlist_report.json",
+        "selected_underlying_symbol": primary_underlying,
+        "selected_leveraged_symbol": primary_leveraged,
+        "source_artifacts": sorted(set(available)),
+        # Preserve the historical top-candidate provenance contract for existing
+        # downstream readers while also exposing provenance for every candidate.
+        "component_provenance": provenance_by_symbol[primary_symbol],
+        "component_provenance_by_symbol": provenance_by_symbol,
+        "rows": outputs,
+    }
+
+
+def _build_candidate_input(
+    symbol: str,
+    rows: Sequence[tuple[str, Mapping[str, Any]]],
+) -> tuple[dict[str, Any], dict[str, str | None]]:
     output: dict[str, Any] = {"symbol": symbol}
     provenance: dict[str, str | None] = {}
     for component in COMPONENTS:
@@ -79,19 +110,7 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
             break
     output["thesis_intact"] = thesis_intact
     provenance["thesis_intact"] = thesis_source
-
-    return {
-        "paper_trade_mode": True,
-        "missing_evidence_rule": "missing evidence = 0",
-        "entry_score_display_only": True,
-        "selected_by": "highest evidence rank",
-        "selection_source": "results/watchlist_report.json",
-        "selected_underlying_symbol": underlying,
-        "selected_leveraged_symbol": leveraged,
-        "source_artifacts": sorted(set(available)),
-        "component_provenance": provenance,
-        "rows": [output],
-    }
+    return output, provenance
 
 
 def write_opportunity_quality_inputs(payload: Mapping[str, Any], output_path: str | Path) -> Path:
@@ -108,20 +127,32 @@ def build_and_write_opportunity_quality_inputs(results_dir: str | Path, output_p
     return write_opportunity_quality_inputs(build_opportunity_quality_inputs(root), output_path or root / "opportunity_quality_inputs.json")
 
 
-def _selected_watchlist_context(root: Path) -> tuple[str, str, str]:
+def _ranked_watchlist_contexts(root: Path) -> list[tuple[str, str, str]]:
     watchlist_path = root / "watchlist_report.json"
     if not watchlist_path.is_file():
         raise FileNotFoundError(f"Ranked watchlist is missing: {watchlist_path}")
     candidates = [row for row in _read_rows(watchlist_path) if _candidate_is_active(row)]
     if not candidates:
         raise ValueError("Ranked watchlist contains no active candidates")
-    selected = min(candidates, key=_rank_key)
-    underlying = _text(selected, "underlying_symbol", "symbol", "ticker").upper()
-    leveraged = _text(selected, "leveraged_symbol").upper()
-    symbol = underlying or leveraged
-    if not symbol:
-        raise ValueError("Highest-ranked watchlist candidate has no symbol")
-    return symbol, underlying, leveraged
+
+    contexts: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for selected in sorted(candidates, key=_rank_key):
+        underlying = _text(selected, "underlying_symbol", "symbol", "ticker").upper()
+        leveraged = _text(selected, "leveraged_symbol").upper()
+        symbol = underlying or leveraged
+        if not symbol:
+            raise ValueError("Active ranked watchlist candidate has no symbol")
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        contexts.append((symbol, underlying, leveraged))
+    return contexts
+
+
+def _selected_watchlist_context(root: Path) -> tuple[str, str, str]:
+    """Backward-compatible helper returning the highest-ranked active context."""
+    return _ranked_watchlist_contexts(root)[0]
 
 
 def _json(path: Path) -> Any:
