@@ -9,6 +9,8 @@ this module.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -69,10 +71,36 @@ def _spec(raw: Mapping[str, Any]) -> FrozenStrategySpec:
     )
 
 
-def load_frozen_symbol_stacks(path: Path = DEFAULT_CONFIG_PATH) -> tuple[FrozenSymbolStack, ...]:
+def _load_payload(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not bool(payload.get("paper_trade_mode", True)):
-        raise ValueError("paper_trade_mode=True is mandatory")
+    if not isinstance(payload, dict):
+        raise ValueError("frozen strategy registry root must be an object")
+    if payload.get("strategy_id") != "SWING-001" or payload.get("paper_trade_mode") is not True:
+        raise ValueError("frozen strategy registry must be authoritative SWING-001 paper configuration")
+    return payload
+
+
+def _atomic_json(path: Path, payload: Mapping[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(dict(payload), handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+        raise
+    return path
+
+
+def load_frozen_symbol_stacks(path: Path = DEFAULT_CONFIG_PATH) -> tuple[FrozenSymbolStack, ...]:
+    payload = _load_payload(path)
     strategy_rows = payload.get("strategies", [])
     symbol_rows = payload.get("symbols", [])
     if not isinstance(strategy_rows, list) or not isinstance(symbol_rows, list):
@@ -115,3 +143,67 @@ def resolve_frozen_stack(symbol: str, path: Path = DEFAULT_CONFIG_PATH) -> Froze
         if stack.symbol == target:
             return stack
     return None
+
+
+def promote_frozen_shadow(
+    *,
+    symbol: str,
+    strategy_id: str,
+    path: Path = DEFAULT_CONFIG_PATH,
+) -> str:
+    """Swap one qualified frozen SHADOW into DIRECT and demote the old Primary.
+
+    This mutates strategy authority only. Existing portfolio capital and share
+    quantity are untouched, and no paper position, order, or broker action occurs.
+    The old Primary replaces the promoted Shadow in the same shadow slot so the
+    active shadow count and deterministic ordering are preserved.
+    """
+    target_symbol = symbol.strip().upper()
+    target_strategy = strategy_id.strip().upper()
+    if not target_symbol or not target_strategy:
+        raise ValueError("symbol and strategy_id are required")
+    payload = _load_payload(path)
+    symbols = payload.get("symbols")
+    strategies = payload.get("strategies")
+    if not isinstance(symbols, list) or not isinstance(strategies, list):
+        raise ValueError("strategies and symbols must be lists")
+
+    stack_row: dict[str, Any] | None = None
+    for raw in symbols:
+        if isinstance(raw, dict) and str(raw.get("symbol", "")).strip().upper() == target_symbol:
+            stack_row = raw
+            break
+    if stack_row is None:
+        raise ValueError(f"no frozen stack for symbol {target_symbol}")
+
+    previous_primary = str(stack_row.get("primary_strategy_id", "")).strip().upper()
+    raw_shadow_ids = stack_row.get("shadow_strategy_ids", [])
+    if not isinstance(raw_shadow_ids, list):
+        raise ValueError("shadow_strategy_ids must be a list")
+    shadow_ids = [str(value).strip().upper() for value in raw_shadow_ids]
+    if target_strategy not in shadow_ids:
+        raise ValueError(f"strategy {target_strategy} is not an active SHADOW for {target_symbol}")
+    if previous_primary == target_strategy:
+        raise ValueError("target strategy is already Primary")
+
+    by_id = {
+        str(raw.get("strategy_id", "")).strip().upper(): raw
+        for raw in strategies
+        if isinstance(raw, dict)
+    }
+    if previous_primary not in by_id or target_strategy not in by_id:
+        raise ValueError("frozen strategy row missing for promotion swap")
+
+    slot = shadow_ids.index(target_strategy)
+    shadow_ids[slot] = previous_primary
+    stack_row["primary_strategy_id"] = target_strategy
+    stack_row["shadow_strategy_ids"] = shadow_ids
+    by_id[previous_primary]["assignment_mode"] = "SHADOW"
+    by_id[target_strategy]["assignment_mode"] = "DIRECT"
+
+    updated = dict(payload)
+    updated["symbols"] = symbols
+    updated["strategies"] = strategies
+    _atomic_json(path, updated)
+    load_frozen_symbol_stacks(path)  # fail closed if the persisted swap violates registry invariants
+    return previous_primary
