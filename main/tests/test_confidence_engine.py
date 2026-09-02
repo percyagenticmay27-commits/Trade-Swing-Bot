@@ -104,6 +104,53 @@ class ConfidenceEngineTests(unittest.TestCase):
         self.assertFalse(nebx.promotion_eligible)
         self.assertFalse(nebx.demotion_eligible)
 
+    def test_current_metric_symbol_is_not_blocked_by_legacy_static_universe(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLX", 58.82, 3.007, 34)])
+            write_bars(root / "NFLX.csv", 600)
+
+            rows = build_confidence_report(scores_path, root, output_dir=root)
+
+        self.assertEqual([row.symbol for row in rows], ["NFLX"])
+        nflx = by_symbol(rows, "NFLX")
+        self.assertEqual(nflx.confidence, "LOW")
+        self.assertTrue(nflx.promotion_eligible)
+
+    def test_current_candidate_without_performance_stays_low_and_unpromoted(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("SOXL", 60.0, 3.00, 30)])
+
+            rows = build_confidence_report(
+                scores_path,
+                root,
+                output_dir=root,
+                candidate_symbols=["NFLX"],
+            )
+
+        nflx = by_symbol(rows, "NFLX")
+        self.assertEqual(nflx.confidence, "LOW")
+        self.assertIsNone(nflx.win_rate)
+        self.assertIsNone(nflx.profit_factor)
+        self.assertEqual(nflx.trade_count, 0)
+        self.assertFalse(nflx.promotion_eligible)
+        self.assertFalse(nflx.demotion_eligible)
+
+    def test_legacy_symbols_are_not_emitted_without_current_evidence_or_candidate_status(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLX", 58.82, 3.007, 34)])
+
+            rows = build_confidence_report(scores_path, root, output_dir=root)
+
+        self.assertEqual({row.symbol for row in rows}, {"NFLX"})
+        self.assertNotIn("NEBX", {row.symbol for row in rows})
+        self.assertNotIn("TQQQ", {row.symbol for row in rows})
+
     def test_report_files_are_written(self) -> None:
         with temp_data_dir() as directory:
             root = Path(directory)
@@ -118,6 +165,8 @@ class ConfidenceEngineTests(unittest.TestCase):
 
         self.assertIn("symbol,confidence,win_rate,profit_factor,trade_count,trading_days", csv_text)
         self.assertTrue(payload["paper_trade_mode"])
+        self.assertEqual(payload["universe_source"], "CURRENT_EVIDENCE_AND_CANDIDATES")
+        self.assertFalse(payload["legacy_static_universe_enabled"])
         self.assertIn("promotion_rules", payload)
         self.assertIn("demotion_rules", payload)
         self.assertEqual(payload["rows"][0]["symbol"], "SOXL")
