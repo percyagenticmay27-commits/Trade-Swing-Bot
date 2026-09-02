@@ -1,9 +1,10 @@
 """Governed paper-only operational sequence for frozen Primary/Shadow stacks.
 
 The sequence refreshes intraday data, adopts current DIRECT authority, snapshots
-Primary shares, processes only DIRECT Primary signals into the paper ledger,
-rebuilds authoritative paper evidence, refreshes the persistent reference
-quantity, and finally runs Primary/Shadow research evidence using that reference.
+Primary shares, synchronizes governed paper allocation authority, processes only
+DIRECT Primary signals into the paper ledger, rebuilds authoritative paper
+evidence, refreshes the persistent reference quantity, and finally runs
+Primary/Shadow research evidence using that reference.
 
 SHADOW assignments never reach the execution boundary. No broker or real-capital
 surface is enabled by this orchestrator.
@@ -13,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .frozen_primary_allocation_state_sync import synchronize_frozen_primary_allocation_state
 from .frozen_primary_authority_sync import synchronize_frozen_primary_authority
 from .frozen_primary_post_execution_refresh import refresh_frozen_primary_post_execution_evidence
 from .frozen_primary_reference_quantity import (
@@ -39,6 +41,7 @@ def run_frozen_primary_operational_cycle(*, repository_root: Path = Path(".")) -
     authority = synchronize_frozen_primary_authority()
 
     reference_before = refresh_frozen_primary_reference_quantities()
+    allocation_authority = synchronize_frozen_primary_allocation_state()
     execution = run_frozen_primary_signal_execution()
 
     post_execution = refresh_frozen_primary_post_execution_evidence(
@@ -66,6 +69,7 @@ def run_frozen_primary_operational_cycle(*, repository_root: Path = Path(".")) -
             "INTRADAY_REFRESH",
             "DIRECT_AUTHORITY_SYNC",
             "REFERENCE_QUANTITY_BEFORE_EXECUTION",
+            "PRIMARY_ALLOCATION_AUTHORITY_SYNC",
             "DIRECT_PRIMARY_SIGNAL_EXECUTION",
             "POST_EXECUTION_PAPER_EVIDENCE",
             "REFERENCE_QUANTITY_AFTER_EXECUTION",
@@ -75,6 +79,7 @@ def run_frozen_primary_operational_cycle(*, repository_root: Path = Path(".")) -
         "intraday": intraday,
         "authority": authority,
         "reference_before": reference_before,
+        "allocation_authority": allocation_authority,
         "execution": execution,
         "post_execution": post_execution,
         "reference_after": reference_after,
