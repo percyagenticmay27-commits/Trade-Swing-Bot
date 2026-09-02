@@ -47,6 +47,8 @@ def test_no_tqqq_stack_is_silently_inherited_from_qqq() -> None:
 def test_registry_enforces_one_direct_and_max_three_shadows(tmp_path: Path) -> None:
     config = tmp_path / "bad.json"
     config.write_text(json.dumps({
+        "schema_version": "1.0",
+        "strategy_id": "SWING-001",
         "paper_trade_mode": True,
         "strategies": [
             {"strategy_id": "P", "name": "P", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "DIRECT"},
