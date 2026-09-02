@@ -3,7 +3,9 @@
 The workflow loads frozen symbol assignments, resolves timestamped NY-session
 intraday data, simulates the DIRECT Primary and all active SHADOWS with the exact
 same persistent Primary reference share quantity, and publishes research
-evidence. The reference quantity survives periods when the DIRECT Primary is
+evidence. Signal data and vehicle data are resolved independently from each
+frozen strategy spec so underlying-signal / leveraged-vehicle mappings remain
+explicit. The reference quantity survives periods when the DIRECT Primary is
 flat, so Shadow comparisons do not stop after a Primary exit. It does not place
 orders, create paper positions, reserve/move capital, or promote strategies.
 """
@@ -89,9 +91,9 @@ def build_frozen_strategy_evidence(
     ledger_rows: list[dict[str, Any]] = []
 
     for stack in load_frozen_symbol_stacks(config_path):
-        signal_path = data_dir / f"{stack.symbol}.csv"
-        vehicle_path = data_dir / f"{stack.symbol}.csv"
         for spec in (stack.primary, *stack.shadows):
+            signal_path = data_dir / f"{spec.signal_symbol}.csv"
+            vehicle_path = data_dir / f"{spec.vehicle_symbol}.csv"
             result = run_frozen_shadow_spec(
                 spec,
                 signal_intraday_path=signal_path,
