@@ -11,9 +11,11 @@ before Enterprise KPI publication.
 
 Manual SHADOW strategies run after the normal Swing cycle and candidate-state
 sync. Shadow research is evidence-only and non-blocking: it cannot reserve or
-move capital, create paper positions, or place orders. Separately, already-qualified
-Shadow promotion events may resolve after their veto deadline. An active user veto
-blocks promotion; absence of a veto permits the qualified Shadow to become DIRECT.
+move capital, create paper positions, or place orders. The monthly promotion
+review compares the DIRECT strategy with its Shadows on the same allocation and
+market-history basis and may queue a qualified Shadow into PENDING_VETO. Separately,
+expired pending-veto events may resolve automatically. An active user veto blocks
+promotion; absence of a veto permits the qualified Shadow to become DIRECT.
 """
 from __future__ import annotations
 
@@ -29,6 +31,7 @@ from swing_trade_bot.manual_entry_strategy_form_contract import (
 )
 from swing_trade_bot.manual_strategy_shadow_workflow import build_and_write_shadow_strategies
 from swing_trade_bot.shadow_promotion_lifecycle import process_pending_promotions
+from swing_trade_bot.shadow_promotion_review_workflow import build_monthly_promotion_review
 from swing_trade_bot.strategy_assignment_shadow_report import DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH
 from swing_trade_bot.swing_daily_cycle import main as run_cycle
 from swing_trade_bot.swing_market_data_refresh import refresh_swing_market_data
@@ -50,6 +53,27 @@ def _run_shadow_research_nonblocking() -> None:
         "Shadow strategy research refresh: "
         f"{len(result.get('rows', []))} assignment(s); {available} with evidence"
     )
+
+
+def _run_shadow_promotion_review_nonblocking() -> None:
+    """Run at most one comparable Primary-versus-Shadow qualification review per month."""
+    try:
+        report = build_monthly_promotion_review()
+    except Exception as exc:  # research qualification support cannot break the normal paper cycle
+        print(f"WARNING: shadow promotion review failed: {type(exc).__name__}: {exc}")
+        return
+    reviewed = sum(
+        1 for row in report.rows
+        if row.status in {"REVIEWED_NOT_QUALIFIED", "QUALIFIED_PENDING_VETO"}
+    )
+    queued = sum(1 for row in report.rows if row.queued_pending_veto)
+    if report.rows:
+        print(
+            "Shadow promotion review: "
+            f"{reviewed} reviewed this month; {queued} queued pending veto"
+        )
+    for warning in report.warnings:
+        print(f"WARNING: {warning}")
 
 
 def _process_shadow_promotions_nonblocking() -> None:
@@ -87,6 +111,7 @@ def main() -> int:
 
     sync_candidate_state_from_watchlist()
     _run_shadow_research_nonblocking()
+    _run_shadow_promotion_review_nonblocking()
     _process_shadow_promotions_nonblocking()
     publish()
     return 0
