@@ -40,6 +40,9 @@ def build_confidence_report(
     Symbols are discovered from current performance evidence, explicit starting
     confidence, and optional current candidate symbols. Legacy forced-confidence
     values are retained only as starting labels for matching discovered symbols.
+
+    Trading-day counts remain reportable context only. Version 1 forward-confidence
+    promotion is governed by win rate, profit factor, and completed trade count.
     """
     if not paper_trade_mode:
         raise ValueError("Confidence engine requires paper_trade_mode=True")
@@ -93,18 +96,18 @@ def write_confidence_reports(output_dir: Path, rows: list[ConfidenceRow]) -> tup
                 "paper_trade_mode": True,
                 "universe_source": "CURRENT_EVIDENCE_AND_CANDIDATES",
                 "legacy_static_universe_enabled": False,
+                "confidence_policy_version": "FORWARD_PRIMARY_V1",
+                "trading_days_informational_only": True,
                 "promotion_rules": {
                     "LOW_to_MEDIUM": {
                         "win_rate_min": 40.0,
                         "profit_factor_min": 1.50,
                         "trade_count_min": 15,
-                        "trading_days_min": 252,
                     },
                     "MEDIUM_to_HIGH": {
                         "win_rate_min": 50.0,
                         "profit_factor_min": 2.00,
                         "trade_count_min": 25,
-                        "trading_days_min": 504,
                     },
                 },
                 "demotion_rules": {
@@ -199,7 +202,7 @@ def _evaluate_symbol(
     win_rate = metrics.get("win_rate") if metrics else None
     profit_factor = metrics.get("profit_factor") if metrics else None
     trade_count = int(metrics.get("number_of_trades", 0)) if metrics else 0
-    promotion_eligible = _promotion_eligible(confidence, win_rate, profit_factor, trade_count, trading_days)
+    promotion_eligible = _promotion_eligible(confidence, win_rate, profit_factor, trade_count)
     demotion_eligible = _demotion_eligible(confidence, win_rate, profit_factor)
     return ConfidenceRow(
         symbol=symbol,
@@ -218,14 +221,13 @@ def _promotion_eligible(
     win_rate: float | None,
     profit_factor: float | None,
     trade_count: int,
-    trading_days: int,
 ) -> bool:
     if win_rate is None or profit_factor is None:
         return False
     if confidence == "LOW":
-        return win_rate >= 40.0 and profit_factor >= 1.50 and trade_count >= 15 and trading_days >= 252
+        return win_rate >= 40.0 and profit_factor >= 1.50 and trade_count >= 15
     if confidence == "MEDIUM":
-        return win_rate >= 50.0 and profit_factor >= 2.00 and trade_count >= 25 and trading_days >= 504
+        return win_rate >= 50.0 and profit_factor >= 2.00 and trade_count >= 25
     return False
 
 
