@@ -24,6 +24,17 @@
         "TQQQ_QQQ_VOL_VIDYA_1H_SHADOW_2"
       ],
       "shadow_slot_3": null
+    },
+    {
+      "symbol": "NFLU",
+      "research_status": "NFLX_SIGNAL_MAPPED_NFLU_PAPER_VALIDATION",
+      "primary_strategy_id": "NFLU_NFLX_ZERO_LAG_1H_PRIMARY",
+      "shadow_strategy_ids": [
+        "NFLU_NFLX_STRATEGY_F_1H_SHADOW_1",
+        "NFLU_NFLX_KELTNER_1H_SHADOW_2",
+        "NFLU_NFLX_VOL_VIDYA_1H_SHADOW_3"
+      ],
+      "shadow_slot_3": "NFLU_NFLX_VOL_VIDYA_1H_SHADOW_3"
     }
   ],
   "strategies": [
@@ -196,6 +207,129 @@
         "net_pl_dollars": 20.39,
         "profit_factor": 7.061,
         "max_drawdown_dollars": 1.0
+      }
+    },
+    {
+      "strategy_id": "NFLU_NFLX_ZERO_LAG_1H_PRIMARY",
+      "name": "NFLU NFLX-Signal Zero Lag 1H Balance Primary",
+      "signal_symbol": "NFLX",
+      "vehicle_symbol": "NFLU",
+      "timeframe": "1H",
+      "engine_id": "ZERO_LAG",
+      "parameters": {
+        "length": 50,
+        "multiplier": 2.5,
+        "adx_min": 20.0,
+        "chop_max": 0.0,
+        "atr_pct_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "DIRECT",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "source_symbol": "NFLX",
+        "checkpoint_scope": "NFLX_DIRECT_HISTORICAL_REFERENCE_ONLY",
+        "deployment_vehicle": "NFLU",
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 34,
+        "win_rate_percent": 58.82,
+        "net_pl_dollars": 101.97,
+        "profit_factor": 3.007,
+        "max_drawdown_dollars": 16.63
+      }
+    },
+    {
+      "strategy_id": "NFLU_NFLX_STRATEGY_F_1H_SHADOW_1",
+      "name": "NFLU NFLX-Signal Strategy F 1H Shadow 1",
+      "signal_symbol": "NFLX",
+      "vehicle_symbol": "NFLU",
+      "timeframe": "1H",
+      "engine_id": "STRATEGY_F",
+      "parameters": {
+        "hma_length": 150,
+        "chop_max": 60.0,
+        "adx_min": 0.0,
+        "rsi_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "SHADOW",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "source_symbol": "NFLX",
+        "checkpoint_scope": "NFLX_DIRECT_HISTORICAL_REFERENCE_ONLY",
+        "deployment_vehicle": "NFLU",
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 88,
+        "win_rate_percent": 39.77,
+        "net_pl_dollars": 49.14,
+        "profit_factor": 2.299,
+        "max_drawdown_dollars": 10.68
+      }
+    },
+    {
+      "strategy_id": "NFLU_NFLX_KELTNER_1H_SHADOW_2",
+      "name": "NFLU NFLX-Signal Keltner 1H Quality Shadow 2",
+      "signal_symbol": "NFLX",
+      "vehicle_symbol": "NFLU",
+      "timeframe": "1H",
+      "engine_id": "KELTNER_LONG",
+      "parameters": {
+        "kc_length": 14,
+        "kc_factor": 1.0,
+        "hma_length": 100,
+        "chop_max": 0.0,
+        "adx_min": 20.0,
+        "atr_pct_min": 0.0,
+        "exit_mode": "UPPER"
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "SHADOW",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "source_symbol": "NFLX",
+        "checkpoint_scope": "NFLX_DIRECT_HISTORICAL_REFERENCE_ONLY",
+        "deployment_vehicle": "NFLU",
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 49,
+        "win_rate_percent": 71.43,
+        "net_pl_dollars": 21.94,
+        "profit_factor": 2.366,
+        "max_drawdown_dollars": 7.35
+      }
+    },
+    {
+      "strategy_id": "NFLU_NFLX_VOL_VIDYA_1H_SHADOW_3",
+      "name": "NFLU NFLX-Signal Volumatic VIDYA 1H Quality Shadow 3",
+      "signal_symbol": "NFLX",
+      "vehicle_symbol": "NFLU",
+      "timeframe": "1H",
+      "engine_id": "VOL_VIDYA",
+      "parameters": {
+        "vidya_length": 8,
+        "momentum_length": 20,
+        "atr_length": 200,
+        "band_distance": 1.5,
+        "adx_min": 0.0,
+        "chop_max": 55.0,
+        "atr_pct_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "SHADOW",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "source_symbol": "NFLX",
+        "checkpoint_scope": "NFLX_DIRECT_HISTORICAL_REFERENCE_ONLY_LOW_SAMPLE",
+        "deployment_vehicle": "NFLU",
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 15,
+        "win_rate_percent": 60.0,
+        "net_pl_dollars": 37.08,
+        "profit_factor": 5.638,
+        "max_drawdown_dollars": 3.21
       }
     }
   ]
