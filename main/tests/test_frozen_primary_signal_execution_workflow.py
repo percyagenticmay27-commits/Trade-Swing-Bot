@@ -87,7 +87,8 @@ def _ledger(path: Path, *, open_position: bool = True) -> None:
 def _intraday(path: Path, *, hours: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = ["Timestamp,Open,High,Low,Close,Volume"]
-    # One row per hour is enough for deterministic chart buckets in these tests.
+    # One row at each chart-bucket open is enough here. A later bucket proves the
+    # preceding 1H bucket completed while the newest bucket remains partial.
     for i in range(hours):
         hour = 9 + ((30 + i * 60) // 60)
         minute = (30 + i * 60) % 60
@@ -118,6 +119,7 @@ def test_first_run_initializes_nonretroactive_baseline_without_trade(tmp_path):
 
     assert result["rows"][0]["status"] == "BASELINE_INITIALIZED"
     assert result["rows"][0]["executed_events"] == []
+    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     assert json.loads((ledger / "trade_history.json").read_text())["trades"] == []
     saved = json.loads(state.read_text())
     assert saved["symbols"]["SOXL"]["allocation_notional"] == 1000.0
@@ -161,6 +163,7 @@ def test_pending_exit_executes_at_next_chart_bar_open(tmp_path):
     assert event["side"] == "SELL"
     assert event["price"] == 101.0
     assert event["shares"] == 10.0
+    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     assert json.loads((ledger / "open_positions.json").read_text())["positions"] == []
 
 
@@ -202,16 +205,54 @@ def test_confirmed_entry_uses_preserved_allocation_notional_on_next_bar_open(tmp
     assert event["side"] == "BUY"
     assert event["price"] == 102.0
     assert event["notional"] == 1000.0
+    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     position = json.loads((ledger / "open_positions.json").read_text())["positions"][0]
     assert position["active_strategy"] == PRIMARY
     assert position["cost_basis"] == 1000.0
+
+
+def test_partial_fill_bar_is_not_used_as_signal_close(tmp_path):
+    config, intraday, ledger, state, report = _paths(tmp_path)
+    _config(config)
+    _ledger(ledger)
+    _intraday(intraday / "SOXL.csv", hours=3)
+    _write_json(state, {
+        "paper_trade_mode": True,
+        "symbols": {"SOXL": {
+            "strategy_id": PRIMARY,
+            "last_processed_chart_bar": "2026-09-01T10:30:00-04:00",
+            "pending_signal": None,
+            "allocation_notional": 1000.0,
+        }},
+    })
+
+    calls = {"count": 0}
+    class Decision:
+        entry_signal = False
+        exit_signal = True
+
+    original = workflow.evaluate_frozen_signal
+    def fake(*args, **kwargs):
+        calls["count"] += 1
+        return Decision()
+    workflow.evaluate_frozen_signal = fake
+    try:
+        result = workflow.run_frozen_primary_signal_execution(
+            config_path=config, intraday_dir=intraday, ledger_dir=ledger,
+            state_path=state, report_path=report,
+        )
+    finally:
+        workflow.evaluate_frozen_signal = original
+
+    assert calls["count"] == 0
+    assert result["rows"][0]["executed_events"] == []
+    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
 
 
 def test_primary_promotion_rebaselines_without_replaying_new_strategy_history(tmp_path):
     config, intraday, ledger, state, report = _paths(tmp_path)
     _config(config, primary=SHADOW)
     _ledger(ledger)
-    # Simulate the already-promoted strategy controlling the existing position.
     payload = json.loads((ledger / "open_positions.json").read_text())
     payload["positions"][0]["active_strategy"] = SHADOW
     _write_json(ledger / "open_positions.json", payload)
@@ -232,6 +273,7 @@ def test_primary_promotion_rebaselines_without_replaying_new_strategy_history(tm
     )
     assert result["rows"][0]["status"] == "PRIMARY_CHANGE_REBASELINED"
     assert result["rows"][0]["executed_events"] == []
+    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     saved = json.loads(state.read_text())
     assert saved["symbols"]["SOXL"]["strategy_id"] == SHADOW
 
