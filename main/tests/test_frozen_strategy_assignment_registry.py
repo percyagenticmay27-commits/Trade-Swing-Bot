@@ -70,6 +70,45 @@ def test_repository_tqqq_stack_explicitly_uses_qqq_signals() -> None:
     assert stack.shadow_slot_3_empty is True
 
 
+def test_repository_nflu_stack_uses_nflx_signals_and_all_three_shadows() -> None:
+    stack = resolve_frozen_stack("NFLU", Path("configs/frozen_strategy_assignments.json"))
+    assert stack is not None
+    assert stack.research_status == "NFLX_SIGNAL_MAPPED_NFLU_PAPER_VALIDATION"
+    assert stack.primary.strategy_id == "NFLU_NFLX_ZERO_LAG_1H_PRIMARY"
+    assert stack.primary.signal_symbol == "NFLX"
+    assert stack.primary.vehicle_symbol == "NFLU"
+    assert stack.primary.engine_id == "ZERO_LAG"
+    assert stack.primary.parameters["length"] == 50
+    assert stack.primary.parameters["multiplier"] == 2.5
+    assert stack.primary.parameters["adx_min"] == 20.0
+    assert stack.primary.catastrophic_stop_percent == 20.0
+
+    assert [item.strategy_id for item in stack.shadows] == [
+        "NFLU_NFLX_STRATEGY_F_1H_SHADOW_1",
+        "NFLU_NFLX_KELTNER_1H_SHADOW_2",
+        "NFLU_NFLX_VOL_VIDYA_1H_SHADOW_3",
+    ]
+    strategy_f, keltner, vidya = stack.shadows
+    assert strategy_f.engine_id == "STRATEGY_F"
+    assert strategy_f.parameters["hma_length"] == 150
+    assert strategy_f.parameters["chop_max"] == 60.0
+    assert keltner.engine_id == "KELTNER_LONG"
+    assert keltner.parameters["kc_length"] == 14
+    assert keltner.parameters["kc_factor"] == 1.0
+    assert keltner.parameters["hma_length"] == 100
+    assert keltner.parameters["adx_min"] == 20.0
+    assert keltner.parameters["exit_mode"] == "UPPER"
+    assert vidya.engine_id == "VOL_VIDYA"
+    assert vidya.parameters["vidya_length"] == 8
+    assert vidya.parameters["momentum_length"] == 20
+    assert vidya.parameters["band_distance"] == 1.5
+    assert vidya.parameters["chop_max"] == 55.0
+    assert all(item.signal_symbol == "NFLX" for item in stack.shadows)
+    assert all(item.vehicle_symbol == "NFLU" for item in stack.shadows)
+    assert all(item.catastrophic_stop_percent == 20.0 for item in stack.shadows)
+    assert stack.shadow_slot_3_empty is False
+
+
 def test_registry_enforces_one_direct_and_max_three_shadows(tmp_path: Path) -> None:
     config = tmp_path / "bad.json"
     config.write_text(json.dumps({
