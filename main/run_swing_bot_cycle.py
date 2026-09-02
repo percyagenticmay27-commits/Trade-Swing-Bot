@@ -9,13 +9,11 @@ exceptions only; absence of a veto preserves normal autonomous paper evaluation.
 A successful strategy-report cycle is persisted into Swing-owned discovery state
 before Enterprise KPI publication.
 
-Manual SHADOW strategies run after the normal Swing cycle and candidate-state
-sync. Shadow research is evidence-only and non-blocking: it cannot reserve or
-move capital, create paper positions, or place orders. The monthly promotion
-review compares the DIRECT strategy with its Shadows on the same allocation and
-market-history basis and may queue a qualified Shadow into PENDING_VETO. Separately,
-expired pending-veto events may resolve automatically. An active user veto blocks
-promotion; absence of a veto permits the qualified Shadow to become DIRECT.
+Manual SHADOW strategies and frozen-engine Primary/Shadow stacks run after the
+normal Swing cycle and candidate-state sync. Both research paths are evidence-only
+and non-blocking: neither can reserve/move capital, create paper positions, or
+place orders. Monthly promotion review and veto resolution remain separate
+governance steps.
 """
 from __future__ import annotations
 
@@ -25,6 +23,7 @@ from swing_trade_bot.enterprise_discovery_bucket import refresh_enterprise_disco
 from swing_trade_bot.enterprise_discovery_leadership_context import (
     refresh_enterprise_discovery_leadership_context,
 )
+from swing_trade_bot.frozen_strategy_operational_workflow import build_and_write_frozen_strategy_evidence
 from swing_trade_bot.manual_entry_strategy_form_contract import (
     DEFAULT_OUTPUT_PATH as DEFAULT_FORM_CONTRACT_PATH,
     DEFAULT_REGISTRY_PATH as DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH,
@@ -39,10 +38,10 @@ from swing_trade_bot.user_veto_control import apply_active_vetoes_to_runtime_can
 
 
 def _run_shadow_research_nonblocking() -> None:
-    """Refresh research evidence without gaining authority over the paper cycle."""
+    """Refresh legacy declarative Shadow evidence without gaining paper authority."""
     try:
         result = build_and_write_shadow_strategies()
-    except Exception as exc:  # fail visible, but research cannot block normal paper operation
+    except Exception as exc:
         print(f"WARNING: shadow strategy research refresh failed: {type(exc).__name__}: {exc}")
         return
     available = sum(
@@ -55,11 +54,27 @@ def _run_shadow_research_nonblocking() -> None:
     )
 
 
+def _run_frozen_strategy_research_nonblocking() -> None:
+    """Refresh frozen-engine Primary/Shadow evidence using current Primary shares."""
+    try:
+        result = build_and_write_frozen_strategy_evidence()
+    except Exception as exc:
+        print(f"WARNING: frozen strategy research refresh failed: {type(exc).__name__}: {exc}")
+        return
+    rows = result.get("rows", [])
+    available = sum(1 for row in rows if row.get("evidence_status") == "AVAILABLE")
+    missing = sum(1 for row in rows if row.get("evidence_status") == "MISSING_INTRADAY_MARKET_DATA")
+    print(
+        "Frozen strategy research refresh: "
+        f"{len(rows)} assignment(s); {available} with evidence; {missing} missing intraday data"
+    )
+
+
 def _run_shadow_promotion_review_nonblocking() -> None:
-    """Run at most one comparable Primary-versus-Shadow qualification review per month."""
+    """Run at most one comparable legacy Primary-versus-Shadow review per month."""
     try:
         report = build_monthly_promotion_review()
-    except Exception as exc:  # research qualification support cannot break the normal paper cycle
+    except Exception as exc:
         print(f"WARNING: shadow promotion review failed: {type(exc).__name__}: {exc}")
         return
     reviewed = sum(
@@ -77,14 +92,14 @@ def _run_shadow_promotion_review_nonblocking() -> None:
 
 
 def _process_shadow_promotions_nonblocking() -> None:
-    """Resolve only already-qualified, expired pending-veto promotion events."""
+    """Resolve only already-qualified, expired pending-veto legacy promotion events."""
     try:
         resolved = process_pending_promotions(
             registry_path=DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH,
             form_contract_path=DEFAULT_FORM_CONTRACT_PATH,
             assignment_report_path=DEFAULT_ASSIGNMENT_REPORT_PATH,
         )
-    except Exception as exc:  # promotion support must not break the normal paper cycle
+    except Exception as exc:
         print(f"WARNING: shadow promotion lifecycle refresh failed: {type(exc).__name__}: {exc}")
         return
     promoted = sum(1 for event in resolved if event.status == "PROMOTED")
@@ -111,6 +126,7 @@ def main() -> int:
 
     sync_candidate_state_from_watchlist()
     _run_shadow_research_nonblocking()
+    _run_frozen_strategy_research_nonblocking()
     _run_shadow_promotion_review_nonblocking()
     _process_shadow_promotions_nonblocking()
     publish()
