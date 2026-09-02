@@ -3,7 +3,8 @@
 This module owns no market-data fetching and performs no broker operations. It
 reads open paper positions plus completed local daily CSV bars, validates that
 those bars are fresh, applies split normalization when adjusted-close evidence
-requires it, and atomically publishes authoritative portfolio evidence.
+requires it, reconciles realized P/L from the append-only paper trade history,
+and atomically publishes authoritative portfolio evidence.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .paper_position_excursion import calculate_long_position_excursion
+from .trade_history_manager import build_trade_history_report
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -25,7 +27,7 @@ BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 DIRECT_DATABASE_WRITES = False
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 DEFAULT_MAX_PRICE_AGE_DAYS = 5
 
 
@@ -64,13 +66,14 @@ class PaperPortfolioReport:
     cash_balance: float
     positions_market_value: float
     portfolio_value: float
+    realized_pnl: float
     unrealized_pnl: float
     portfolio_return_percent: float
     position_count: int
     positions: tuple[ValuedPaperPosition, ...]
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
-    valuation_source: str = "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
+    valuation_source: str = "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET_WITH_REALIZED_PNL"
     paper_trade_mode: bool = True
     live_trading_enabled: bool = False
     broker_execution_enabled: bool = False
@@ -88,7 +91,7 @@ def build_paper_portfolio_report(
     as_of: date | None = None,
     max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
 ) -> PaperPortfolioReport:
-    """Mark open paper positions to fresh, split-adjusted completed closes."""
+    """Mark open paper positions to market and reconcile realized paper P/L."""
     if not math.isfinite(account_capital) or account_capital <= 0:
         raise ValueError("account_capital must be finite and positive")
     if max_price_age_days < 0:
@@ -183,11 +186,22 @@ def build_paper_portfolio_report(
     invested = round(sum(position.cost_basis for position in positions), 2)
     if invested > round(account_capital, 2) + 0.01:
         raise ValueError("paper position cost basis exceeds account_capital")
-    cash = round(account_capital - invested, 2)
+
+    realized_pnl = _realized_pnl_from_trade_history(ledger_dir, data_dir)
+    cash = round(account_capital - invested + realized_pnl, 2)
+    if cash < -0.01:
+        raise ValueError(
+            "paper ledger reconciles to negative cash after realized P/L; "
+            "paper position state and trade history are inconsistent"
+        )
     market_value = round(sum(position.market_value for position in positions), 2)
-    portfolio_value = round(cash + market_value, 2)
     unrealized = round(market_value - invested, 2)
-    return_percent = round((unrealized / account_capital) * 100.0, 6)
+    total_pnl = round(realized_pnl + unrealized, 2)
+    portfolio_value = round(cash + market_value, 2)
+    expected_value = round(account_capital + total_pnl, 2)
+    if abs(portfolio_value - expected_value) > 0.02:
+        raise ValueError("paper portfolio value does not reconcile to realized plus unrealized P/L")
+    return_percent = round((total_pnl / account_capital) * 100.0, 6)
 
     return PaperPortfolioReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -196,6 +210,7 @@ def build_paper_portfolio_report(
         cash_balance=cash,
         positions_market_value=market_value,
         portfolio_value=portfolio_value,
+        realized_pnl=realized_pnl,
         unrealized_pnl=unrealized,
         portfolio_return_percent=return_percent,
         position_count=len(positions),
@@ -243,6 +258,18 @@ def build_and_write_paper_portfolio_report(
     )
     write_paper_portfolio_outputs(output_dir or ledger_dir, report)
     return report
+
+
+def _realized_pnl_from_trade_history(ledger_dir: Path, data_dir: Path) -> float:
+    """Return FIFO realized P/L from authoritative paper trade history when present."""
+    trade_history_path = ledger_dir / "trade_history.json"
+    if not trade_history_path.is_file():
+        return 0.0
+    report = build_trade_history_report(
+        trade_history_path=trade_history_path,
+        data_dir=data_dir,
+    )
+    return round(report.realized_pnl, 2)
 
 
 def _latest_completed_adjusted_close(
