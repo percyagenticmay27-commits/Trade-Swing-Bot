@@ -2,7 +2,8 @@
 
 Signals are evaluated from the assigned underlying. Simulated P/L is measured
 against the verified leveraged vehicle when a mapping and same-date vehicle bar
-exist. No paper position, capital reservation, SGOV movement, order, or
+exist. Shadow sizing is anchored to the current Primary paper-position share
+quantity. No paper position, capital reservation, SGOV movement, order, or
 promotion authority is exposed here.
 """
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +29,8 @@ DEFAULT_MAPPING_PATH = Path("results/discovery_candidate_state.csv")
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_LEDGER_PATH = Path("results/shadow_strategy_ledger.json")
 DEFAULT_PERFORMANCE_PATH = Path("results/shadow_strategy_performance.json")
+DEFAULT_PRIMARY_POSITIONS_PATH = Path("results/paper_ledger/current_portfolio_positions.csv")
+SHADOW_SIZING_BASIS = "PRIMARY_SHARE_QUANTITY"
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -65,6 +67,37 @@ def _allocation(payload: Mapping[str, Any], underlying: str, vehicle: str) -> fl
             if isinstance(value, (int, float)) and float(value) > 0:
                 return round(float(value), 2)
     return None
+
+
+def _primary_share_quantity(path: Path, vehicle: str) -> float | None:
+    """Return the current Primary paper-position quantity for the mapped vehicle.
+
+    The paper portfolio CSV is the sizing authority. Multiple matching rows are
+    summed so the resolver remains correct if the portfolio is represented as
+    more than one open lot. Invalid non-empty share values fail closed.
+    """
+    if not path.is_file():
+        return None
+    target = vehicle.strip().upper()
+    quantities: list[float] = []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            symbol = str(row.get("symbol", "")).strip().upper()
+            if symbol != target:
+                continue
+            raw = row.get("shares")
+            try:
+                shares = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid Primary share quantity for {target}: {raw!r}") from exc
+            if not math.isfinite(shares) or shares < 0:
+                raise ValueError(f"invalid Primary share quantity for {target}: {raw!r}")
+            if shares > 0:
+                quantities.append(shares)
+    if not quantities:
+        return None
+    return round(sum(quantities), 8)
 
 
 def _mapping(path: Path) -> dict[str, str]:
@@ -230,7 +263,18 @@ def _minimum_bars(strategy: ManualEntryStrategy) -> int:
     return max(periods) + 2
 
 
-def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allocation: float, signal_bars: Sequence[MarketBar], vehicle_bars: Sequence[MarketBar]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _simulate(
+    strategy: ManualEntryStrategy,
+    underlying: str,
+    vehicle: str,
+    allocation: float,
+    signal_bars: Sequence[MarketBar],
+    vehicle_bars: Sequence[MarketBar],
+    *,
+    test_quantity: float | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if test_quantity is not None and (not math.isfinite(test_quantity) or test_quantity <= 0):
+        raise ValueError("test_quantity must be a positive finite number")
     vehicle_by_date = {bar.date: bar for bar in vehicle_bars}
     minimum = _minimum_bars(strategy)
     ledger: list[dict[str, Any]] = []
@@ -245,6 +289,7 @@ def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allo
     equity_peak = 0.0
     max_drawdown = 0.0
     slice_amount = allocation / strategy.number_of_entries
+    slice_shares = None if test_quantity is None else test_quantity / strategy.number_of_entries
 
     def open_pl(vehicle_price: float) -> float:
         return sum((vehicle_price - item["price"]) * item["shares"] for item in slices)
@@ -291,6 +336,9 @@ def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allo
                 "date": bar.date.isoformat(), "underlying_symbol": underlying, "vehicle_symbol": vehicle,
                 "strategy_id": strategy.strategy_id, "event": "EXIT", "exit_reason": "CONDITIONAL" if conditional_exit else "NORMAL",
                 "vehicle_price": round(vehicle_price, 6), "simulated_allocation": round(allocation, 2),
+                "primary_reference_quantity": None if test_quantity is None else round(test_quantity, 8),
+                "shadow_test_quantity": None if test_quantity is None else round(test_quantity, 8),
+                "sizing_basis": "DOLLAR_ALLOCATION" if test_quantity is None else SHADOW_SIZING_BASIS,
                 "realized_pl": round(trade_pl, 2), "cumulative_realized_pl": round(realized, 2),
             })
             slices = []
@@ -308,13 +356,19 @@ def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allo
         entry_ok = _rules_pass(strategy.rules, strategy.rule_logic, bars) and _rules_pass(strategy.regime_filters, strategy.regime_logic, bars)
         confirmation = confirmation + 1 if entry_ok else 0
         if confirmation >= strategy.confirmation_bars:
-            shares = slice_amount / vehicle_price
-            slices.append({"price": vehicle_price, "shares": shares, "amount": slice_amount})
+            shares = slice_amount / vehicle_price if slice_shares is None else slice_shares
+            simulated_notional = shares * vehicle_price
+            slices.append({"price": vehicle_price, "shares": shares, "amount": simulated_notional})
             ledger.append({
                 "date": bar.date.isoformat(), "underlying_symbol": underlying, "vehicle_symbol": vehicle,
                 "strategy_id": strategy.strategy_id, "event": "ENTRY", "entry_number": len(slices),
                 "vehicle_price": round(vehicle_price, 6), "simulated_allocation": round(slice_amount, 2),
-                "shares": round(shares, 8), "realized_pl": round(realized, 2),
+                "simulated_notional": round(simulated_notional, 2),
+                "shares": round(shares, 8),
+                "primary_reference_quantity": None if test_quantity is None else round(test_quantity, 8),
+                "shadow_test_quantity": None if test_quantity is None else round(test_quantity, 8),
+                "sizing_basis": "DOLLAR_ALLOCATION" if test_quantity is None else SHADOW_SIZING_BASIS,
+                "realized_pl": round(realized, 2),
             })
             confirmation = 0
 
@@ -337,13 +391,23 @@ def _simulate(strategy: ManualEntryStrategy, underlying: str, vehicle: str, allo
         "max_drawdown": round(max_drawdown, 2),
         "profit_factor": None if profit_factor is None else round(profit_factor, 4),
         "open_entry_count": len(slices),
+        "primary_reference_quantity": None if test_quantity is None else round(test_quantity, 8),
+        "shadow_test_quantity": None if test_quantity is None else round(test_quantity, 8),
+        "sizing_basis": "DOLLAR_ALLOCATION" if test_quantity is None else SHADOW_SIZING_BASIS,
         "promotion_recommended": False,
         "promotion_recommendation_status": "NOT_EVALUATED_BY_SHADOW_RUNNER",
     }
     return ledger, performance
 
 
-def run_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_PATH, allocation_path: Path = DEFAULT_ALLOCATION_PATH, mapping_path: Path = DEFAULT_MAPPING_PATH, data_dir: Path = DEFAULT_DATA_DIR) -> dict[str, Any]:
+def run_shadow_strategies(
+    *,
+    registry_path: Path = DEFAULT_REGISTRY_PATH,
+    allocation_path: Path = DEFAULT_ALLOCATION_PATH,
+    mapping_path: Path = DEFAULT_MAPPING_PATH,
+    data_dir: Path = DEFAULT_DATA_DIR,
+    primary_positions_path: Path = DEFAULT_PRIMARY_POSITIONS_PATH,
+) -> dict[str, Any]:
     registry = load_manual_entry_strategy_registry(registry_path)
     mappings = _mapping(mapping_path)
     allocation_payload = _load_json(allocation_path)
@@ -365,27 +429,46 @@ def run_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_PATH, alloca
         if allocation is None:
             performance_rows.append({**base, "evidence_status": "MISSING_SWING_ALLOCATION", "promotion_recommended": False})
             continue
+        try:
+            primary_quantity = _primary_share_quantity(primary_positions_path, vehicle)
+        except (OSError, ValueError, TypeError) as exc:
+            performance_rows.append({**base, "simulated_allocation": allocation, "evidence_status": "PRIMARY_SHARE_QUANTITY_ERROR", "error": f"{type(exc).__name__}: {exc}", "promotion_recommended": False})
+            continue
+        if primary_quantity is None:
+            performance_rows.append({**base, "simulated_allocation": allocation, "evidence_status": "MISSING_PRIMARY_SHARE_QUANTITY", "promotion_recommended": False})
+            continue
         underlying_path = data_dir / f"{underlying}.csv"
         vehicle_path = data_dir / f"{vehicle}.csv"
         if not underlying_path.is_file() or not vehicle_path.is_file():
-            performance_rows.append({**base, "simulated_allocation": allocation, "evidence_status": "MISSING_MARKET_DATA", "promotion_recommended": False})
+            performance_rows.append({**base, "simulated_allocation": allocation, "primary_reference_quantity": primary_quantity, "shadow_test_quantity": primary_quantity, "sizing_basis": SHADOW_SIZING_BASIS, "evidence_status": "MISSING_MARKET_DATA", "promotion_recommended": False})
             continue
         try:
             signal_bars = load_csv(underlying_path)
             vehicle_bars = load_csv(vehicle_path)
-            ledger, performance = _simulate(strategy, underlying, vehicle, allocation, signal_bars, vehicle_bars)
+            ledger, performance = _simulate(
+                strategy,
+                underlying,
+                vehicle,
+                allocation,
+                signal_bars,
+                vehicle_bars,
+                test_quantity=primary_quantity,
+            )
         except (OSError, ValueError, TypeError) as exc:
-            performance_rows.append({**base, "simulated_allocation": allocation, "evidence_status": "EVIDENCE_ERROR", "error": f"{type(exc).__name__}: {exc}", "promotion_recommended": False})
+            performance_rows.append({**base, "simulated_allocation": allocation, "primary_reference_quantity": primary_quantity, "shadow_test_quantity": primary_quantity, "sizing_basis": SHADOW_SIZING_BASIS, "evidence_status": "EVIDENCE_ERROR", "error": f"{type(exc).__name__}: {exc}", "promotion_recommended": False})
             continue
         ledger_rows.extend(ledger)
         performance_rows.append({**base, "simulated_allocation": allocation, **performance})
 
     return {
-        "schema_version": "1.0", "strategy_id": "SWING-001", "paper_trade_mode": True,
-        "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
+        "schema_version": "1.1", "strategy_id": "SWING-001", "paper_trade_mode": True,
+        "shadow_allocation_model": "SAME_PRIMARY_SHARE_QUANTITY_SIMULATED_ONLY",
+        "shadow_sizing_basis": SHADOW_SIZING_BASIS,
+        "normalization_basis": "CURRENT_SWING_ALLOCATION",
         "signal_price_authority": "UNDERLYING_MARKET_DATA", "pnl_price_authority": "VERIFIED_MAPPED_VEHICLE_MARKET_DATA",
+        "primary_quantity_authority": str(primary_positions_path),
         "shadow_capital_reserved": False, "capital_movement_enabled": False, "paper_positions_created": 0,
-        "auto_promotion_enabled": False, "promotion_authority": "USER_EXPLICIT_ACTION_ONLY",
+        "auto_promotion_enabled": False, "promotion_authority": "NONE_IN_SHADOW_RUNNER_SEPARATE_QUALIFICATION_LIFECYCLE",
         "ledger_rows": ledger_rows, "rows": performance_rows,
     }
 
@@ -398,8 +481,24 @@ def _atomic_json(path: Path, payload: Mapping[str, Any]) -> Path:
     return path
 
 
-def build_and_write_shadow_strategies(*, registry_path: Path = DEFAULT_REGISTRY_PATH, allocation_path: Path = DEFAULT_ALLOCATION_PATH, mapping_path: Path = DEFAULT_MAPPING_PATH, data_dir: Path = DEFAULT_DATA_DIR, ledger_path: Path = DEFAULT_LEDGER_PATH, performance_path: Path = DEFAULT_PERFORMANCE_PATH, assignment_report_path: Path = DEFAULT_ASSIGNMENT_REPORT_PATH) -> dict[str, Any]:
-    payload = run_shadow_strategies(registry_path=registry_path, allocation_path=allocation_path, mapping_path=mapping_path, data_dir=data_dir)
+def build_and_write_shadow_strategies(
+    *,
+    registry_path: Path = DEFAULT_REGISTRY_PATH,
+    allocation_path: Path = DEFAULT_ALLOCATION_PATH,
+    mapping_path: Path = DEFAULT_MAPPING_PATH,
+    data_dir: Path = DEFAULT_DATA_DIR,
+    primary_positions_path: Path = DEFAULT_PRIMARY_POSITIONS_PATH,
+    ledger_path: Path = DEFAULT_LEDGER_PATH,
+    performance_path: Path = DEFAULT_PERFORMANCE_PATH,
+    assignment_report_path: Path = DEFAULT_ASSIGNMENT_REPORT_PATH,
+) -> dict[str, Any]:
+    payload = run_shadow_strategies(
+        registry_path=registry_path,
+        allocation_path=allocation_path,
+        mapping_path=mapping_path,
+        data_dir=data_dir,
+        primary_positions_path=primary_positions_path,
+    )
     ledger_payload = {key: value for key, value in payload.items() if key != "rows"}
     ledger_payload["rows"] = payload["ledger_rows"]
     ledger_payload.pop("ledger_rows", None)
