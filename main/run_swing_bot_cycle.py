@@ -10,12 +10,13 @@ A successful strategy-report cycle is persisted into Swing-owned discovery state
 before Enterprise KPI publication.
 
 Manual SHADOW strategies and frozen-engine Primary/Shadow stacks run after the
-normal Swing cycle and candidate-state sync. Both research paths are evidence-only
-and non-blocking: neither can reserve/move capital, create paper positions, or
-place orders. Each registry has its own monthly review state and pending-veto
-lifecycle so a frozen strategy can never be promoted through the legacy manual
-assignment path. Promotion swaps strategy authority only; existing paper capital
-and shares remain unchanged.
+normal Swing cycle and candidate-state sync. Frozen-engine evidence first refreshes
+a Swing-owned timestamped intraday archive. These research paths are non-blocking
+and cannot reserve/move capital, create paper positions, or place orders. Each
+registry has its own monthly review state and pending-veto lifecycle so a frozen
+strategy can never be promoted through the legacy manual assignment path.
+Promotion swaps strategy authority only; existing paper capital and shares remain
+unchanged.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ from swing_trade_bot.frozen_strategy_promotion_workflow import (
     build_frozen_monthly_promotion_review,
     process_frozen_pending_promotions,
 )
+from swing_trade_bot.intraday_market_data_refresh import refresh_intraday_market_data
 from swing_trade_bot.manual_entry_strategy_form_contract import (
     DEFAULT_OUTPUT_PATH as DEFAULT_FORM_CONTRACT_PATH,
     DEFAULT_REGISTRY_PATH as DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH,
@@ -58,6 +60,27 @@ def _run_shadow_research_nonblocking() -> None:
         "Shadow strategy research refresh: "
         f"{len(result.get('rows', []))} assignment(s); {available} with evidence"
     )
+
+
+def _refresh_frozen_intraday_nonblocking() -> None:
+    """Refresh the Swing-owned 1-minute archive without blocking the normal cycle."""
+    try:
+        result = refresh_intraday_market_data()
+    except Exception as exc:
+        print(f"WARNING: frozen intraday market-data refresh failed: {type(exc).__name__}: {exc}")
+        return
+    rows = result.get("symbols", [])
+    available = sum(1 for row in rows if row.get("status") == "AVAILABLE")
+    blocked = sum(1 for row in rows if row.get("status") == "BLOCKED")
+    print(
+        "Frozen intraday market-data refresh: "
+        f"{len(rows)} symbol(s); {available} available; {blocked} blocked"
+    )
+    for row in rows:
+        if row.get("warning"):
+            print(f"WARNING: {row.get('symbol')}: {row.get('warning')}")
+        if row.get("error"):
+            print(f"WARNING: {row.get('symbol')}: {row.get('error')}")
 
 
 def _run_frozen_strategy_research_nonblocking() -> None:
@@ -167,6 +190,7 @@ def main() -> int:
 
     sync_candidate_state_from_watchlist()
     _run_shadow_research_nonblocking()
+    _refresh_frozen_intraday_nonblocking()
     _run_frozen_strategy_research_nonblocking()
     _run_shadow_promotion_review_nonblocking()
     _run_frozen_promotion_review_nonblocking()
