@@ -9,9 +9,10 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .frozen_vol_vidya_engine import evaluate_vol_vidya
 from .position_state import MarketBar
 
-SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE"}
+SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,4 +337,7 @@ def evaluate_frozen_signal(engine_id: str, parameters: Mapping[str, Any], bars: 
         return FrozenSignalDecision(False, False, engine, {"ready": False})
     if engine == "ZERO_LAG":
         return _zero_lag(parameters, bars)
+    if engine == "VOL_VIDYA":
+        entry, exit_signal, diagnostics = evaluate_vol_vidya(parameters, bars)
+        return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
     return _bigbeluga(parameters, bars)
