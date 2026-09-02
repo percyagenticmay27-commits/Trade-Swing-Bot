@@ -379,7 +379,7 @@ def test_workflow_never_executes_shadow_assignments_and_safety_is_locked(tmp_pat
     )
     assert result["execution_scope"] == "FROZEN_DIRECT_PRIMARY_ONLY"
     assert result["signal_price_authority"] == "NY_RTH_INTRADAY_SIGNAL_SYMBOL"
-    assert result["paper_fill_price_authority"] == "NY_RTH_INTRADAY_VEHICLE_SYMBOL"
+    assert result["paper_fill_price_authority"] == "OBSERVED_NY_RTH_INTRADAY_VEHICLE_SYMBOL"
     assert result["catastrophic_stop_authority"] == "RAW_NY_RTH_INTRADAY_VEHICLE_ROWS"
     assert result["shadow_execution_enabled"] is False
     assert result["paper_trade_mode"] is True
