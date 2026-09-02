@@ -34,6 +34,28 @@ def _ema_series(values: Sequence[float], period: int) -> list[float | None]:
     return out
 
 
+def _ema_optional_series(values: Sequence[float | None], period: int) -> list[float | None]:
+    """EMA over Pine-style nullable source values.
+
+    ZERO_LAG uses ``close + (close - close[lag])``. In Pine, ``close[lag]`` is
+    ``na`` before that history exists, so the derived source is also ``na``.
+    ``ta.ema`` begins from the first non-na sample rather than fabricating
+    pre-lag source values. Preserve those leading na values explicitly.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    out: list[float | None] = []
+    alpha = 2.0 / (period + 1.0)
+    current: float | None = None
+    for value in values:
+        if value is None:
+            out.append(current)
+            continue
+        current = value if current is None else alpha * value + (1.0 - alpha) * current
+        out.append(current)
+    return out
+
+
 def _sma_at(values: Sequence[float | None], index: int, period: int) -> float | None:
     if period <= 0 or index + 1 < period:
         return None
@@ -162,10 +184,10 @@ def _zero_lag(params: Mapping[str, Any], bars: Sequence[MarketBar]) -> FrozenSig
         return FrozenSignalDecision(False, False, "ZERO_LAG", {"ready": False})
 
     closes = [bar.close for bar in bars]
-    source: list[float] = []
+    source: list[float | None] = []
     for index, close in enumerate(closes):
-        source.append(close if index < lag else close + (close - closes[index - lag]))
-    zlema = _ema_series(source, length)
+        source.append(None if index < lag else close + (close - closes[index - lag]))
+    zlema = _ema_optional_series(source, length)
     atr = _atr_series(bars, length)
     upper: list[float | None] = [None] * len(bars)
     lower: list[float | None] = [None] * len(bars)
@@ -207,7 +229,19 @@ def _zero_lag(params: Mapping[str, Any], bars: Sequence[MarketBar]) -> FrozenSig
         entry_signal=large_green and filter_ok,
         exit_signal=large_red,
         engine_id="ZERO_LAG",
-        diagnostics={"ready": True, "trend": trend, "large_green": large_green, "large_red": large_red, "adx": adx, "chop": chop, "atr_pct": atr_pct, "filter_ok": filter_ok},
+        diagnostics={
+            "ready": True,
+            "trend": trend,
+            "large_green": large_green,
+            "large_red": large_red,
+            "adx": adx,
+            "chop": chop,
+            "atr_pct": atr_pct,
+            "filter_ok": filter_ok,
+            "zlema": zlema[index],
+            "upper_band": upper[index],
+            "lower_band": lower[index],
+        },
     )
 
 
