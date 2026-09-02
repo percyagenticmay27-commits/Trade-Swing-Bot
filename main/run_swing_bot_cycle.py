@@ -23,8 +23,10 @@ from swing_trade_bot.enterprise_discovery_bucket import refresh_enterprise_disco
 from swing_trade_bot.enterprise_discovery_leadership_context import (
     refresh_enterprise_discovery_leadership_context,
 )
-from swing_trade_bot.manual_entry_strategy_form_contract import DEFAULT_OUTPUT_PATH as DEFAULT_FORM_CONTRACT_PATH
-from swing_trade_bot.manual_entry_strategy_registry import DEFAULT_CONFIG_PATH as DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH
+from swing_trade_bot.manual_entry_strategy_form_contract import (
+    DEFAULT_OUTPUT_PATH as DEFAULT_FORM_CONTRACT_PATH,
+    DEFAULT_REGISTRY_PATH as DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH,
+)
 from swing_trade_bot.manual_strategy_shadow_workflow import build_and_write_shadow_strategies
 from swing_trade_bot.shadow_promotion_lifecycle import process_pending_promotions
 from swing_trade_bot.strategy_assignment_shadow_report import DEFAULT_OUTPUT_PATH as DEFAULT_ASSIGNMENT_REPORT_PATH
