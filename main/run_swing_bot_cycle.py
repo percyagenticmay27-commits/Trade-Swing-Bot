@@ -12,8 +12,10 @@ before Enterprise KPI publication.
 Manual SHADOW strategies and frozen-engine Primary/Shadow stacks run after the
 normal Swing cycle and candidate-state sync. Both research paths are evidence-only
 and non-blocking: neither can reserve/move capital, create paper positions, or
-place orders. Monthly promotion review and veto resolution remain separate
-governance steps.
+place orders. Each registry has its own monthly review state and pending-veto
+lifecycle so a frozen strategy can never be promoted through the legacy manual
+assignment path. Promotion swaps strategy authority only; existing paper capital
+and shares remain unchanged.
 """
 from __future__ import annotations
 
@@ -24,6 +26,10 @@ from swing_trade_bot.enterprise_discovery_leadership_context import (
     refresh_enterprise_discovery_leadership_context,
 )
 from swing_trade_bot.frozen_strategy_operational_workflow import build_and_write_frozen_strategy_evidence
+from swing_trade_bot.frozen_strategy_promotion_workflow import (
+    build_frozen_monthly_promotion_review,
+    process_frozen_pending_promotions,
+)
 from swing_trade_bot.manual_entry_strategy_form_contract import (
     DEFAULT_OUTPUT_PATH as DEFAULT_FORM_CONTRACT_PATH,
     DEFAULT_REGISTRY_PATH as DEFAULT_MANUAL_STRATEGY_REGISTRY_PATH,
@@ -91,6 +97,25 @@ def _run_shadow_promotion_review_nonblocking() -> None:
         print(f"WARNING: {warning}")
 
 
+def _run_frozen_promotion_review_nonblocking() -> None:
+    """Run the frozen-engine five-gate monthly review on exact-share evidence."""
+    try:
+        report = build_frozen_monthly_promotion_review()
+    except Exception as exc:
+        print(f"WARNING: frozen promotion review failed: {type(exc).__name__}: {exc}")
+        return
+    rows = report.get("rows", [])
+    reviewed = sum(1 for row in rows if row.get("status") in {"REVIEWED_NOT_QUALIFIED", "QUALIFIED_PENDING_VETO"})
+    queued = sum(1 for row in rows if row.get("queued_pending_veto") is True)
+    if rows:
+        print(
+            "Frozen strategy promotion review: "
+            f"{reviewed} reviewed this month; {queued} queued pending veto"
+        )
+    for warning in report.get("warnings", []):
+        print(f"WARNING: {warning}")
+
+
 def _process_shadow_promotions_nonblocking() -> None:
     """Resolve only already-qualified, expired pending-veto legacy promotion events."""
     try:
@@ -107,6 +132,22 @@ def _process_shadow_promotions_nonblocking() -> None:
     if resolved:
         print(
             "Shadow promotion lifecycle: "
+            f"{len(resolved)} resolved; {promoted} promoted; {vetoed} vetoed"
+        )
+
+
+def _process_frozen_promotions_nonblocking() -> None:
+    """Resolve expired frozen-engine pending-veto events without capital changes."""
+    try:
+        resolved = process_frozen_pending_promotions()
+    except Exception as exc:
+        print(f"WARNING: frozen promotion lifecycle refresh failed: {type(exc).__name__}: {exc}")
+        return
+    promoted = sum(1 for event in resolved if event.status == "PROMOTED")
+    vetoed = sum(1 for event in resolved if event.status == "VETOED")
+    if resolved:
+        print(
+            "Frozen strategy promotion lifecycle: "
             f"{len(resolved)} resolved; {promoted} promoted; {vetoed} vetoed"
         )
 
@@ -128,7 +169,9 @@ def main() -> int:
     _run_shadow_research_nonblocking()
     _run_frozen_strategy_research_nonblocking()
     _run_shadow_promotion_review_nonblocking()
+    _run_frozen_promotion_review_nonblocking()
     _process_shadow_promotions_nonblocking()
+    _process_frozen_promotions_nonblocking()
     publish()
     return 0
 
