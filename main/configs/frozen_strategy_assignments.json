@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0",
+  "paper_trade_mode": true,
+  "strategy_id": "SWING-001",
+  "shadow_allocation_model": "SAME_PRIMARY_SHARE_QUANTITY_SIMULATED_ONLY",
+  "promotion_authority": "SEPARATE_QUALIFICATION_LIFECYCLE",
+  "symbols": [
+    {
+      "symbol": "SOXL",
+      "research_status": "FROZEN_DEPLOYMENT_STACK",
+      "primary_strategy_id": "SOXL_BIGBELUGA_1H_PRIMARY",
+      "shadow_strategy_ids": [
+        "SOXL_ZERO_LAG_1H_SHADOW_1",
+        "SOXL_ZERO_LAG_4H_SHADOW_2"
+      ],
+      "shadow_slot_3": null
+    }
+  ],
+  "strategies": [
+    {
+      "strategy_id": "SOXL_BIGBELUGA_1H_PRIMARY",
+      "name": "SOXL BigBeluga Range Breakout 1H Primary",
+      "signal_symbol": "SOXL",
+      "vehicle_symbol": "SOXL",
+      "timeframe": "1H",
+      "engine_id": "BIGBELUGA_RANGE",
+      "parameters": {
+        "hma_entry": 0,
+        "hma_exit": 90,
+        "chop_max": 0.0,
+        "atr_pct_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "DIRECT",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 123,
+        "win_rate_percent": 48.78,
+        "net_pl_dollars": 83.71,
+        "profit_factor": 2.782,
+        "max_drawdown_dollars": 8.56
+      }
+    },
+    {
+      "strategy_id": "SOXL_ZERO_LAG_1H_SHADOW_1",
+      "name": "SOXL Zero Lag 1H Profit Shadow 1",
+      "signal_symbol": "SOXL",
+      "vehicle_symbol": "SOXL",
+      "timeframe": "1H",
+      "engine_id": "ZERO_LAG",
+      "parameters": {
+        "length": 70,
+        "multiplier": 2.5,
+        "adx_min": 0.0,
+        "chop_max": 55.0,
+        "atr_pct_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "SHADOW",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 58,
+        "win_rate_percent": 56.90,
+        "net_pl_dollars": 134.27,
+        "profit_factor": 2.043,
+        "max_drawdown_dollars": 30.0
+      }
+    },
+    {
+      "strategy_id": "SOXL_ZERO_LAG_4H_SHADOW_2",
+      "name": "SOXL Zero Lag 4H High WR Shadow 2",
+      "signal_symbol": "SOXL",
+      "vehicle_symbol": "SOXL",
+      "timeframe": "4H",
+      "engine_id": "ZERO_LAG",
+      "parameters": {
+        "length": 20,
+        "multiplier": 1.0,
+        "adx_min": 20.0,
+        "chop_max": 0.0,
+        "atr_pct_min": 0.0
+      },
+      "catastrophic_stop_percent": 20.0,
+      "assignment_mode": "SHADOW",
+      "enabled": true,
+      "paper_trade_mode": true,
+      "frozen_checkpoint": {
+        "backtest_period": "2023-01-01_to_2026-08-28",
+        "trade_count": 32,
+        "win_rate_percent": 65.63,
+        "net_pl_dollars": 64.70,
+        "profit_factor": 2.050,
+        "max_drawdown_dollars": 22.0
+      }
+    }
+  ]
+}
