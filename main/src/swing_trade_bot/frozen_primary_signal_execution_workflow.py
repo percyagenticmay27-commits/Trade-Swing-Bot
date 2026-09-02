@@ -4,16 +4,25 @@ This workflow bridges the frozen signal engine to the governed paper-ledger
 execution boundary. It processes only the current DIRECT Primary for each
 frozen symbol stack. SHADOW strategies remain research-only.
 
-Signal bars come from each strategy's ``signal_symbol`` while paper fills and
-catastrophic-stop evidence come from its ``vehicle_symbol``. This preserves the
-same-symbol SOXL path and also supports explicit underlying-signal / leveraged-
-vehicle mappings such as QQQ -> TQQQ without treating QQQ prices as TQQQ fills.
+Signal bars come from each strategy's ``signal_symbol`` while paper fills,
+profit protection, and catastrophic-stop evidence come from its
+``vehicle_symbol``. This preserves same-symbol paths and explicit underlying-
+signal / leveraged-vehicle mappings such as QQQ -> TQQQ and NFLX -> NFLU.
 
-The first run establishes non-retroactive chart and raw-stop cursors. Later runs
-process only chart bars and raw NY-RTH rows newer than those cursors. Confirmed
-strategy signals execute at the next chart-bar open using the vehicle's open. A
-configured catastrophic stop is monitored against raw intraday vehicle rows
-while the DIRECT Primary position is open and exits at the vehicle stop price.
+The first run establishes non-retroactive chart and raw-price cursors. Later
+runs process only newer evidence. Frozen engine execution timing is preserved:
+Strategy F executes on the confirmed signal-bar close; other recovered engines
+execute on the next chart-bar open. For sparse leveraged vehicles, execution is
+never backdated to a nominal bucket boundary: the first observed vehicle trade
+at/after the boundary is used for next-open fills, and the final observed trade
+in the bucket is used for Strategy F close fills.
+
+Vehicle-side protection is independent of the underlying technical exit. The
+existing Version 1.3 profit-protection policy is operationalized as +20% gain
+with 5% giveback from the vehicle high-water mark and +30% gain with 10%
+giveback. A configured catastrophic stop remains active at all times and wins
+whenever its threshold is observed first. This module is paper-only and has no
+broker or real-order authority.
 """
 from __future__ import annotations
 
@@ -25,13 +34,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .frozen_ai_signal_engines import evaluate_frozen_signal
+from .frozen_ai_signal_engines import evaluate_frozen_signal, frozen_engine_execution_timing
 from .frozen_primary_paper_execution import (
     FrozenPrimaryExecutionEvent,
     execute_frozen_primary_event,
 )
 from .frozen_strategy_assignment_registry import DEFAULT_CONFIG_PATH, load_frozen_symbol_stacks
 from .intraday_chart_bars import IntradayBar, build_chart_bars, load_intraday_csv, regular_session_rows
+from .profit_protection_manager import ProfitProtectionPolicy
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -39,7 +49,7 @@ BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 SHADOW_EXECUTION_ENABLED = False
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 DEFAULT_INTRADAY_DIR = Path("data/intraday")
 DEFAULT_LEDGER_DIR = Path("results/paper_ledger")
 DEFAULT_STATE_PATH = Path("results/frozen_primary_signal_execution_state.json")
@@ -55,7 +65,7 @@ def run_frozen_primary_signal_execution(
     report_path: Path = DEFAULT_REPORT_PATH,
     source_timezone: str = "America/New_York",
 ) -> dict[str, Any]:
-    """Process new frozen DIRECT Primary signals and vehicle stop evidence."""
+    """Process new frozen DIRECT Primary signals and vehicle protection evidence."""
     stacks = load_frozen_symbol_stacks(config_path)
     state = _load_state(state_path)
     symbols_state = dict(state.get("symbols", {}))
@@ -66,6 +76,7 @@ def run_frozen_primary_signal_execution(
         symbol = stack.symbol
         signal_symbol = primary.signal_symbol
         vehicle_symbol = primary.vehicle_symbol
+        execution_timing = frozen_engine_execution_timing(primary.engine_id)
         if vehicle_symbol != symbol:
             rows.append(_row(symbol, primary.strategy_id, "INVALID_VEHICLE_STACK_MAPPING"))
             continue
@@ -122,16 +133,19 @@ def run_frozen_primary_signal_execution(
                 "strategy_id": primary.strategy_id,
                 "signal_symbol": signal_symbol,
                 "vehicle_symbol": vehicle_symbol,
+                "execution_timing": execution_timing,
                 "last_processed_chart_bar": latest_timestamp,
                 "last_processed_stop_raw_bar": latest_raw_timestamp,
                 "pending_signal": None,
                 "allocation_notional": budget,
+                "vehicle_high_water_mark": None,
                 "initialized_at_utc": _utc_now(),
             }
             rows.append({
                 **_row(symbol, primary.strategy_id, "BASELINE_INITIALIZED"),
                 "signal_symbol": signal_symbol,
                 "vehicle_symbol": vehicle_symbol,
+                "execution_timing": execution_timing,
                 "last_processed_chart_bar": latest_timestamp,
                 "last_processed_stop_raw_bar": latest_raw_timestamp,
                 "allocation_notional": budget,
@@ -141,14 +155,16 @@ def run_frozen_primary_signal_execution(
             continue
 
         # Promotion changes DIRECT authority without retroactively replaying the new
-        # strategy over old chart bars or raw stop history.
+        # strategy over old chart bars or raw protection history.
         if str(symbol_state.get("strategy_id", "")) != primary.strategy_id:
             symbol_state["strategy_id"] = primary.strategy_id
             symbol_state["signal_symbol"] = signal_symbol
             symbol_state["vehicle_symbol"] = vehicle_symbol
+            symbol_state["execution_timing"] = execution_timing
             symbol_state["last_processed_chart_bar"] = latest_timestamp
             symbol_state["last_processed_stop_raw_bar"] = latest_raw_timestamp
             symbol_state["pending_signal"] = None
+            symbol_state["vehicle_high_water_mark"] = None
             if symbol_state.get("allocation_notional") in (None, 0, 0.0):
                 symbol_state["allocation_notional"] = _current_position_cost_basis(Path(ledger_dir), vehicle_symbol)
             symbols_state[symbol] = symbol_state
@@ -156,6 +172,7 @@ def run_frozen_primary_signal_execution(
                 **_row(symbol, primary.strategy_id, "PRIMARY_CHANGE_REBASELINED"),
                 "signal_symbol": signal_symbol,
                 "vehicle_symbol": vehicle_symbol,
+                "execution_timing": execution_timing,
                 "last_processed_chart_bar": latest_timestamp,
                 "last_processed_stop_raw_bar": latest_raw_timestamp,
                 "catastrophic_stop_percent": primary.catastrophic_stop_percent,
@@ -169,6 +186,7 @@ def run_frozen_primary_signal_execution(
             raise ValueError("frozen Primary signal/vehicle mapping changed without a new strategy_id")
         symbol_state["signal_symbol"] = signal_symbol
         symbol_state["vehicle_symbol"] = vehicle_symbol
+        symbol_state["execution_timing"] = execution_timing
 
         # State written before schema 1.1 has no raw-stop cursor. Migrate it
         # non-retroactively at the latest available vehicle raw row rather than
@@ -204,8 +222,15 @@ def run_frozen_primary_signal_execution(
         **_safety(),
         "execution_scope": "FROZEN_DIRECT_PRIMARY_ONLY",
         "signal_price_authority": "NY_RTH_INTRADAY_SIGNAL_SYMBOL",
-        "paper_fill_price_authority": "NY_RTH_INTRADAY_VEHICLE_SYMBOL",
+        "paper_fill_price_authority": "OBSERVED_NY_RTH_INTRADAY_VEHICLE_SYMBOL",
         "catastrophic_stop_authority": "RAW_NY_RTH_INTRADAY_VEHICLE_ROWS",
+        "profit_protection_authority": "RAW_NY_RTH_INTRADAY_VEHICLE_ROWS_HIGH_WATER_MARK",
+        "profit_protection_policy": {
+            "standard_gain_percent": ProfitProtectionPolicy().standard_gain_percent,
+            "standard_giveback_percent": ProfitProtectionPolicy().standard_giveback_percent,
+            "strong_gain_percent": ProfitProtectionPolicy().strong_gain_percent,
+            "strong_giveback_percent": ProfitProtectionPolicy().strong_giveback_percent,
+        },
         "shadow_execution_enabled": False,
         "rows": rows,
     }
@@ -256,34 +281,52 @@ def _process_symbol(
         raise ValueError("saved signal chart-bar cursor is no longer present in intraday archive")
     completed_timestamps = {bar.timestamp.isoformat() for bar in completed_signal_bars}
     vehicle_by_timestamp = {bar.timestamp.isoformat(): bar for bar in vehicle_chart_bars}
+    execution_timing = frozen_engine_execution_timing(primary.engine_id)
 
     pending = symbol_state.get("pending_signal")
     executed: list[dict[str, Any]] = []
     start_index = index_by_timestamp[last_processed] + 1
 
-    # A signal confirmed on the prior run executes as soon as the next signal
-    # bucket exists and the matching vehicle bucket open is available.
-    if isinstance(pending, Mapping) and start_index < len(signal_chart_bars):
-        fill_timestamp = signal_chart_bars[start_index].timestamp.isoformat()
-        fill_bar = vehicle_by_timestamp.get(fill_timestamp)
-        if fill_bar is not None:
+    # Bar-close engines never inherit a pending next-open signal. This also makes
+    # a promotion from a next-open engine to Strategy F fail safe rather than
+    # silently changing the frozen execution semantics.
+    if execution_timing == "CONFIRMED_SIGNAL_BAR_CLOSE":
+        pending = None
+
+    # A next-open signal confirmed on the prior run executes at the first actual
+    # observed vehicle trade at/after the next signal bucket boundary. This is
+    # important for thin leveraged vehicles such as NFLU; fills are never
+    # backdated to a nominal boundary with no vehicle print.
+    if (
+        execution_timing == "CONFIRMED_SIGNAL_NEXT_CHART_BAR_OPEN"
+        and isinstance(pending, Mapping)
+        and start_index < len(signal_chart_bars)
+    ):
+        boundary = signal_chart_bars[start_index].timestamp
+        next_boundary = signal_chart_bars[start_index + 1].timestamp if start_index + 1 < len(signal_chart_bars) else None
+        fill_row = _first_vehicle_row_in_bucket(boundary, next_boundary, vehicle_raw_rows)
+        if fill_row is not None:
             event = _event_from_pending(
                 symbol=primary.vehicle_symbol,
                 strategy_id=primary.strategy_id,
                 pending=pending,
-                fill_timestamp=fill_timestamp,
-                fill_price=fill_bar.open,
+                fill_timestamp=fill_row.timestamp.isoformat(),
+                fill_price=fill_row.open,
                 target_notional=_allocation_notional(symbol_state),
             )
             applied = execute_frozen_primary_event(event, config_path=config_path, ledger_dir=ledger_dir)
             executed.append(applied)
             pending = None
+            if event.side == "BUY":
+                symbol_state["vehicle_high_water_mark"] = event.price
+            else:
+                symbol_state["vehicle_high_water_mark"] = None
 
     for index in range(start_index, len(signal_chart_bars)):
         bar = signal_chart_bars[index]
         next_timestamp = signal_chart_bars[index + 1].timestamp if index + 1 < len(signal_chart_bars) else None
 
-        stop_event = _process_catastrophic_stop_bucket(
+        protection_event = _process_catastrophic_stop_bucket(
             symbol=primary.vehicle_symbol,
             strategy_id=primary.strategy_id,
             catastrophic_stop_percent=primary.catastrophic_stop_percent,
@@ -294,8 +337,8 @@ def _process_symbol(
             config_path=config_path,
             symbol_state=symbol_state,
         )
-        if stop_event is not None:
-            executed.append(stop_event)
+        if protection_event is not None:
+            executed.append(protection_event)
             pending = None
 
         if bar.timestamp.isoformat() not in completed_timestamps:
@@ -313,22 +356,52 @@ def _process_symbol(
             reason = "FROZEN_DIRECT_PRIMARY_CONFIRMED_ENTRY"
 
         if desired_side is not None:
-            if index + 1 < len(signal_chart_bars):
-                fill_timestamp = signal_chart_bars[index + 1].timestamp.isoformat()
-                fill_bar = vehicle_by_timestamp.get(fill_timestamp)
-                if fill_bar is not None:
+            if execution_timing == "CONFIRMED_SIGNAL_BAR_CLOSE":
+                fill_row = _last_vehicle_row_in_bucket(bar.timestamp, next_timestamp, vehicle_raw_rows)
+                if fill_row is None:
+                    raise ValueError("confirmed bar-close signal has no observed vehicle trade in matching bucket")
+                close_reason = (
+                    "FROZEN_DIRECT_PRIMARY_CONFIRMED_TECHNICAL_EXIT_BAR_CLOSE"
+                    if desired_side == "SELL"
+                    else "FROZEN_DIRECT_PRIMARY_CONFIRMED_ENTRY_BAR_CLOSE"
+                )
+                event = FrozenPrimaryExecutionEvent(
+                    symbol=primary.vehicle_symbol,
+                    strategy_id=primary.strategy_id,
+                    side=desired_side,
+                    execution_timestamp=fill_row.timestamp.isoformat(),
+                    price=fill_row.close,
+                    reason=close_reason,
+                    target_notional=_allocation_notional(symbol_state) if desired_side == "BUY" else None,
+                )
+                applied = execute_frozen_primary_event(event, config_path=config_path, ledger_dir=ledger_dir)
+                executed.append(applied)
+                pending = None
+                if desired_side == "BUY":
+                    symbol_state["vehicle_high_water_mark"] = event.price
+                else:
+                    symbol_state["vehicle_high_water_mark"] = None
+            elif index + 1 < len(signal_chart_bars):
+                boundary = signal_chart_bars[index + 1].timestamp
+                following_boundary = signal_chart_bars[index + 2].timestamp if index + 2 < len(signal_chart_bars) else None
+                fill_row = _first_vehicle_row_in_bucket(boundary, following_boundary, vehicle_raw_rows)
+                if fill_row is not None:
                     event = FrozenPrimaryExecutionEvent(
                         symbol=primary.vehicle_symbol,
                         strategy_id=primary.strategy_id,
                         side=desired_side,
-                        execution_timestamp=fill_timestamp,
-                        price=fill_bar.open,
+                        execution_timestamp=fill_row.timestamp.isoformat(),
+                        price=fill_row.open,
                         reason=reason,
                         target_notional=_allocation_notional(symbol_state) if desired_side == "BUY" else None,
                     )
                     applied = execute_frozen_primary_event(event, config_path=config_path, ledger_dir=ledger_dir)
                     executed.append(applied)
                     pending = None
+                    if desired_side == "BUY":
+                        symbol_state["vehicle_high_water_mark"] = event.price
+                    else:
+                        symbol_state["vehicle_high_water_mark"] = None
                 else:
                     pending = {
                         "side": desired_side,
@@ -349,9 +422,11 @@ def _process_symbol(
         **_row(symbol, primary.strategy_id, "PROCESSED"),
         "signal_symbol": primary.signal_symbol,
         "vehicle_symbol": primary.vehicle_symbol,
+        "execution_timing": execution_timing,
         "last_processed_chart_bar": symbol_state["last_processed_chart_bar"],
         "last_processed_stop_raw_bar": symbol_state.get("last_processed_stop_raw_bar"),
         "catastrophic_stop_percent": primary.catastrophic_stop_percent,
+        "vehicle_high_water_mark": symbol_state.get("vehicle_high_water_mark"),
         "pending_signal": pending,
         "executed_events": executed,
         "state": symbol_state,
@@ -370,7 +445,7 @@ def _process_catastrophic_stop_bucket(
     config_path: Path,
     symbol_state: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Process new vehicle raw rows in one chart bucket and apply first stop breach."""
+    """Apply first observed catastrophic or profit-protection breach in a bucket."""
     cursor_text = str(symbol_state.get("last_processed_stop_raw_bar", ""))
     cursor = _parse_timestamp(cursor_text) if cursor_text else None
     candidates = [
@@ -383,31 +458,103 @@ def _process_catastrophic_stop_bucket(
     if not candidates:
         return None
 
-    stop_result: dict[str, Any] | None = None
-    if catastrophic_stop_percent is not None and _has_open_position(ledger_dir, symbol):
+    protection_result: dict[str, Any] | None = None
+    policy = ProfitProtectionPolicy()
+
+    for raw in candidates:
+        if not _has_open_position(ledger_dir, symbol):
+            symbol_state["vehicle_high_water_mark"] = None
+            continue
+
         entry_price = _open_position_entry_price(ledger_dir, symbol, strategy_id)
-        stop_price = entry_price * (1.0 - catastrophic_stop_percent / 100.0)
-        for raw in candidates:
-            if raw.low <= stop_price:
+
+        # Catastrophic loss protection is always active and independent of the
+        # profit-protection ladder.
+        if catastrophic_stop_percent is not None:
+            catastrophic_price = entry_price * (1.0 - catastrophic_stop_percent / 100.0)
+            if raw.low <= catastrophic_price:
                 event = FrozenPrimaryExecutionEvent(
                     symbol=symbol,
                     strategy_id=strategy_id,
                     side="SELL",
                     execution_timestamp=raw.timestamp.isoformat(),
-                    price=stop_price,
+                    price=catastrophic_price,
                     reason="FROZEN_DIRECT_PRIMARY_CATASTROPHIC_STOP_RAW_INTRADAY",
                 )
-                stop_result = execute_frozen_primary_event(
+                protection_result = execute_frozen_primary_event(
                     event,
                     config_path=config_path,
                     ledger_dir=ledger_dir,
                 )
+                symbol_state["vehicle_high_water_mark"] = None
                 break
+
+        stored_high = symbol_state.get("vehicle_high_water_mark")
+        high_water = entry_price if stored_high in (None, "") else float(stored_high)
+        if not math.isfinite(high_water) or high_water <= 0:
+            raise ValueError("vehicle_high_water_mark must be positive and finite")
+
+        # Only a previously observed high arms a giveback on the current raw row.
+        # This avoids inventing intraminute OHLC sequencing when the same minute's
+        # high first reaches a gain threshold and its low also crosses the trail.
+        gain_at_high = ((high_water - entry_price) / entry_price) * 100.0
+        giveback_percent: float | None = None
+        zone = ""
+        if gain_at_high >= policy.strong_gain_percent:
+            giveback_percent = policy.strong_giveback_percent
+            zone = "STRONG"
+        elif gain_at_high >= policy.standard_gain_percent:
+            giveback_percent = policy.standard_giveback_percent
+            zone = "STANDARD"
+
+        if giveback_percent is not None:
+            trailing_price = high_water * (1.0 - giveback_percent / 100.0)
+            if raw.low <= trailing_price:
+                event = FrozenPrimaryExecutionEvent(
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    side="SELL",
+                    execution_timestamp=raw.timestamp.isoformat(),
+                    price=trailing_price,
+                    reason=f"FROZEN_DIRECT_PRIMARY_PROFIT_PROTECTION_{zone}_GIVEBACK",
+                )
+                protection_result = execute_frozen_primary_event(
+                    event,
+                    config_path=config_path,
+                    ledger_dir=ledger_dir,
+                )
+                symbol_state["vehicle_high_water_mark"] = None
+                break
+
+        symbol_state["vehicle_high_water_mark"] = max(high_water, raw.high)
 
     # Cursor advances through all observed vehicle rows in this bucket. When flat
     # this prevents stale lows from becoming eligible after a future re-entry.
     symbol_state["last_processed_stop_raw_bar"] = candidates[-1].timestamp.isoformat()
-    return stop_result
+    return protection_result
+
+
+def _first_vehicle_row_in_bucket(
+    bucket_start: datetime,
+    bucket_end: datetime | None,
+    raw_rows: Sequence[IntradayBar],
+) -> IntradayBar | None:
+    for row in raw_rows:
+        if row.timestamp >= bucket_start and (bucket_end is None or row.timestamp < bucket_end):
+            return row
+    return None
+
+
+def _last_vehicle_row_in_bucket(
+    bucket_start: datetime,
+    bucket_end: datetime | None,
+    raw_rows: Sequence[IntradayBar],
+) -> IntradayBar | None:
+    matches = [
+        row for row in raw_rows
+        if row.timestamp >= bucket_start and (bucket_end is None or row.timestamp < bucket_end)
+    ]
+    return matches[-1] if matches else None
 
 
 def _event_from_pending(*, symbol: str, strategy_id: str, pending: Mapping[str, Any], fill_timestamp: str, fill_price: float, target_notional: float | None) -> FrozenPrimaryExecutionEvent:
@@ -517,21 +664,3 @@ def _safety() -> dict[str, Any]:
         "capital_movement_enabled": False,
         "shadow_execution_enabled": False,
     }
-
-
-def _atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(dict(payload), handle, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    except Exception:
-        try:
-            os.unlink(temp_name)
-        except FileNotFoundError:
-            pass
-        raise
