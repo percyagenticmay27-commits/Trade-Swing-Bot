@@ -1,8 +1,13 @@
-"""Explicit user-only promotion from SHADOW to DIRECT assignment.
+"""Promote an eligible SHADOW to DIRECT after the user veto opportunity.
 
-No automatic promotion is permitted. A promoted shadow becomes the one DIRECT
-strategy for the underlying. Any previous DIRECT strategy is retained as SHADOW
-so its research evidence is preserved and the change remains reversible.
+Promotion does not require affirmative user approval. The qualification/review
+workflow may call this executor after its veto window expires. An explicit user
+veto blocks the promotion. A promoted shadow becomes the one DIRECT strategy for
+the underlying, while the previous DIRECT strategy is retained as SHADOW so its
+research evidence remains preserved and the change remains reversible.
+
+This module changes strategy assignment only. It never creates brokerage orders,
+moves capital, or enables live trading.
 """
 from __future__ import annotations
 
@@ -20,7 +25,9 @@ LIVE_TRADING_ENABLED = False
 BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
-AUTO_PROMOTION_ENABLED = False
+AUTO_PROMOTION_ENABLED = True
+AFFIRMATIVE_APPROVAL_REQUIRED = False
+USER_VETO_ALLOWED = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +36,7 @@ class ShadowPromotionResult:
     underlying_symbol: str
     promoted_strategy_id: str
     previous_direct_strategy_id: str | None
-    user_confirmed: bool
+    user_vetoed: bool
     paper_trade_mode: bool = True
 
 
@@ -37,18 +44,30 @@ def promote_shadow_strategy(
     *,
     underlying_symbol: str,
     strategy_id: str,
-    user_confirmed: bool,
+    user_vetoed: bool = False,
     registry_path: Path = DEFAULT_REGISTRY_PATH,
     form_contract_path: Path = DEFAULT_OUTPUT_PATH,
     assignment_report_path: Path = DEFAULT_ASSIGNMENT_REPORT_PATH,
 ) -> ShadowPromotionResult:
-    if not user_confirmed:
-        raise PermissionError("explicit user confirmation is required for shadow promotion")
+    """Execute a qualified promotion unless the user explicitly vetoed it.
 
+    Qualification and veto-window timing are intentionally upstream concerns.
+    This function is the assignment mutation boundary: no affirmative approval is
+    required, but an explicit veto always prevents the mutation.
+    """
     symbol = underlying_symbol.strip().upper()
     target = strategy_id.strip().upper()
     if not symbol or not target:
         raise ValueError("underlying_symbol and strategy_id are required")
+
+    if user_vetoed:
+        return ShadowPromotionResult(
+            status="VETOED",
+            underlying_symbol=symbol,
+            promoted_strategy_id=target,
+            previous_direct_strategy_id=None,
+            user_vetoed=True,
+        )
 
     registry = load_manual_entry_strategy_registry(registry_path)
     known = {item.strategy_id for item in registry.strategies}
@@ -76,7 +95,7 @@ def promote_shadow_strategy(
                         strategy_id=item.strategy_id,
                         assignment_mode="SHADOW",
                         enabled=item.enabled,
-                        note="Previous DIRECT retained as SHADOW after explicit user promotion.",
+                        note="Previous DIRECT retained as SHADOW after automatic promotion following the user veto opportunity.",
                     )
                 )
             continue
@@ -88,7 +107,7 @@ def promote_shadow_strategy(
             strategy_id=target,
             assignment_mode="DIRECT",
             enabled=True,
-            note="Promoted from SHADOW by explicit user action.",
+            note="Promoted from SHADOW automatically after qualification and expiration of the user veto opportunity without a veto.",
         )
     )
 
@@ -106,5 +125,5 @@ def promote_shadow_strategy(
         underlying_symbol=symbol,
         promoted_strategy_id=target,
         previous_direct_strategy_id=None if previous_direct is None else previous_direct.strategy_id,
-        user_confirmed=True,
+        user_vetoed=False,
     )
