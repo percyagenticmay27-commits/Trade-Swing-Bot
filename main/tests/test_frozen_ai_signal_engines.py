@@ -18,15 +18,12 @@ def _bar(index: int, close: float, *, high: float | None = None, low: float | No
 
 
 def test_only_recovered_engines_are_exposed() -> None:
-    assert SUPPORTED_ENGINES == {"ZERO_LAG", "BIGBELUGA_RANGE"}
+    assert SUPPORTED_ENGINES == {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA"}
     with pytest.raises(ValueError, match="unsupported frozen engine"):
         evaluate_frozen_signal("LOOKALIKE", {}, [_bar(0, 100.0)])
 
 
 def test_zero_lag_requires_warmup_and_emits_confirmed_transition() -> None:
-    # ZERO_LAG needs enough history for the handoff's highest(ATR(length), length*3)
-    # volatility window. Use length=10 so the synthetic regression fixture has a
-    # realistic 30-bar warmup while remaining compact.
     cold = [_bar(i, 100.0) for i in range(20)]
     assert evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1}, cold).diagnostics["ready"] is False
 
@@ -83,9 +80,6 @@ def test_zero_lag_exposes_current_frozen_band_diagnostics() -> None:
 
 
 def test_zero_lag_adx_wilder_reference_reaches_100_in_persistent_uptrend() -> None:
-    # TradingView ta.dmi(14, 14) uses Wilder/RMA smoothing. In a persistent
-    # one-directional uptrend, -DI remains zero and DX is 100 for every valid
-    # sample, so the seeded and subsequently smoothed ADX must be exactly 100.
     bars = [
         _bar(i, 100.0 + i, high=101.0 + i, low=99.0 + i)
         for i in range(60)
@@ -123,10 +117,6 @@ def test_zero_lag_adx_threshold_is_strictly_greater_than_frozen_threshold() -> N
 
 def test_bigbeluga_recovered_area_range_green_arrow() -> None:
     bars = [_bar(i, 100.0) for i in range(313)]
-    # The recovered Pine initializes the Area Range at bar_index == 301.
-    # With a stable 100 center and width near 8, lowerMid is near 96.
-    # Bar 311 moves below lowerMid without leaving the range; bar 312 crosses
-    # back above it while low[10] remains above lowerMid, creating Green ▲.
     bars[311] = _bar(311, 100.0, high=101.0, low=95.0)
     bars[312] = _bar(312, 100.0, high=101.0, low=97.0)
 
@@ -159,3 +149,55 @@ def test_bigbeluga_hma_exit_mode_uses_close_below_hma_instead_of_native_red() ->
     decision = evaluate_frozen_signal("BIGBELUGA_RANGE", {"hma_exit": 90}, bars)
     assert decision.diagnostics["exit_hma"] is not None
     assert decision.exit_signal is True
+
+
+def test_vol_vidya_requires_atr_warmup_and_exposes_recovered_state() -> None:
+    cold = [_bar(i, 100.0 + i * 0.1) for i in range(150)]
+    assert evaluate_frozen_signal(
+        "VOL_VIDYA",
+        {"vidya_length": 8, "momentum_length": 15, "atr_length": 200, "band_distance": 2.0},
+        cold,
+    ).diagnostics["ready"] is False
+
+    bars = [_bar(i, 100.0 + i * 0.25) for i in range(240)]
+    decision = evaluate_frozen_signal(
+        "VOL_VIDYA",
+        {
+            "vidya_length": 8,
+            "momentum_length": 15,
+            "atr_length": 200,
+            "band_distance": 2.0,
+            "adx_min": 17.5,
+            "chop_max": 0.0,
+            "atr_pct_min": 0.0,
+        },
+        bars,
+    )
+    assert decision.engine_id == "VOL_VIDYA"
+    assert decision.diagnostics["ready"] is True
+    assert decision.diagnostics["vidya"] is not None
+    assert decision.diagnostics["upper_band"] is not None
+    assert decision.diagnostics["lower_band"] is not None
+    assert decision.diagnostics["adx"] == pytest.approx(100.0, abs=1e-12)
+    assert decision.diagnostics["filter_ok"] is True
+
+
+def test_vol_vidya_zero_thresholds_disable_external_filters() -> None:
+    bars = [_bar(i, 100.0 + i * 0.1) for i in range(240)]
+    decision = evaluate_frozen_signal(
+        "VOL_VIDYA",
+        {
+            "vidya_length": 8,
+            "momentum_length": 15,
+            "atr_length": 200,
+            "band_distance": 2.0,
+            "adx_min": 0.0,
+            "chop_max": 0.0,
+            "atr_pct_min": 0.0,
+        },
+        bars,
+    )
+    assert decision.diagnostics["filter_ok"] is True
+    assert decision.diagnostics["adx"] is None
+    assert decision.diagnostics["chop"] is None
+    assert decision.diagnostics["atr_pct"] is None
