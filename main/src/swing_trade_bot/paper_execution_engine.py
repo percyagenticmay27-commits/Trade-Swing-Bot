@@ -2,6 +2,10 @@
 
 Consumes existing portfolio allocation recommendations and completed daily CSV
 bars. It never connects to a broker and never places real orders.
+
+Frozen DIRECT strategy symbols are owned by the frozen Primary execution path.
+This legacy allocation engine may mark an already-open frozen position to market,
+but it must never create/recreate that position or replace its strategy authority.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 SCHEMA_VERSION = "1.0"
 RESERVE_SYMBOLS = {"CASH", "RESERVE", "SGOV"}
+DEFAULT_FROZEN_STRATEGY_CONFIG_PATH = Path("configs/frozen_strategy_assignments.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,16 +86,22 @@ def execute_allocations(
     state_dir: Path,
     account_capital: float,
     as_of: date | None = None,
+    frozen_strategy_config_path: Path = DEFAULT_FROZEN_STRATEGY_CONFIG_PATH,
 ) -> PaperExecutionReport:
-    """Create missing paper positions and mark all open positions to market.
+    """Create missing legacy paper positions and mark open positions to market.
 
     Existing positions are preserved. New positive allocations are filled using
-    the latest completed Close from each symbol CSV. This function does not
-    implement sells; exit processing remains a separate governed milestone.
+    the latest completed Close from each symbol CSV, except for symbols governed
+    by the frozen DIRECT Primary registry. Frozen symbols can only be opened by
+    the frozen Primary paper-execution boundary; if already open here they are
+    mark-to-market only and their active strategy authority is preserved.
+
+    This function does not implement sells.
     """
     if not math.isfinite(account_capital) or account_capital <= 0:
         raise ValueError("account_capital must be finite and positive")
     rows = _load_allocations(allocations_path)
+    frozen_symbols = _load_frozen_direct_symbols(frozen_strategy_config_path)
     state_dir.mkdir(parents=True, exist_ok=True)
     existing = _load_position_state(state_dir / "open_positions.json")
     positions_by_symbol = {position.symbol: position for position in existing}
@@ -106,7 +117,13 @@ def execute_allocations(
             continue
         price_date, close = _latest_completed_close(data_dir / f"{symbol}.csv", today)
         current = positions_by_symbol.get(symbol)
+        frozen_governed = symbol in frozen_symbols
         if current is None:
+            if frozen_governed:
+                warnings.append(
+                    f"{symbol} is governed by frozen DIRECT Primary; legacy allocation BUY suppressed"
+                )
+                continue
             notional = round(account_capital * allocation / 100.0, 2)
             shares = round(notional / close, 8)
             cost_basis = round(shares * close, 2)
@@ -150,10 +167,14 @@ def execute_allocations(
                     "market_value": market_value,
                     "unrealized_pnl": pnl,
                     "unrealized_pnl_percent": pnl_percent,
-                    "allocation_percent": allocation,
-                    "active_strategy": str(row.get("active_strategy", current.active_strategy)),
+                    "allocation_percent": current.allocation_percent if frozen_governed else allocation,
+                    "active_strategy": current.active_strategy if frozen_governed else str(row.get("active_strategy", current.active_strategy)),
                 }
             )
+            if frozen_governed:
+                warnings.append(
+                    f"{symbol} is governed by frozen DIRECT Primary; legacy allocator performed mark-to-market only"
+                )
 
     positions = tuple(sorted(positions_by_symbol.values(), key=lambda item: item.symbol))
     invested = round(sum(position.cost_basis for position in positions), 2)
@@ -206,6 +227,39 @@ def _load_allocations(path: Path) -> list[dict[str, Any]]:
     if not isinstance(payload, Mapping) or not isinstance(payload.get("allocations"), list):
         raise ValueError("portfolio allocation JSON must contain an allocations list")
     return [dict(row) for row in payload["allocations"] if isinstance(row, Mapping)]
+
+
+def _load_frozen_direct_symbols(path: Path) -> set[str]:
+    """Return frozen symbols with enabled DIRECT Primary authority.
+
+    A missing registry means this legacy module retains its original behavior.
+    A malformed present registry fails closed rather than silently bypassing the
+    frozen ownership boundary.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return set()
+    payload = _load_json(path, None)
+    if not isinstance(payload, Mapping):
+        raise ValueError("frozen strategy registry root must be an object")
+    if payload.get("paper_trade_mode") is not True:
+        raise ValueError("frozen strategy registry must be paper_trade_mode=true")
+    strategies = payload.get("strategies")
+    if not isinstance(strategies, list):
+        raise ValueError("frozen strategy registry must contain a strategies list")
+    output: set[str] = set()
+    for row in strategies:
+        if not isinstance(row, Mapping):
+            raise ValueError("frozen strategy registry strategy rows must be objects")
+        if str(row.get("assignment_mode", "")).strip().upper() != "DIRECT":
+            continue
+        if row.get("enabled") is not True:
+            continue
+        symbol = str(row.get("vehicle_symbol") or row.get("signal_symbol") or "").strip().upper()
+        if not symbol:
+            raise ValueError("enabled frozen DIRECT strategy requires vehicle_symbol or signal_symbol")
+        output.add(symbol)
+    return output
 
 
 def _load_position_state(path: Path) -> tuple[PaperPosition, ...]:
