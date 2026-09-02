@@ -9,6 +9,7 @@ def test_operational_cycle_runs_governed_sequence_in_order(monkeypatch, tmp_path
     monkeypatch.setattr(cycle, "refresh_intraday_market_data", lambda: calls.append("intraday") or {"symbols": []})
     monkeypatch.setattr(cycle, "synchronize_frozen_primary_authority", lambda: calls.append("authority") or {"rows": []})
     monkeypatch.setattr(cycle, "refresh_frozen_primary_reference_quantities", lambda: calls.append("reference") or {"rows": []})
+    monkeypatch.setattr(cycle, "synchronize_frozen_primary_allocation_state", lambda: calls.append("allocation") or {"rows": []})
     monkeypatch.setattr(cycle, "run_frozen_primary_signal_execution", lambda: calls.append("execution") or {"rows": [{"executed_events": [{"side": "SELL"}]}]})
     monkeypatch.setattr(
         cycle,
@@ -25,13 +26,14 @@ def test_operational_cycle_runs_governed_sequence_in_order(monkeypatch, tmp_path
 
     result = cycle.run_frozen_primary_operational_cycle(repository_root=tmp_path)
 
-    assert calls == ["intraday", "authority", "reference", "execution", "post", "reference", "evidence"]
+    assert calls == ["intraday", "authority", "reference", "allocation", "execution", "post", "reference", "evidence"]
     assert captured["path"] == cycle.DEFAULT_REFERENCE_PATH
     assert result["executed_event_count"] == 1
     assert result["sequence"] == [
         "INTRADAY_REFRESH",
         "DIRECT_AUTHORITY_SYNC",
         "REFERENCE_QUANTITY_BEFORE_EXECUTION",
+        "PRIMARY_ALLOCATION_AUTHORITY_SYNC",
         "DIRECT_PRIMARY_SIGNAL_EXECUTION",
         "POST_EXECUTION_PAPER_EVIDENCE",
         "REFERENCE_QUANTITY_AFTER_EXECUTION",
@@ -43,6 +45,7 @@ def test_operational_cycle_safety_flags_are_locked(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle, "refresh_intraday_market_data", lambda: {})
     monkeypatch.setattr(cycle, "synchronize_frozen_primary_authority", lambda: {})
     monkeypatch.setattr(cycle, "refresh_frozen_primary_reference_quantities", lambda: {})
+    monkeypatch.setattr(cycle, "synchronize_frozen_primary_allocation_state", lambda: {})
     monkeypatch.setattr(cycle, "run_frozen_primary_signal_execution", lambda: {"rows": []})
     monkeypatch.setattr(cycle, "refresh_frozen_primary_post_execution_evidence", lambda repository_root: {})
     monkeypatch.setattr(cycle, "build_and_write_frozen_strategy_evidence", lambda **kwargs: {})
