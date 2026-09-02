@@ -2,9 +2,11 @@
 
 This registry is separate from the legacy declarative manual-strategy registry.
 It stores only exact frozen-engine specifications and preserves one DIRECT
-Primary plus up to three SHADOW strategies per symbol. Capital allocation,
-promotion qualification, veto lifecycle, and brokerage execution remain outside
-this module.
+Primary plus up to three SHADOW strategies per traded vehicle. A frozen strategy
+may source signals from a different underlying symbol (for example QQQ -> TQQQ),
+while execution authority remains attached to the stack's vehicle symbol.
+Capital allocation, promotion qualification, veto lifecycle, and brokerage
+execution remain outside this module.
 """
 from __future__ import annotations
 
@@ -39,14 +41,18 @@ class FrozenSymbolStack:
             raise ValueError("symbol must be uppercase and trimmed")
         if self.primary.assignment_mode != "DIRECT":
             raise ValueError("primary strategy must be DIRECT")
-        if self.primary.signal_symbol != self.symbol or self.primary.vehicle_symbol != self.symbol:
-            raise ValueError("frozen direct ETF stack must use its symbol for signal and vehicle")
+        if self.primary.vehicle_symbol != self.symbol:
+            raise ValueError("frozen DIRECT vehicle must match the stack symbol")
+        if not self.primary.signal_symbol:
+            raise ValueError("frozen DIRECT signal_symbol is required")
         if len(self.shadows) > MAX_SHADOWS:
             raise ValueError("a frozen stack may contain at most three shadows")
         if any(item.assignment_mode != "SHADOW" for item in self.shadows):
             raise ValueError("all shadow strategies must use SHADOW assignment_mode")
-        if any(item.signal_symbol != self.symbol or item.vehicle_symbol != self.symbol for item in self.shadows):
-            raise ValueError("frozen ETF shadows must use the stack symbol for signal and vehicle")
+        if any(item.vehicle_symbol != self.symbol for item in self.shadows):
+            raise ValueError("all frozen SHADOW vehicles must match the stack symbol")
+        if any(not item.signal_symbol for item in self.shadows):
+            raise ValueError("all frozen SHADOW signal_symbol values are required")
         ids = [self.primary.strategy_id, *(item.strategy_id for item in self.shadows)]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate strategy IDs are not allowed within a frozen stack")
