@@ -2,8 +2,10 @@
 
 Promotion evidence is produced on an apples-to-apples research basis: the current
 DIRECT strategy and each SHADOW strategy are simulated against the same verified
-mapped vehicle, the same market-history span, and the same current Swing dollar
-allocation. The actual DIRECT paper portfolio remains the capital authority; this
+mapped vehicle, the same market-history span, and the exact same current Primary
+paper-position share quantity. Current Swing dollar allocation is retained only
+as a common return/drawdown normalization denominator; it is not Shadow sizing
+authority. The actual DIRECT paper portfolio remains the capital authority; this
 module never creates positions, reserves/moves capital, or places orders.
 
 The workflow runs at most once per calendar month per underlying. This protects the
@@ -29,10 +31,13 @@ from .manual_strategy_shadow_runner import (
     DEFAULT_DATA_DIR,
     DEFAULT_MAPPING_PATH,
     DEFAULT_PERFORMANCE_PATH,
+    DEFAULT_PRIMARY_POSITIONS_PATH,
     DEFAULT_REGISTRY_PATH,
+    SHADOW_SIZING_BASIS,
     _allocation,
     _load_json,
     _mapping,
+    _primary_share_quantity,
     _simulate,
 )
 from .paper_runner import load_csv
@@ -45,6 +50,8 @@ from .shadow_promotion_qualification import (
 DEFAULT_MONTHLY_REVIEW_STATE_PATH = Path("results/shadow_promotion_monthly_review_state.json")
 DEFAULT_REVIEW_REPORT_PATH = Path("results/shadow_promotion_review_report.json")
 VETO_WINDOW_ENV = "SWING_SHADOW_PROMOTION_VETO_WINDOW_DAYS"
+EVIDENCE_BASIS = "SAME_PRIMARY_SHARE_QUANTITY_SAME_MARKET_HISTORY_SIMULATION"
+NORMALIZATION_BASIS = "CURRENT_SWING_ALLOCATION"
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -62,7 +69,9 @@ class PromotionReviewRow:
     status: str
     qualified_strategy_id: str | None
     queued_pending_veto: bool
-    evidence_basis: str = "SAME_ALLOCATION_SAME_MARKET_HISTORY_SIMULATION"
+    primary_reference_quantity: float | None = None
+    evidence_basis: str = EVIDENCE_BASIS
+    normalization_basis: str = NORMALIZATION_BASIS
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +160,7 @@ def _resolve_veto_window_days(explicit: int | None) -> int | None:
 
 
 def _canonical_performance(strategy_id: str, allocation: float, performance: Mapping[str, Any], *, shadow_order: int = 0) -> PromotionPerformance:
+    """Normalize dollar P/L and drawdown to the common current Swing allocation."""
     if allocation <= 0:
         raise ValueError("allocation must be positive")
     net_pl = float(performance.get("net_pl", 0.0))
@@ -172,14 +182,30 @@ def _canonical_performance(strategy_id: str, allocation: float, performance: Map
     )
 
 
-def _direct_benchmark(*, underlying: str, strategy: Any, vehicle: str, allocation: float, data_dir: Path) -> PromotionPerformance:
+def _direct_benchmark(
+    *,
+    underlying: str,
+    strategy: Any,
+    vehicle: str,
+    allocation: float,
+    primary_quantity: float,
+    data_dir: Path,
+) -> PromotionPerformance:
     underlying_path = data_dir / f"{underlying}.csv"
     vehicle_path = data_dir / f"{vehicle}.csv"
     if not underlying_path.is_file() or not vehicle_path.is_file():
         raise FileNotFoundError(f"missing market data for {underlying}/{vehicle}")
     signal_bars = load_csv(underlying_path)
     vehicle_bars = load_csv(vehicle_path)
-    _, performance = _simulate(strategy, underlying, vehicle, allocation, signal_bars, vehicle_bars)
+    _, performance = _simulate(
+        strategy,
+        underlying,
+        vehicle,
+        allocation,
+        signal_bars,
+        vehicle_bars,
+        test_quantity=primary_quantity,
+    )
     return _canonical_performance(strategy.strategy_id, allocation, performance)
 
 
@@ -199,6 +225,20 @@ def _shadow_performance_by_key(path: Path) -> dict[tuple[str, str], Mapping[str,
     return output
 
 
+def _quantity_matches(evidence: Mapping[str, Any], primary_quantity: float) -> bool:
+    if evidence.get("sizing_basis") != SHADOW_SIZING_BASIS:
+        return False
+    try:
+        reference = float(evidence.get("primary_reference_quantity"))
+        test_quantity = float(evidence.get("shadow_test_quantity"))
+    except (TypeError, ValueError):
+        return False
+    return (
+        math.isclose(reference, primary_quantity, rel_tol=0.0, abs_tol=1e-8)
+        and math.isclose(test_quantity, primary_quantity, rel_tol=0.0, abs_tol=1e-8)
+    )
+
+
 def build_monthly_promotion_review(
     *,
     now: str | None = None,
@@ -208,6 +248,7 @@ def build_monthly_promotion_review(
     mapping_path: Path = DEFAULT_MAPPING_PATH,
     shadow_performance_path: Path = DEFAULT_PERFORMANCE_PATH,
     data_dir: Path = DEFAULT_DATA_DIR,
+    primary_positions_path: Path = DEFAULT_PRIMARY_POSITIONS_PATH,
     monthly_state_path: Path = DEFAULT_MONTHLY_REVIEW_STATE_PATH,
     review_report_path: Path = DEFAULT_REVIEW_REPORT_PATH,
     review_history_path: Path = Path("results/shadow_promotion_review_history.json"),
@@ -255,9 +296,18 @@ def build_monthly_promotion_review(
         if allocation is None:
             rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "MISSING_SWING_ALLOCATION", None, False))
             continue
+        try:
+            primary_quantity = _primary_share_quantity(primary_positions_path, vehicle)
+        except (OSError, ValueError, TypeError) as exc:
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "PRIMARY_SHARE_QUANTITY_ERROR", None, False))
+            warnings.append(f"{symbol}: Primary share quantity unavailable: {type(exc).__name__}: {exc}")
+            continue
+        if primary_quantity is None:
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "MISSING_PRIMARY_SHARE_QUANTITY", None, False))
+            continue
         direct_strategy = by_id.get(direct.strategy_id)
         if direct_strategy is None or not direct_strategy.enabled:
-            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "PRIMARY_STRATEGY_UNAVAILABLE", None, False))
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "PRIMARY_STRATEGY_UNAVAILABLE", None, False, primary_quantity))
             continue
         try:
             primary = _direct_benchmark(
@@ -265,27 +315,35 @@ def build_monthly_promotion_review(
                 strategy=direct_strategy,
                 vehicle=vehicle,
                 allocation=allocation,
+                primary_quantity=primary_quantity,
                 data_dir=data_dir,
             )
         except (OSError, ValueError, TypeError) as exc:
-            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "PRIMARY_EVIDENCE_ERROR", None, False))
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "PRIMARY_EVIDENCE_ERROR", None, False, primary_quantity))
             warnings.append(f"{symbol}: Primary benchmark unavailable: {type(exc).__name__}: {exc}")
             continue
 
         canonical_shadows: list[PromotionPerformance] = []
         missing_shadow = False
+        quantity_mismatch = False
         for order, assignment in enumerate(shadows, start=1):
             evidence = shadow_rows.get((symbol, assignment.strategy_id))
             if evidence is None:
                 missing_shadow = True
                 warnings.append(f"{symbol}/{assignment.strategy_id}: Shadow performance evidence unavailable.")
                 continue
-            simulated_allocation = float(evidence.get("simulated_allocation", allocation))
+            if not _quantity_matches(evidence, primary_quantity):
+                quantity_mismatch = True
+                warnings.append(f"{symbol}/{assignment.strategy_id}: Shadow quantity does not match current Primary quantity {primary_quantity}.")
+                continue
             canonical_shadows.append(
-                _canonical_performance(assignment.strategy_id, simulated_allocation, evidence, shadow_order=order)
+                _canonical_performance(assignment.strategy_id, allocation, evidence, shadow_order=order)
             )
+        if quantity_mismatch:
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "SHADOW_QUANTITY_MISMATCH", None, False, primary_quantity))
+            continue
         if missing_shadow or len(canonical_shadows) != len(shadows):
-            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "INCOMPLETE_SHADOW_EVIDENCE", None, False))
+            rows.append(PromotionReviewRow(symbol, direct.strategy_id, shadow_ids, review_period, "INCOMPLETE_SHADOW_EVIDENCE", None, False, primary_quantity))
             continue
 
         qualified_at = _utc_text(current)
@@ -310,6 +368,7 @@ def build_monthly_promotion_review(
                 "QUALIFIED_PENDING_VETO" if queued is not None else "REVIEWED_NOT_QUALIFIED",
                 result.qualified_strategy_id,
                 queued is not None,
+                primary_quantity,
             )
         )
 
