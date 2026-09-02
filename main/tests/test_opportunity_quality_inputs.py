@@ -113,6 +113,88 @@ def test_all_active_ranked_candidates_reach_opportunity_quality_inputs(tmp_path:
     assert payload["component_provenance_by_symbol"]["NFLX"]["market_intelligence_score"] == "results/market_intelligence.json"
 
 
+def test_mapped_underlying_evidence_populates_frozen_oq_components(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    (tmp_path / "mapped_underlying_fundamental_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "preferred_vehicle": "TOPX", "fundamental_analysis_score": 83.92}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_intelligence_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "market_intelligence_score": 56.67, "conviction_score": 45.83}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_quantitative_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "momentum_score": 51.31, "technical_analysis_score": 100.0}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_market_regime_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "market_regime_support_score": 65.0}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_portfolio_risk_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "portfolio_risk_adjustment_score": 100.0}]}),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+    row = payload["rows"][0]
+
+    assert row["fundamental_analysis_score"] == 83.92
+    assert row["market_intelligence_score"] == 56.67
+    assert row["conviction_score"] == 45.83
+    assert row["momentum_score"] == 51.31
+    assert row["technical_analysis_score"] == 100.0
+    assert row["market_regime_support_score"] == 65.0
+    assert row["portfolio_risk_adjustment_score"] == 100.0
+    assert payload["component_provenance_by_symbol"]["TOP"]["fundamental_analysis_score"] == "results/mapped_underlying_fundamental_evidence.json"
+    assert payload["component_provenance_by_symbol"]["TOP"]["technical_analysis_score"] == "results/mapped_underlying_quantitative_evidence.json"
+    assert "results/mapped_underlying_intelligence_evidence.json" in payload["source_artifacts"]
+
+
+def test_dedicated_evidence_precedes_mapped_and_mapped_precedes_watchlist_fallback(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    (tmp_path / "fundamental_analysis.json").write_text(
+        json.dumps({"rows": [{"symbol": "TOP", "fundamental_analysis_score": 91.0}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_fundamental_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "fundamental_analysis_score": 83.92}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "mapped_underlying_quantitative_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "momentum_score": 51.31}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "momentum_scores.json").write_text(
+        json.dumps({"rows": [{"symbol": "TOP", "momentum_score": 72.0}]}),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+    row = payload["rows"][0]
+    provenance = payload["component_provenance_by_symbol"]["TOP"]
+
+    assert row["fundamental_analysis_score"] == 91.0
+    assert provenance["fundamental_analysis_score"] == "results/fundamental_analysis.json"
+    assert row["momentum_score"] == 72.0
+    assert provenance["momentum_score"] == "results/momentum_scores.json"
+
+
+def test_mapped_fundamental_overrides_zero_watchlist_placeholder(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    payload = json.loads((tmp_path / "watchlist_report.json").read_text(encoding="utf-8"))
+    payload["rows"][0]["financial_health_score"] = 0
+    (tmp_path / "watchlist_report.json").write_text(json.dumps(payload), encoding="utf-8")
+    (tmp_path / "mapped_underlying_fundamental_evidence.json").write_text(
+        json.dumps({"rows": [{"underlying_symbol": "TOP", "fundamental_analysis_score": 83.92}]}),
+        encoding="utf-8",
+    )
+
+    result = build_opportunity_quality_inputs(tmp_path)
+    assert result["rows"][0]["fundamental_analysis_score"] == 83.92
+    assert result["component_provenance_by_symbol"]["TOP"]["fundamental_analysis_score"] == "results/mapped_underlying_fundamental_evidence.json"
+
+
 def test_leveraged_symbol_alias_matches(tmp_path: Path) -> None:
     _watchlist(tmp_path)
     (tmp_path / "momentum_scores.json").write_text(json.dumps({"rows": [{"symbol": "TOPX", "momentum_score": 71}]}), encoding="utf-8")
