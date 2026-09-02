@@ -4,6 +4,10 @@ The report is descriptive and paper-only. DIRECT identifies the one strategy tha
 may be resolved for entry authority. SHADOW identifies research-only strategies
 that may simulate against the same current Swing allocation without reserving or
 moving capital. Optional shadow performance evidence is joined when available.
+
+A qualified shadow does not require affirmative user approval. Qualification is
+followed by a veto opportunity; absent a veto, the promotion lifecycle may promote
+the shadow automatically after its configured deadline.
 """
 from __future__ import annotations
 
@@ -24,7 +28,9 @@ BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 SHADOW_POSITION_CREATION_ENABLED = False
-AUTO_PROMOTION_ENABLED = False
+AUTO_PROMOTION_ENABLED = True
+AFFIRMATIVE_APPROVAL_REQUIRED = False
+USER_VETO_ALLOWED = True
 
 
 def _load_mapping(path: Path) -> Mapping[str, Any]:
@@ -115,7 +121,8 @@ def build_strategy_assignment_shadow_report(
                     "open_pl": ev.get("open_pl"),
                     "evidence_status": ev.get("evidence_status", "AWAITING_SHADOW_LEDGER"),
                     "promotion_recommended": bool(ev.get("promotion_recommended", False)),
-                    "promotion_requires_user_action": True,
+                    "promotion_requires_affirmative_approval": False,
+                    "user_veto_allowed": True,
                 }
             )
         rows.append(
@@ -129,11 +136,13 @@ def build_strategy_assignment_shadow_report(
         )
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "strategy_id": "SWING-001",
         "paper_trade_mode": True,
-        "auto_promotion_enabled": False,
-        "promotion_authority": "USER_EXPLICIT_ACTION_ONLY",
+        "auto_promotion_enabled": True,
+        "promotion_authority": "AUTOMATIC_AFTER_QUALIFICATION_AND_VETO_WINDOW",
+        "affirmative_approval_required": False,
+        "user_veto_allowed": True,
         "shadow_allocation_model": "SAME_CURRENT_SWING_ALLOCATION_SIMULATED_ONLY",
         "shadow_capital_reserved": False,
         "shadow_capital_movement_enabled": False,
