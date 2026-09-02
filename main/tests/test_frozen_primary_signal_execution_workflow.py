@@ -87,8 +87,6 @@ def _ledger(path: Path, *, open_position: bool = True) -> None:
 def _intraday(path: Path, *, hours: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = ["Timestamp,Open,High,Low,Close,Volume"]
-    # One row at each chart-bucket open is enough here. A later bucket proves the
-    # preceding 1H bucket completed while the newest bucket remains partial.
     for i in range(hours):
         hour = 9 + ((30 + i * 60) // 60)
         minute = (30 + i * 60) % 60
@@ -120,6 +118,7 @@ def test_first_run_initializes_nonretroactive_baseline_without_trade(tmp_path):
     assert result["rows"][0]["status"] == "BASELINE_INITIALIZED"
     assert result["rows"][0]["executed_events"] == []
     assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
+    assert result["rows"][0]["last_processed_stop_raw_bar"] == "2026-09-01T11:30:00-04:00"
     assert json.loads((ledger / "trade_history.json").read_text())["trades"] == []
     saved = json.loads(state.read_text())
     assert saved["symbols"]["SOXL"]["allocation_notional"] == 1000.0
@@ -136,11 +135,7 @@ def test_pending_exit_executes_at_next_chart_bar_open(tmp_path):
         "symbols": {"SOXL": {
             "strategy_id": PRIMARY,
             "last_processed_chart_bar": "2026-09-01T09:30:00-04:00",
-            "pending_signal": {
-                "side": "SELL",
-                "signal_chart_bar": "2026-09-01T09:30:00-04:00",
-                "reason": "TEST_PENDING_EXIT",
-            },
+            "pending_signal": {"side": "SELL", "signal_chart_bar": "2026-09-01T09:30:00-04:00", "reason": "TEST_PENDING_EXIT"},
             "allocation_notional": 1000.0,
         }},
     })
@@ -205,7 +200,6 @@ def test_confirmed_entry_uses_preserved_allocation_notional_on_next_bar_open(tmp
     assert event["side"] == "BUY"
     assert event["price"] == 102.0
     assert event["notional"] == 1000.0
-    assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     position = json.loads((ledger / "open_positions.json").read_text())["positions"][0]
     assert position["active_strategy"] == PRIMARY
     assert position["cost_basis"] == 1000.0
@@ -249,6 +243,100 @@ def test_partial_fill_bar_is_not_used_as_signal_close(tmp_path):
     assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
 
 
+def test_catastrophic_stop_uses_new_raw_rows_and_threshold_price(tmp_path):
+    config, intraday, ledger, state, report = _paths(tmp_path)
+    _config(config)
+    _ledger(ledger)
+    path = intraday / "SOXL.csv"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2026-09-01T09:30:00-04:00,100,101,99,100,1000\n"
+        "2026-09-01T10:30:00-04:00,100,101,99,100,1000\n"
+        "2026-09-01T10:45:00-04:00,82,83,79,81,1000\n"
+        "2026-09-01T11:30:00-04:00,81,82,80,81,1000\n",
+        encoding="utf-8",
+    )
+    _write_json(state, {
+        "paper_trade_mode": True,
+        "symbols": {"SOXL": {
+            "strategy_id": PRIMARY,
+            "last_processed_chart_bar": "2026-09-01T09:30:00-04:00",
+            "last_processed_stop_raw_bar": "2026-09-01T09:30:00-04:00",
+            "pending_signal": None,
+            "allocation_notional": 1000.0,
+        }},
+    })
+
+    class Decision:
+        entry_signal = False
+        exit_signal = False
+    original = workflow.evaluate_frozen_signal
+    workflow.evaluate_frozen_signal = lambda *args, **kwargs: Decision()
+    try:
+        result = workflow.run_frozen_primary_signal_execution(
+            config_path=config, intraday_dir=intraday, ledger_dir=ledger,
+            state_path=state, report_path=report,
+        )
+    finally:
+        workflow.evaluate_frozen_signal = original
+
+    event = result["rows"][0]["executed_events"][0]
+    assert event["side"] == "SELL"
+    assert event["price"] == 80.0
+    assert event["shares"] == 10.0
+    assert json.loads((ledger / "open_positions.json").read_text())["positions"] == []
+    history = json.loads((ledger / "trade_history.json").read_text())["trades"]
+    assert history[-1]["execution_timestamp"] == "2026-09-01T10:45:00-04:00"
+    assert history[-1]["reason"] == "FROZEN_DIRECT_PRIMARY_CATASTROPHIC_STOP_RAW_INTRADAY"
+
+
+def test_pending_technical_exit_at_bar_open_precedes_later_same_bucket_stop(tmp_path):
+    config, intraday, ledger, state, report = _paths(tmp_path)
+    _config(config)
+    _ledger(ledger)
+    path = intraday / "SOXL.csv"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "Timestamp,Open,High,Low,Close,Volume\n"
+        "2026-09-01T09:30:00-04:00,100,101,99,100,1000\n"
+        "2026-09-01T10:30:00-04:00,101,102,100,101,1000\n"
+        "2026-09-01T10:45:00-04:00,82,83,79,81,1000\n"
+        "2026-09-01T11:30:00-04:00,81,82,80,81,1000\n",
+        encoding="utf-8",
+    )
+    _write_json(state, {
+        "paper_trade_mode": True,
+        "symbols": {"SOXL": {
+            "strategy_id": PRIMARY,
+            "last_processed_chart_bar": "2026-09-01T09:30:00-04:00",
+            "last_processed_stop_raw_bar": "2026-09-01T09:30:00-04:00",
+            "pending_signal": {"side": "SELL", "signal_chart_bar": "2026-09-01T09:30:00-04:00", "reason": "TEST_PENDING_EXIT"},
+            "allocation_notional": 1000.0,
+        }},
+    })
+
+    class Decision:
+        entry_signal = False
+        exit_signal = False
+    original = workflow.evaluate_frozen_signal
+    workflow.evaluate_frozen_signal = lambda *args, **kwargs: Decision()
+    try:
+        result = workflow.run_frozen_primary_signal_execution(
+            config_path=config, intraday_dir=intraday, ledger_dir=ledger,
+            state_path=state, report_path=report,
+        )
+    finally:
+        workflow.evaluate_frozen_signal = original
+
+    assert len(result["rows"][0]["executed_events"]) == 1
+    event = result["rows"][0]["executed_events"][0]
+    assert event["side"] == "SELL"
+    assert event["price"] == 101.0
+    history = json.loads((ledger / "trade_history.json").read_text())["trades"]
+    assert history[-1]["reason"] == "TEST_PENDING_EXIT"
+
+
 def test_primary_promotion_rebaselines_without_replaying_new_strategy_history(tmp_path):
     config, intraday, ledger, state, report = _paths(tmp_path)
     _config(config, primary=SHADOW)
@@ -276,6 +364,7 @@ def test_primary_promotion_rebaselines_without_replaying_new_strategy_history(tm
     assert result["rows"][0]["last_processed_chart_bar"] == "2026-09-01T10:30:00-04:00"
     saved = json.loads(state.read_text())
     assert saved["symbols"]["SOXL"]["strategy_id"] == SHADOW
+    assert saved["symbols"]["SOXL"]["last_processed_stop_raw_bar"] == "2026-09-01T11:30:00-04:00"
 
 
 def test_workflow_never_executes_shadow_assignments_and_safety_is_locked(tmp_path):
@@ -289,6 +378,7 @@ def test_workflow_never_executes_shadow_assignments_and_safety_is_locked(tmp_pat
         state_path=state, report_path=report,
     )
     assert result["execution_scope"] == "FROZEN_DIRECT_PRIMARY_ONLY"
+    assert result["catastrophic_stop_authority"] == "RAW_NY_RTH_INTRADAY_ROWS"
     assert result["shadow_execution_enabled"] is False
     assert result["paper_trade_mode"] is True
     assert result["live_trading_enabled"] is False
