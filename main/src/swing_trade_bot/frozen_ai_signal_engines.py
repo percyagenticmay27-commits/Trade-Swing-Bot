@@ -9,10 +9,12 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from .frozen_keltner_engine import evaluate_keltner_long
+from .frozen_strategy_f_engine import evaluate_strategy_f
 from .frozen_vol_vidya_engine import evaluate_vol_vidya
 from .position_state import MarketBar
 
-SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA"}
+SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA", "KELTNER_LONG", "STRATEGY_F"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +23,14 @@ class FrozenSignalDecision:
     exit_signal: bool
     engine_id: str
     diagnostics: Mapping[str, float | int | bool | None]
+
+
+def frozen_engine_execution_timing(engine_id: str) -> str:
+    """Return the authoritative execution timing for a recovered engine family."""
+    engine = engine_id.strip().upper()
+    if engine not in SUPPORTED_ENGINES:
+        raise ValueError(f"unsupported frozen engine: {engine_id}")
+    return "CONFIRMED_SIGNAL_BAR_CLOSE" if engine == "STRATEGY_F" else "CONFIRMED_SIGNAL_NEXT_CHART_BAR_OPEN"
 
 
 def _ema_series(values: Sequence[float], period: int) -> list[float | None]:
@@ -339,5 +349,11 @@ def evaluate_frozen_signal(engine_id: str, parameters: Mapping[str, Any], bars: 
         return _zero_lag(parameters, bars)
     if engine == "VOL_VIDYA":
         entry, exit_signal, diagnostics = evaluate_vol_vidya(parameters, bars)
+        return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
+    if engine == "KELTNER_LONG":
+        entry, exit_signal, diagnostics = evaluate_keltner_long(parameters, bars)
+        return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
+    if engine == "STRATEGY_F":
+        entry, exit_signal, diagnostics = evaluate_strategy_f(parameters, bars)
         return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
     return _bigbeluga(parameters, bars)
