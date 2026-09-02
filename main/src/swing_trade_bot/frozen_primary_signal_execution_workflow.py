@@ -4,11 +4,11 @@ This workflow bridges the frozen signal engine to the governed paper-ledger
 execution boundary. It processes only the current DIRECT Primary for each
 frozen symbol stack. SHADOW strategies remain research-only.
 
-The first run establishes a non-retroactive cursor at the latest completed chart
-bar and adopts no historical signal. Later runs process only chart bars newer
-than that cursor. Confirmed strategy signals execute at the next chart-bar open,
-matching the frozen research contract. A pending signal is persisted when its
-next chart bar is not available yet.
+The first run establishes non-retroactive chart and raw-stop cursors. Later runs
+process only chart bars and raw NY-RTH rows newer than those cursors. Confirmed
+strategy signals execute at the next chart-bar open. A configured catastrophic
+stop is monitored against raw intraday rows while the DIRECT Primary position is
+open and exits at the frozen threshold price.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .frozen_ai_signal_engines import evaluate_frozen_signal
 from .frozen_primary_paper_execution import (
@@ -26,7 +26,7 @@ from .frozen_primary_paper_execution import (
     execute_frozen_primary_event,
 )
 from .frozen_strategy_assignment_registry import DEFAULT_CONFIG_PATH, load_frozen_symbol_stacks
-from .intraday_chart_bars import build_chart_bars, load_intraday_csv, regular_session_rows
+from .intraday_chart_bars import IntradayBar, build_chart_bars, load_intraday_csv, regular_session_rows
 
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
@@ -34,7 +34,7 @@ BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 SHADOW_EXECUTION_ENABLED = False
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 DEFAULT_INTRADAY_DIR = Path("data/intraday")
 DEFAULT_LEDGER_DIR = Path("results/paper_ledger")
 DEFAULT_STATE_PATH = Path("results/frozen_primary_signal_execution_state.json")
@@ -50,7 +50,7 @@ def run_frozen_primary_signal_execution(
     report_path: Path = DEFAULT_REPORT_PATH,
     source_timezone: str = "America/New_York",
 ) -> dict[str, Any]:
-    """Process new completed frozen DIRECT Primary chart bars into paper events."""
+    """Process new frozen DIRECT Primary chart signals and raw stop evidence."""
     stacks = load_frozen_symbol_stacks(config_path)
     state = _load_state(state_path)
     symbols_state = dict(state.get("symbols", {}))
@@ -85,11 +85,13 @@ def run_frozen_primary_signal_execution(
 
         symbol_state = dict(symbols_state.get(symbol, {}))
         latest_timestamp = completed_bars[-1].timestamp.isoformat()
+        latest_raw_timestamp = session_rows[-1].timestamp.isoformat()
         if not symbol_state:
             budget = _current_position_cost_basis(Path(ledger_dir), symbol)
             symbols_state[symbol] = {
                 "strategy_id": primary.strategy_id,
                 "last_processed_chart_bar": latest_timestamp,
+                "last_processed_stop_raw_bar": latest_raw_timestamp,
                 "pending_signal": None,
                 "allocation_notional": budget,
                 "initialized_at_utc": _utc_now(),
@@ -97,16 +99,19 @@ def run_frozen_primary_signal_execution(
             rows.append({
                 **_row(symbol, primary.strategy_id, "BASELINE_INITIALIZED"),
                 "last_processed_chart_bar": latest_timestamp,
+                "last_processed_stop_raw_bar": latest_raw_timestamp,
                 "allocation_notional": budget,
+                "catastrophic_stop_percent": primary.catastrophic_stop_percent,
                 "executed_events": [],
             })
             continue
 
         # Promotion changes DIRECT authority without retroactively replaying the new
-        # strategy over old bars. Re-baseline that symbol from the latest completed bar.
+        # strategy over old chart bars or raw stop history.
         if str(symbol_state.get("strategy_id", "")) != primary.strategy_id:
             symbol_state["strategy_id"] = primary.strategy_id
             symbol_state["last_processed_chart_bar"] = latest_timestamp
+            symbol_state["last_processed_stop_raw_bar"] = latest_raw_timestamp
             symbol_state["pending_signal"] = None
             if symbol_state.get("allocation_notional") in (None, 0, 0.0):
                 symbol_state["allocation_notional"] = _current_position_cost_basis(Path(ledger_dir), symbol)
@@ -114,9 +119,18 @@ def run_frozen_primary_signal_execution(
             rows.append({
                 **_row(symbol, primary.strategy_id, "PRIMARY_CHANGE_REBASELINED"),
                 "last_processed_chart_bar": latest_timestamp,
+                "last_processed_stop_raw_bar": latest_raw_timestamp,
+                "catastrophic_stop_percent": primary.catastrophic_stop_percent,
                 "executed_events": [],
             })
             continue
+
+        # State written before schema 1.1 has no raw-stop cursor. Migrate it
+        # non-retroactively at the latest available raw row rather than replaying
+        # historical lows against an already-open paper position.
+        if not str(symbol_state.get("last_processed_stop_raw_bar", "")):
+            symbol_state["last_processed_stop_raw_bar"] = latest_raw_timestamp
+            symbol_state["stop_cursor_migrated_at_utc"] = _utc_now()
 
         try:
             result = _process_symbol(
@@ -124,6 +138,7 @@ def run_frozen_primary_signal_execution(
                 primary=primary,
                 chart_bars=chart_bars,
                 completed_bars=completed_bars,
+                raw_rows=session_rows,
                 ledger_dir=Path(ledger_dir),
                 config_path=Path(config_path),
                 symbol_state=symbol_state,
@@ -142,6 +157,7 @@ def run_frozen_primary_signal_execution(
     report = {
         **_safety(),
         "execution_scope": "FROZEN_DIRECT_PRIMARY_ONLY",
+        "catastrophic_stop_authority": "RAW_NY_RTH_INTRADAY_ROWS",
         "shadow_execution_enabled": False,
         "rows": rows,
     }
@@ -150,12 +166,7 @@ def run_frozen_primary_signal_execution(
 
 
 def _completed_chart_bars(chart_bars, session_rows, timeframe: str):
-    """Return only chart bars whose full frozen NY-RTH bucket has elapsed.
-
-    The intraday archive may contain the currently-forming 1H/4H bucket. Its open
-    may be used to fill a prior confirmed signal, but its close must never be used
-    to generate a new signal until the bucket is complete.
-    """
+    """Return only chart bars whose full frozen NY-RTH bucket has elapsed."""
     if not session_rows:
         return []
     latest_raw = session_rows[-1].timestamp
@@ -176,7 +187,17 @@ def _completed_chart_bars(chart_bars, session_rows, timeframe: str):
     return completed
 
 
-def _process_symbol(*, symbol, primary, chart_bars, completed_bars, ledger_dir: Path, config_path: Path, symbol_state: dict[str, Any]) -> dict[str, Any]:
+def _process_symbol(
+    *,
+    symbol,
+    primary,
+    chart_bars,
+    completed_bars,
+    raw_rows: Sequence[IntradayBar],
+    ledger_dir: Path,
+    config_path: Path,
+    symbol_state: dict[str, Any],
+) -> dict[str, Any]:
     last_processed = str(symbol_state.get("last_processed_chart_bar", ""))
     if not last_processed:
         raise ValueError("last_processed_chart_bar is required after initialization")
@@ -191,7 +212,7 @@ def _process_symbol(*, symbol, primary, chart_bars, completed_bars, ledger_dir: 
     start_index = index_by_timestamp[last_processed] + 1
 
     # A signal confirmed on the prior run executes as soon as the next chart-bar
-    # open exists. That fill bar may still be forming and is not marked processed.
+    # open exists. That fill occurs before raw stop monitoring inside that bucket.
     if isinstance(pending, Mapping) and start_index < len(chart_bars):
         fill_bar = chart_bars[start_index]
         event = _event_from_pending(
@@ -208,8 +229,26 @@ def _process_symbol(*, symbol, primary, chart_bars, completed_bars, ledger_dir: 
 
     for index in range(start_index, len(chart_bars)):
         bar = chart_bars[index]
+        next_timestamp = chart_bars[index + 1].timestamp if index + 1 < len(chart_bars) else None
+
+        stop_event = _process_catastrophic_stop_bucket(
+            symbol=symbol,
+            strategy_id=primary.strategy_id,
+            catastrophic_stop_percent=primary.catastrophic_stop_percent,
+            bucket_start=bar.timestamp,
+            bucket_end=next_timestamp,
+            raw_rows=raw_rows,
+            ledger_dir=ledger_dir,
+            config_path=config_path,
+            symbol_state=symbol_state,
+        )
+        if stop_event is not None:
+            executed.append(stop_event)
+            pending = None
+
         if bar.timestamp.isoformat() not in completed_timestamps:
             continue
+
         decision = evaluate_frozen_signal(primary.engine_id, primary.parameters, chart_bars[: index + 1])
         position_open = _has_open_position(ledger_dir, symbol)
         desired_side = None
@@ -243,18 +282,70 @@ def _process_symbol(*, symbol, primary, chart_bars, completed_bars, ledger_dir: 
                     "reason": reason,
                 }
 
-        # Cursor advances only after this bar's close was eligible for signal
-        # evaluation. A partial fill bar remains available for later evaluation.
         symbol_state["last_processed_chart_bar"] = bar.timestamp.isoformat()
 
     symbol_state["pending_signal"] = pending
     return {
         **_row(symbol, primary.strategy_id, "PROCESSED"),
         "last_processed_chart_bar": symbol_state["last_processed_chart_bar"],
+        "last_processed_stop_raw_bar": symbol_state.get("last_processed_stop_raw_bar"),
+        "catastrophic_stop_percent": primary.catastrophic_stop_percent,
         "pending_signal": pending,
         "executed_events": executed,
         "state": symbol_state,
     }
+
+
+def _process_catastrophic_stop_bucket(
+    *,
+    symbol: str,
+    strategy_id: str,
+    catastrophic_stop_percent: float | None,
+    bucket_start: datetime,
+    bucket_end: datetime | None,
+    raw_rows: Sequence[IntradayBar],
+    ledger_dir: Path,
+    config_path: Path,
+    symbol_state: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Process new raw rows in one chart bucket and apply the first stop breach."""
+    cursor_text = str(symbol_state.get("last_processed_stop_raw_bar", ""))
+    cursor = _parse_timestamp(cursor_text) if cursor_text else None
+    candidates = [
+        row
+        for row in raw_rows
+        if row.timestamp >= bucket_start
+        and (bucket_end is None or row.timestamp < bucket_end)
+        and (cursor is None or row.timestamp > cursor)
+    ]
+    if not candidates:
+        return None
+
+    stop_result: dict[str, Any] | None = None
+    if catastrophic_stop_percent is not None and _has_open_position(ledger_dir, symbol):
+        entry_price = _open_position_entry_price(ledger_dir, symbol, strategy_id)
+        stop_price = entry_price * (1.0 - catastrophic_stop_percent / 100.0)
+        for raw in candidates:
+            if raw.low <= stop_price:
+                event = FrozenPrimaryExecutionEvent(
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    side="SELL",
+                    execution_timestamp=raw.timestamp.isoformat(),
+                    price=stop_price,
+                    reason="FROZEN_DIRECT_PRIMARY_CATASTROPHIC_STOP_RAW_INTRADAY",
+                )
+                stop_result = execute_frozen_primary_event(
+                    event,
+                    config_path=config_path,
+                    ledger_dir=ledger_dir,
+                )
+                break
+
+    # Cursor advances through all observed rows in this bucket. When flat this
+    # prevents stale lows from becoming eligible after a future re-entry.
+    symbol_state["last_processed_stop_raw_bar"] = candidates[-1].timestamp.isoformat()
+    return stop_result
 
 
 def _event_from_pending(*, symbol: str, strategy_id: str, pending: Mapping[str, Any], fill_timestamp: str, fill_price: float, target_notional: float | None) -> FrozenPrimaryExecutionEvent:
@@ -283,30 +374,47 @@ def _allocation_notional(symbol_state: Mapping[str, Any]) -> float:
 
 
 def _current_position_cost_basis(ledger_dir: Path, symbol: str) -> float | None:
-    payload = _load_object(ledger_dir / "open_positions.json")
-    rows = payload.get("positions")
-    if not isinstance(rows, list):
-        raise ValueError("open_positions ledger must contain a positions list")
-    matches = [row for row in rows if isinstance(row, Mapping) and str(row.get("symbol", "")).strip().upper() == symbol]
-    if len(matches) > 1:
-        raise ValueError(f"duplicate open paper position for {symbol}")
-    if not matches:
+    current = _open_position(ledger_dir, symbol)
+    if current is None:
         return None
-    value = float(matches[0].get("cost_basis"))
+    value = float(current.get("cost_basis"))
     if not math.isfinite(value) or value <= 0:
         raise ValueError("open position cost_basis must be positive and finite")
     return value
 
 
-def _has_open_position(ledger_dir: Path, symbol: str) -> bool:
+def _open_position_entry_price(ledger_dir: Path, symbol: str, strategy_id: str) -> float:
+    current = _open_position(ledger_dir, symbol)
+    if current is None:
+        raise ValueError(f"no open paper position for {symbol}")
+    if str(current.get("active_strategy", "")).strip().upper() != strategy_id:
+        raise ValueError("open paper position is not controlled by the current frozen DIRECT Primary")
+    value = float(current.get("entry_price"))
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("open position entry_price must be positive and finite")
+    return value
+
+
+def _open_position(ledger_dir: Path, symbol: str) -> dict[str, Any] | None:
     payload = _load_object(ledger_dir / "open_positions.json")
     rows = payload.get("positions")
     if not isinstance(rows, list):
         raise ValueError("open_positions ledger must contain a positions list")
-    matches = [row for row in rows if isinstance(row, Mapping) and str(row.get("symbol", "")).strip().upper() == symbol]
+    matches = [dict(row) for row in rows if isinstance(row, Mapping) and str(row.get("symbol", "")).strip().upper() == symbol]
     if len(matches) > 1:
         raise ValueError(f"duplicate open paper position for {symbol}")
-    return bool(matches)
+    return matches[0] if matches else None
+
+
+def _has_open_position(ledger_dir: Path, symbol: str) -> bool:
+    return _open_position(ledger_dir, symbol) is not None
+
+
+def _parse_timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("saved raw-stop cursor must be timezone-aware")
+    return parsed
 
 
 def _load_state(path: Path) -> dict[str, Any]:
