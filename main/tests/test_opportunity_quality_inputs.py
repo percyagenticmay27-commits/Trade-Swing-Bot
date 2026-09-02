@@ -36,7 +36,81 @@ def test_merges_authentic_component_evidence(tmp_path: Path) -> None:
     assert row["market_intelligence_score"] == 75
     assert row["momentum_score"] is None
     assert payload["component_provenance"]["fundamental_analysis_score"] == "results/watchlist_report.json"
+    assert payload["component_provenance_by_symbol"]["TOP"]["market_intelligence_score"] == "results/market_intelligence.json"
     assert payload["selection_source"] == "results/watchlist_report.json"
+
+
+def test_all_active_ranked_candidates_reach_opportunity_quality_inputs(tmp_path: Path) -> None:
+    (tmp_path / "watchlist_report.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "underlying_symbol": "NVDA",
+                        "leveraged_symbol": "NVDX",
+                        "capacity_status": "ACTIVE",
+                        "watchlist_status": "WATCHLIST",
+                        "watchlist_rank": 1,
+                        "composite_score": 20.8,
+                        "financial_health_score": 70,
+                    },
+                    {
+                        "underlying_symbol": "AMZN",
+                        "leveraged_symbol": "AMZU",
+                        "capacity_status": "ACTIVE",
+                        "watchlist_status": "WATCHLIST",
+                        "watchlist_rank": 2,
+                        "composite_score": 9.38,
+                        "financial_health_score": 60,
+                    },
+                    {
+                        "underlying_symbol": "NFLX",
+                        "leveraged_symbol": "NFLU",
+                        "capacity_status": "ACTIVE",
+                        "watchlist_status": "WATCHLIST",
+                        "watchlist_rank": 3,
+                        "composite_score": 9.38,
+                        "financial_health_score": 0,
+                    },
+                    {
+                        "underlying_symbol": "REMOVED",
+                        "leveraged_symbol": "REMOVEDX",
+                        "capacity_status": "INACTIVE",
+                        "watchlist_status": "WATCHLIST",
+                        "watchlist_rank": 4,
+                        "composite_score": 99,
+                        "financial_health_score": 99,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "market_intelligence.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"symbol": "NVDX", "market_intelligence_score": 80},
+                    {"symbol": "AMZN", "market_intelligence_score": 65},
+                    {"symbol": "NFLU", "market_intelligence_score": 55},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+
+    assert [row["symbol"] for row in payload["rows"]] == ["NVDA", "AMZN", "NFLX"]
+    assert payload["candidate_coverage"] == "all active ranked watchlist candidates"
+    assert payload["selected_underlying_symbol"] == "NVDA"
+    assert payload["selected_leveraged_symbol"] == "NVDX"
+    by_symbol = {row["symbol"]: row for row in payload["rows"]}
+    assert by_symbol["NVDA"]["market_intelligence_score"] == 80
+    assert by_symbol["AMZN"]["market_intelligence_score"] == 65
+    assert by_symbol["NFLX"]["market_intelligence_score"] == 55
+    assert by_symbol["NFLX"]["fundamental_analysis_score"] == 0
+    assert payload["component_provenance_by_symbol"]["NFLX"]["market_intelligence_score"] == "results/market_intelligence.json"
 
 
 def test_leveraged_symbol_alias_matches(tmp_path: Path) -> None:
@@ -89,7 +163,9 @@ def test_high_priority_rank_wins_over_standard_rank(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    assert build_opportunity_quality_inputs(tmp_path)["rows"][0]["symbol"] == "PRIORITY"
+    payload = build_opportunity_quality_inputs(tmp_path)
+    assert payload["rows"][0]["symbol"] == "PRIORITY"
+    assert [row["symbol"] for row in payload["rows"]] == ["PRIORITY", "STANDARD"]
 
 
 def test_live_mode_rejected(tmp_path: Path) -> None:
