@@ -49,6 +49,39 @@ def test_zero_lag_chop_filter_can_block_an_entry_transition() -> None:
     assert filtered.entry_signal is False
 
 
+def test_zero_lag_zero_thresholds_mean_filters_off() -> None:
+    bars = [_bar(i, 100.0) for i in range(35)]
+    bars.append(_bar(35, 120.0, high=121.0, low=119.0))
+    native = evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 0.1}, bars)
+    explicit_off = evaluate_frozen_signal(
+        "ZERO_LAG",
+        {
+            "length": 10,
+            "multiplier": 0.1,
+            "adx_min": 0.0,
+            "chop_max": 0.0,
+            "atr_pct_min": 0.0,
+        },
+        bars,
+    )
+    assert explicit_off.diagnostics["filter_ok"] is True
+    assert explicit_off.diagnostics["adx"] is None
+    assert explicit_off.diagnostics["chop"] is None
+    assert explicit_off.diagnostics["atr_pct"] is None
+    assert explicit_off.entry_signal == native.entry_signal
+    assert explicit_off.exit_signal == native.exit_signal
+
+
+def test_zero_lag_exposes_current_frozen_band_diagnostics() -> None:
+    bars = [_bar(i, 100.0 + i * 0.1) for i in range(40)]
+    decision = evaluate_frozen_signal("ZERO_LAG", {"length": 10, "multiplier": 1.0}, bars)
+    assert decision.diagnostics["ready"] is True
+    assert decision.diagnostics["zlema"] is not None
+    assert decision.diagnostics["upper_band"] is not None
+    assert decision.diagnostics["lower_band"] is not None
+    assert decision.diagnostics["lower_band"] < decision.diagnostics["zlema"] < decision.diagnostics["upper_band"]
+
+
 def test_bigbeluga_recovered_area_range_green_arrow() -> None:
     bars = [_bar(i, 100.0) for i in range(313)]
     # The recovered Pine initializes the Area Range at bar_index == 301.
@@ -61,6 +94,23 @@ def test_bigbeluga_recovered_area_range_green_arrow() -> None:
     decision = evaluate_frozen_signal("BIGBELUGA_RANGE", {"hma_entry": 0, "hma_exit": 90}, bars)
     assert decision.diagnostics["ready"] is True
     assert decision.diagnostics["green_arrow"] is True
+    assert decision.entry_signal is True
+
+
+def test_bigbeluga_zero_thresholds_mean_filters_off() -> None:
+    bars = [_bar(i, 100.0) for i in range(313)]
+    bars[311] = _bar(311, 100.0, high=101.0, low=95.0)
+    bars[312] = _bar(312, 100.0, high=101.0, low=97.0)
+    decision = evaluate_frozen_signal(
+        "BIGBELUGA_RANGE",
+        {"hma_entry": 0, "hma_exit": 0, "chop_max": 0.0, "atr_pct_min": 0.0},
+        bars,
+    )
+    assert decision.diagnostics["filter_ok"] is True
+    assert decision.diagnostics["entry_hma"] is None
+    assert decision.diagnostics["exit_hma"] is None
+    assert decision.diagnostics["chop"] is None
+    assert decision.diagnostics["atr_pct"] is None
     assert decision.entry_signal is True
 
 
