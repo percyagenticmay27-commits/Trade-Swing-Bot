@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .daily_committee_evidence_refresh import refresh_daily_committee_evidence
 from .discovery_engine import (
     DiscoveryEngine,
     load_candidates,
@@ -51,7 +52,7 @@ from .trade_history_manager import build_and_write_trade_history_report
 from .weekly_stock_report import build_and_write_weekly_stock_report
 
 MODULE_NAME = "swing_daily_cycle"
-MODULE_VERSION = "1.1.2"
+MODULE_VERSION = "1.2.0"
 CYCLE_SCHEMA_VERSION = "1.0"
 PLUGIN_ID = "SWING-001"
 
@@ -423,20 +424,44 @@ def _produce_strategy_reports(
         if refresh is not None:
             _refresh_watchlist(root, output_dir, refresh, generated_at, published)
         quality_input_path = root / str(config.get("opportunity_quality_input_path", ""))
-        build_and_write_opportunity_quality_inputs(output_dir, quality_input_path)
-        published.append(str(quality_input_path))
-        stage("OPPORTUNITY_QUALITY_INPUTS", True, "Opportunity Quality inputs were rebuilt from the current ranked watchlist")
-        build_opportunity_quality_report(
-            input_path=quality_input_path,
-            output_dir=output_dir,
-            paper_trade_mode=True,
-        )
-        for suffix in ("csv", "json", "md"):
-            published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
-        stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality was rebuilt before committee evaluation")
+        if refresh is not None:
+            gate_summary = refresh_daily_committee_evidence(
+                project_root=root,
+                results_dir=output_dir,
+                quality_input_path=quality_input_path,
+                assignments_path=root / "configs/frozen_strategy_assignments.json",
+                data_dir=root / "data",
+                paper_trade_mode=True,
+            )
+            for artifact in gate_summary.get("artifacts", []):
+                artifact_path = str(artifact)
+                if artifact_path and artifact_path not in published:
+                    published.append(artifact_path)
+            stage(
+                "OPPORTUNITY_QUALITY_INPUTS",
+                True,
+                "Fresh Entry Score and dynamic Thesis Monitor V2 evidence were incorporated into final Opportunity Quality inputs",
+            )
+            stage(
+                "OPPORTUNITY_QUALITY",
+                True,
+                "Opportunity Quality was rebuilt after current Entry and Thesis evidence before committee evaluation",
+            )
+        else:
+            build_and_write_opportunity_quality_inputs(output_dir, quality_input_path)
+            published.append(str(quality_input_path))
+            stage("OPPORTUNITY_QUALITY_INPUTS", True, "Opportunity Quality inputs were rebuilt from the current ranked watchlist")
+            build_opportunity_quality_report(
+                input_path=quality_input_path,
+                output_dir=output_dir,
+                paper_trade_mode=True,
+            )
+            for suffix in ("csv", "json", "md"):
+                published.append(str(output_dir / f"opportunity_quality_report.{suffix}"))
+            stage("OPPORTUNITY_QUALITY", True, "Opportunity Quality was rebuilt before committee evaluation")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        errors.append(f"Opportunity Quality input or report production failed: {exc}")
-        stage("OPPORTUNITY_QUALITY_INPUTS", False, "Opportunity Quality input assembly or current watchlist refresh failed safely")
+        errors.append(f"Current Entry, Thesis, or Opportunity Quality evidence production failed: {exc}")
+        stage("OPPORTUNITY_QUALITY_INPUTS", False, "Current Entry/Thesis/OQ input assembly or watchlist refresh failed safely")
         stage("OPPORTUNITY_QUALITY", False, "Opportunity Quality production failed safely")
         stage("COMMITTEE_RUNTIME_EVIDENCE", False, "Skipped because current Opportunity Quality did not complete")
         stage("COMMITTEE_DECISION_TRACE", False, "Skipped because committee runtime evidence did not complete")
