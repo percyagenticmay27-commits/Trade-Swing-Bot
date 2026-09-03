@@ -2,7 +2,7 @@
 
 This registry is separate from the legacy declarative manual-strategy registry.
 It stores only exact frozen-engine specifications and preserves one DIRECT
-Primary plus up to three SHADOW strategies per traded vehicle. A frozen strategy
+Primary plus up to four SHADOW strategies per traded vehicle. A frozen strategy
 may source signals from a different underlying symbol (for example QQQ -> TQQQ),
 while execution authority remains attached to the stack's vehicle symbol.
 Capital allocation, promotion qualification, veto lifecycle, and brokerage
@@ -20,7 +20,7 @@ from typing import Any, Mapping
 from .frozen_strategy_shadow_runtime import FrozenStrategySpec
 
 DEFAULT_CONFIG_PATH = Path("configs/frozen_strategy_assignments.json")
-MAX_SHADOWS = 3
+MAX_SHADOWS = 4
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
 BROKER_EXECUTION_ENABLED = False
@@ -46,7 +46,7 @@ class FrozenSymbolStack:
         if not self.primary.signal_symbol:
             raise ValueError("frozen DIRECT signal_symbol is required")
         if len(self.shadows) > MAX_SHADOWS:
-            raise ValueError("a frozen stack may contain at most three shadows")
+            raise ValueError("a frozen stack may contain at most four shadows")
         if any(item.assignment_mode != "SHADOW" for item in self.shadows):
             raise ValueError("all shadow strategies must use SHADOW assignment_mode")
         if any(item.vehicle_symbol != self.symbol for item in self.shadows):
@@ -127,7 +127,7 @@ def load_frozen_symbol_stacks(path: Path = DEFAULT_CONFIG_PATH) -> tuple[FrozenS
             raise ValueError("shadow_strategy_ids must be a list")
         shadow_ids = [str(value).strip().upper() for value in shadow_ids_raw]
         if len(shadow_ids) > MAX_SHADOWS:
-            raise ValueError("at most three active shadows are allowed")
+            raise ValueError("at most four active shadows are allowed")
         try:
             primary = specs[primary_id]
             shadows = tuple(specs[item] for item in shadow_ids)
