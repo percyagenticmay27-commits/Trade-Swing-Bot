@@ -1,7 +1,7 @@
 """Recovered Strategy F (ITC/TEMA) signal engine for frozen stock research.
 
 The mathematics and state transition contract come from the authoritative
-2026-09-02 AI Suggestions handoff.  This module is research/signal logic only;
+2026-09-02 AI Suggestions handoff. This module is research/signal logic only;
 it exposes no brokerage, order, or capital authority.
 """
 from __future__ import annotations
@@ -148,20 +148,29 @@ def evaluate_strategy_f(
     bars: Sequence[MarketBar],
 ) -> tuple[bool, bool, Mapping[str, float | int | bool | None]]:
     """Evaluate the current confirmed bar using the recovered Strategy F rules."""
+    tema_length = int(parameters.get("tema_length", 44))
+    macd_fast = int(parameters.get("macd_fast", 17))
+    macd_slow = int(parameters.get("macd_slow", 26))
+    macd_signal = int(parameters.get("macd_signal", 9))
     hma_length = int(parameters.get("hma_length", 0))
     chop_max = float(parameters.get("chop_max", 0.0))
     adx_min = float(parameters.get("adx_min", 0.0))
     rsi_min = float(parameters.get("rsi_min", 0.0))
+
+    if min(tema_length, macd_fast, macd_slow, macd_signal) <= 0:
+        raise ValueError("Strategy F indicator lengths must be positive")
+    if macd_fast >= macd_slow:
+        raise ValueError("Strategy F macd_fast must be less than macd_slow")
     if len(bars) < 3:
         return False, False, {"ready": False}
 
     closes = [bar.close for bar in bars]
-    ema1 = _ema(closes, 44)
-    ema2 = _ema(ema1, 44)
-    ema3 = _ema(ema2, 44)
+    ema1 = _ema(closes, tema_length)
+    ema2 = _ema(ema1, tema_length)
+    ema3 = _ema(ema2, tema_length)
     tema = [3.0 * (a - b) + c for a, b, c in zip(ema1, ema2, ema3)]
-    fast = _ema(closes, 17)
-    slow = _ema(closes, 26)
+    fast = _ema(closes, macd_fast)
+    slow = _ema(closes, macd_slow)
     macd = [a - b for a, b in zip(fast, slow)]
 
     last_tran = False
@@ -169,7 +178,7 @@ def evaluate_strategy_f(
     current_sell = False
     signal_value: float | None = None
     for index in range(1, len(bars)):
-        signal_value = _sma_at(macd, index, 9)
+        signal_value = _sma_at(macd, index, macd_signal)
         if signal_value is None:
             continue
         trend_up = tema[index] >= tema[index - 1]
@@ -200,6 +209,10 @@ def evaluate_strategy_f(
         current_sell,
         {
             "ready": signal_value is not None,
+            "tema_length": tema_length,
+            "macd_fast": macd_fast,
+            "macd_slow": macd_slow,
+            "macd_signal_length": macd_signal,
             "tema": tema[index],
             "macd": macd[index],
             "signal": signal_value,
