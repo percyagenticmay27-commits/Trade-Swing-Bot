@@ -1,3 +1,4 @@
+import json
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -32,6 +33,14 @@ def _bars(count: int = 120) -> list[MarketBar]:
     return bars
 
 
+def _raw_nvdx_strategy_rows() -> list[dict]:
+    payload = json.loads(ASSIGNMENTS.read_text(encoding="utf-8"))
+    return [
+        row for row in payload["strategies"]
+        if row.get("signal_symbol") == "NVDA" and row.get("vehicle_symbol") == "NVDX"
+    ]
+
+
 def test_repository_nvdx_stack_matches_frozen_nvda_assignment() -> None:
     stack = resolve_frozen_stack("NVDX", ASSIGNMENTS)
     assert stack is not None
@@ -42,7 +51,6 @@ def test_repository_nvdx_stack_matches_frozen_nvda_assignment() -> None:
     assert stack.primary.engine_id == "STRATEGY_F"
     assert stack.primary.timeframe == "1H"
     assert stack.primary.catastrophic_stop_percent == 20.0
-    assert stack.primary.frozen_checkpoint["backtest_period"] == BACKTEST_PERIOD
 
     assert [item.strategy_id for item in stack.shadows] == [
         "NVDX_NVDA_ZERO_LAG_BALANCE_1H_SHADOW_1",
@@ -52,7 +60,12 @@ def test_repository_nvdx_stack_matches_frozen_nvda_assignment() -> None:
     assert all(item.signal_symbol == "NVDA" for item in stack.shadows)
     assert all(item.vehicle_symbol == "NVDX" for item in stack.shadows)
     assert all(item.catastrophic_stop_percent == 20.0 for item in stack.shadows)
-    assert all(item.frozen_checkpoint["backtest_period"] == BACKTEST_PERIOD for item in stack.shadows)
+
+    rows = _raw_nvdx_strategy_rows()
+    assert len(rows) == 4
+    assert all(row["frozen_checkpoint"]["backtest_period"] == BACKTEST_PERIOD for row in rows)
+    assert all(row["frozen_checkpoint"]["source_symbol"] == "NVDA" for row in rows)
+    assert all(row["frozen_checkpoint"]["deployment_vehicle"] == "NVDX" for row in rows)
 
 
 def test_nvda_strategy_f_primary_parameters_and_execution_timing_are_exact() -> None:
@@ -90,6 +103,14 @@ def test_strategy_f_honors_explicit_indicator_parameters() -> None:
     assert diagnostics["macd_fast"] == 8
     assert diagnostics["macd_slow"] == 21
     assert diagnostics["macd_signal_length"] == 5
+
+
+def test_strategy_f_invalid_macd_lengths_fail_closed() -> None:
+    with pytest.raises(ValueError, match="macd_fast"):
+        evaluate_strategy_f(
+            {"tema_length": 44, "macd_fast": 26, "macd_slow": 17, "macd_signal": 9},
+            _bars(),
+        )
 
 
 def test_nvda_zero_lag_shadow_specs_are_exact() -> None:
