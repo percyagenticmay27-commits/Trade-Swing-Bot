@@ -74,10 +74,24 @@ def test_eligible_candidate_with_explicit_forward_confidence_can_allocate(tmp_pa
     assert summary["eligible_symbols"] == ["NFLX"]
     assert summary["forward_confidence_symbols"] == ["NFLX"]
     assert summary["governed_allocation_symbols"] == ["NFLX"]
+    assert summary["allocation_strategy_authority"] == "CURRENT_FROZEN_PRIMARY"
     payload = json.loads((results / "portfolio_allocations.json").read_text(encoding="utf-8"))
     nflx = next(row for row in payload["allocations"] if row["symbol"] == "NFLX")
     assert nflx["confidence_level"] == "LOW"
     assert nflx["allocation_percent"] == 7.0
+    assert nflx["active_strategy"] == "NFLU_PRIMARY"
+
+
+def test_legacy_strategy_recommendation_cannot_override_frozen_primary(tmp_path: Path) -> None:
+    results, ledger, data, config = _base(tmp_path, oq=82, entry=75, thesis=True)
+    refresh_forward_confidence_and_governed_allocation(
+        results_dir=results, ledger_dir=ledger, data_dir=data, config_path=config,
+        strategy_recommendations_path=results / "strategy_recommendations.csv",
+    )
+    payload = json.loads((results / "portfolio_allocations.json").read_text(encoding="utf-8"))
+    nflx = next(row for row in payload["allocations"] if row["symbol"] == "NFLX")
+    assert nflx["active_strategy"] == "NFLU_PRIMARY"
+    assert nflx["active_strategy"] != "Legacy Strategy A"
 
 
 def test_legacy_confidence_artifact_is_not_used_as_forward_starting_state(tmp_path: Path) -> None:
