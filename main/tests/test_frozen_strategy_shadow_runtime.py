@@ -44,8 +44,14 @@ def test_frozen_spec_is_paper_only_and_validates_engine_timeframe() -> None:
     assert runtime.ORDER_PLACEMENT_ENABLED is False
     assert runtime.CAPITAL_MOVEMENT_ENABLED is False
     assert runtime.PAPER_POSITION_CREATION_ENABLED is False
-    with pytest.raises(ValueError, match="1H or 4H"):
-        FrozenStrategySpec("X", "x", "SOXL", "SOXL", "1D", "BIGBELUGA_RANGE", {})
+
+    daily = FrozenStrategySpec("X", "x", "AMZN", "AMZU", "DAILY", "C1_RECON", {})
+    one_day = FrozenStrategySpec("Y", "y", "AMZN", "AMZU", "1D", "C1_RECON", {})
+    assert daily.timeframe == "DAILY"
+    assert one_day.timeframe == "1D"
+
+    with pytest.raises(ValueError, match="1H, 4H, DAILY, or 1D"):
+        FrozenStrategySpec("Z", "z", "SOXL", "SOXL", "15M", "BIGBELUGA_RANGE", {})
     with pytest.raises(ValueError, match="unsupported frozen engine"):
         FrozenStrategySpec("X", "x", "SOXL", "SOXL", "1H", "LOOKALIKE", {})
 
