@@ -107,14 +107,17 @@ def evaluate_keltner_long(
     adx_min = float(parameters.get("adx_min", 0.0))
     atr_pct_min = float(parameters.get("atr_pct_min", 0.0))
     exit_mode = str(parameters.get("exit_mode", "BASIS")).strip().upper()
-    if exit_mode not in {"UPPER", "BASIS", "LOWER"}:
-        raise ValueError("KELTNER_LONG exit_mode must be UPPER, BASIS, or LOWER")
+    valid_exit_modes = {"UPPER", "BASIS", "LOWER", "LOWER_AFTER_UPPER_ARM"}
+    if exit_mode not in valid_exit_modes:
+        raise ValueError(
+            "KELTNER_LONG exit_mode must be UPPER, BASIS, LOWER, or LOWER_AFTER_UPPER_ARM"
+        )
     if kc_len <= 0 or factor <= 0:
         raise ValueError("KELTNER_LONG requires positive kc_length and kc_factor")
     if len(bars) < max(kc_len + 2, hma_length + 2 if hma_length > 0 else 0, 30):
         return False, False, {"ready": False}
 
-    src = [(b.open + b.high_price + b.low_price + b.close) / 4.0 for b in bars]
+    src = [(b.open_price + b.high_price + b.low_price + b.close) / 4.0 for b in bars]
     basis = _rma(src, kc_len)
     rng = _rma(_tr(bars), kc_len)
     upper: list[float | None] = []
@@ -157,6 +160,8 @@ def evaluate_keltner_long(
             armed = True
         if exit_mode == "LOWER":
             tech_exit = position_open and closes[index] < float(lower[index])
+        elif exit_mode == "LOWER_AFTER_UPPER_ARM":
+            tech_exit = position_open and armed and closes[index] < float(lower[index])
         else:
             exit_level = float(upper[index]) if exit_mode == "UPPER" else float(basis[index])
             tech_exit = position_open and armed and closes[index] < exit_level
