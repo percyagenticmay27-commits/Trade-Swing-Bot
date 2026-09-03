@@ -11,7 +11,7 @@ def test_runtime_adapter_joins_by_underlying_and_uses_frozen_theme_gate(tmp_path
     _write(tmp_path / "watchlist_report.json", {"freshness_status":"CURRENT_CYCLE","rows":[{"underlying_symbol":"NVDA","leveraged_symbol":"NVDX","watchlist_status":"WATCHLIST","source_confluence_score":6,"financial_health_score":80,"themes":"Semiconductors","theme_momentum_score":75}]})
     _write(tmp_path / "opportunity_quality_report.json", {"rows":[{"symbol":"NVDA","opportunity_quality_score":82.854}]})
     _write(tmp_path / "entry_score_report.json", {"rows":[{"underlying_symbol":"NVDA","entry_score":70}]})
-    _write(tmp_path / "thesis_monitor_v2_report.json", {"rows":[{"symbol":"NVDA","thesis_intact":True}]})
+    _write(tmp_path / "thesis_monitor_v2_report.json", {"reviews":[{"underlying_symbol":"NVDA","evidence_status":"AVAILABLE","thesis_intact":True}]})
     result = build_promotion_readiness_from_runtime(tmp_path)[0]
     assert result.underlying_symbol == "NVDA"
     assert result.leveraged_symbol == "NVDX"
@@ -57,3 +57,69 @@ def test_stale_report_masks_value_to_pending(tmp_path):
     assert result.trusted_sources.status == "PENDING"
     assert result.financial_health.status == "PENDING"
     assert result.theme_strength.status == "PENDING"
+
+
+def test_thesis_v2_reviews_false_is_fail_not_pending(tmp_path):
+    _write(
+        tmp_path / "watchlist_report.json",
+        {
+            "freshness_status": "CURRENT_CYCLE",
+            "rows": [{
+                "underlying_symbol": "AMZN",
+                "leveraged_symbol": "AMZU",
+                "watchlist_status": "WATCHLIST",
+                "source_confluence_score": 6,
+                "financial_health_score": 80,
+                "themes": "Cloud Computing",
+                "theme_momentum_score": 75,
+            }],
+        },
+    )
+    _write(
+        tmp_path / "thesis_monitor_v2_report.json",
+        {
+            "reviews": [{
+                "underlying_symbol": "AMZN",
+                "evidence_status": "AVAILABLE",
+                "thesis_intact": False,
+            }]
+        },
+    )
+
+    result = build_promotion_readiness_from_runtime(tmp_path)[0]
+
+    assert result.thesis_integrity.status == "FAIL"
+    assert result.thesis_integrity.value is False
+
+
+def test_thesis_v2_unavailable_evidence_is_pending_even_if_intact_true(tmp_path):
+    _write(
+        tmp_path / "watchlist_report.json",
+        {
+            "freshness_status": "CURRENT_CYCLE",
+            "rows": [{
+                "underlying_symbol": "NVDA",
+                "leveraged_symbol": "NVDX",
+                "watchlist_status": "WATCHLIST",
+                "source_confluence_score": 6,
+                "financial_health_score": 80,
+                "themes": "Semiconductors",
+                "theme_momentum_score": 75,
+            }],
+        },
+    )
+    _write(
+        tmp_path / "thesis_monitor_v2_report.json",
+        {
+            "reviews": [{
+                "underlying_symbol": "NVDA",
+                "evidence_status": "UNAVAILABLE",
+                "thesis_intact": True,
+            }]
+        },
+    )
+
+    result = build_promotion_readiness_from_runtime(tmp_path)[0]
+
+    assert result.thesis_integrity.status == "PENDING"
+    assert result.thesis_integrity.value is None

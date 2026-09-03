@@ -28,7 +28,7 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 def _rows(payload: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
     if not payload:
         return []
-    for key in ("rows", "results", "candidates"):
+    for key in ("rows", "results", "candidates", "reviews"):
         value = payload.get(key)
         if isinstance(value, list):
             return [row for row in value if isinstance(row, Mapping)]
