@@ -36,6 +36,7 @@ def refresh_forward_confidence_and_governed_allocation(
         raise ValueError("Governed allocation bridge requires paper_trade_mode=True")
     results_dir = Path(results_dir)
     ledger_dir = Path(ledger_dir)
+    config_path = Path(config_path)
     watchlist_path = results_dir / "watchlist_report.json"
     closed_positions_path = ledger_dir / "closed_positions.json"
     if not closed_positions_path.is_file():
@@ -44,6 +45,8 @@ def refresh_forward_confidence_and_governed_allocation(
         raise FileNotFoundError(watchlist_path)
     if not strategy_recommendations_path.is_file():
         raise FileNotFoundError(strategy_recommendations_path)
+    if not config_path.is_file():
+        raise FileNotFoundError(config_path)
 
     metrics_csv = results_dir / "frozen_primary_confidence_metrics.csv"
     metrics_json = results_dir / "frozen_primary_confidence_metrics.json"
@@ -77,6 +80,7 @@ def refresh_forward_confidence_and_governed_allocation(
     confidence_symbols = {row.symbol for row in confidence_rows}
     governed_symbols = sorted(eligible & confidence_symbols)
     missing_confidence = sorted(eligible - confidence_symbols)
+    frozen_primaries = _frozen_primary_by_signal(config_path)
 
     with _filtered_inputs(
         results_dir=results_dir,
@@ -84,6 +88,7 @@ def refresh_forward_confidence_and_governed_allocation(
         confidence_csv=results_dir / "confidence_report.csv",
         strategy_path=Path(strategy_recommendations_path),
         symbols=set(governed_symbols),
+        frozen_primaries=frozen_primaries,
     ) as filtered:
         report = build_portfolio_allocation_report(
             confidence_path=filtered["confidence"],
@@ -105,6 +110,7 @@ def refresh_forward_confidence_and_governed_allocation(
         "allocation_row_count": len(report.rows),
         "sgov_allocation": report.sgov_allocation,
         "allocation_bypass_allowed": False,
+        "allocation_strategy_authority": "CURRENT_FROZEN_PRIMARY",
     }
 
 
@@ -128,13 +134,43 @@ def _prior_forward_confidence(path: Path) -> dict[str, str]:
     return output
 
 
+def _frozen_primary_by_signal(config_path: Path) -> dict[str, str]:
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    strategies = payload.get("strategies") if isinstance(payload, Mapping) else None
+    if not isinstance(strategies, list):
+        raise ValueError("frozen strategy assignment config must contain strategies list")
+    output: dict[str, str] = {}
+    for row in strategies:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("assignment_mode", "")).strip().upper() != "DIRECT":
+            continue
+        if row.get("enabled") is False:
+            continue
+        signal = str(row.get("signal_symbol", "")).strip().upper()
+        strategy_id = str(row.get("strategy_id", "")).strip()
+        if signal and strategy_id:
+            output[signal] = strategy_id
+    return output
+
+
 class _filtered_inputs:
-    def __init__(self, *, results_dir: Path, watchlist_path: Path, confidence_csv: Path, strategy_path: Path, symbols: set[str]) -> None:
+    def __init__(
+        self,
+        *,
+        results_dir: Path,
+        watchlist_path: Path,
+        confidence_csv: Path,
+        strategy_path: Path,
+        symbols: set[str],
+        frozen_primaries: Mapping[str, str],
+    ) -> None:
         self.results_dir = results_dir
         self.watchlist_path = watchlist_path
         self.confidence_csv = confidence_csv
         self.strategy_path = strategy_path
         self.symbols = symbols
+        self.frozen_primaries = {str(key).strip().upper(): str(value).strip() for key, value in frozen_primaries.items()}
         self.paths: dict[str, Path] = {}
 
     def __enter__(self) -> dict[str, Path]:
@@ -144,7 +180,12 @@ class _filtered_inputs:
         strategy = temp_dir / "strategy.csv"
         watchlist = temp_dir / "watchlist.json"
         _filter_csv(self.confidence_csv, confidence, "symbol", self.symbols)
-        _filter_csv(self.strategy_path, strategy, "symbol", self.symbols)
+        _filter_strategy_csv(
+            self.strategy_path,
+            strategy,
+            symbols=self.symbols,
+            frozen_primaries=self.frozen_primaries,
+        )
         payload = json.loads(self.watchlist_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
             raise ValueError("watchlist_report.json must contain rows list")
@@ -182,6 +223,42 @@ def _filter_csv(source: Path, destination: Path, symbol_field: str, symbols: set
             raise ValueError(f"{source} missing required column {symbol_field}")
         rows = [row for row in reader if str(row.get(symbol_field, "")).strip().upper() in symbols]
         fields = list(reader.fieldnames)
+    _write_csv_atomic(destination, fields, rows)
+
+
+def _filter_strategy_csv(
+    source: Path,
+    destination: Path,
+    *,
+    symbols: set[str],
+    frozen_primaries: Mapping[str, str],
+) -> None:
+    with source.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None or "symbol" not in reader.fieldnames:
+            raise ValueError(f"{source} missing required column symbol")
+        fields = list(reader.fieldnames)
+        if "active_strategy" not in fields:
+            fields.append("active_strategy")
+        rows_by_symbol = {
+            str(row.get("symbol", "")).strip().upper(): dict(row)
+            for row in reader
+            if str(row.get("symbol", "")).strip().upper() in symbols
+        }
+
+    rows: list[dict[str, str]] = []
+    for symbol in sorted(symbols):
+        row = rows_by_symbol.get(symbol, {field: "" for field in fields})
+        row["symbol"] = symbol
+        frozen_primary = str(frozen_primaries.get(symbol, "")).strip()
+        if not frozen_primary:
+            raise ValueError(f"No current frozen Primary strategy is configured for governed symbol {symbol}")
+        row["active_strategy"] = frozen_primary
+        rows.append({field: str(row.get(field, "")) for field in fields})
+    _write_csv_atomic(destination, fields, rows)
+
+
+def _write_csv_atomic(destination: Path, fields: list[str], rows: list[Mapping[str, object]]) -> None:
     fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
     try:
         with os.fdopen(fd, "w", newline="", encoding="utf-8") as output:
