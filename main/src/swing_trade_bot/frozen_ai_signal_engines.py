@@ -1,7 +1,8 @@
 """Authoritative frozen AI-Suggestions signal engines used by Swing research.
 
-This module implements only source-recovered mathematics from the 2026-09-02
-handoff. It is paper/research logic only and exposes no execution authority.
+This module implements source-recovered mathematics plus the project-authorized
+C1/C2 reconstructions preserved in the 2026-09-02 handoff. It is paper/research
+logic only and exposes no execution authority.
 """
 from __future__ import annotations
 
@@ -10,11 +11,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from .frozen_keltner_engine import evaluate_keltner_long
+from .frozen_reconstructed_stochastic_engines import evaluate_reconstructed_signal
 from .frozen_strategy_f_engine import evaluate_strategy_f
 from .frozen_vol_vidya_engine import evaluate_vol_vidya
 from .position_state import MarketBar
 
-SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA", "KELTNER_LONG", "STRATEGY_F"}
+SUPPORTED_ENGINES = {"ZERO_LAG", "BIGBELUGA_RANGE", "VOL_VIDYA", "KELTNER_LONG", "STRATEGY_F", "C1_RECON", "C2_RECON"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +28,7 @@ class FrozenSignalDecision:
 
 
 def frozen_engine_execution_timing(engine_id: str) -> str:
-    """Return the authoritative execution timing for a recovered engine family."""
+    """Return the authoritative execution timing for a frozen engine family."""
     engine = engine_id.strip().upper()
     if engine not in SUPPORTED_ENGINES:
         raise ValueError(f"unsupported frozen engine: {engine_id}")
@@ -339,7 +341,7 @@ def _bigbeluga(params: Mapping[str, Any], bars: Sequence[MarketBar]) -> FrozenSi
 
 
 def evaluate_frozen_signal(engine_id: str, parameters: Mapping[str, Any], bars: Sequence[MarketBar]) -> FrozenSignalDecision:
-    """Evaluate the current completed chart bar using a recovered frozen engine."""
+    """Evaluate the current completed chart bar using a frozen engine."""
     engine = engine_id.strip().upper()
     if engine not in SUPPORTED_ENGINES:
         raise ValueError(f"unsupported frozen engine: {engine_id}")
@@ -355,5 +357,8 @@ def evaluate_frozen_signal(engine_id: str, parameters: Mapping[str, Any], bars: 
         return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
     if engine == "STRATEGY_F":
         entry, exit_signal, diagnostics = evaluate_strategy_f(parameters, bars)
+        return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
+    if engine in {"C1_RECON", "C2_RECON"}:
+        entry, exit_signal, diagnostics = evaluate_reconstructed_signal(engine, parameters, bars)
         return FrozenSignalDecision(entry, exit_signal, engine, diagnostics)
     return _bigbeluga(parameters, bars)
