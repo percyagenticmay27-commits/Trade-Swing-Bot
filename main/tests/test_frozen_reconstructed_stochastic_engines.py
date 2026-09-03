@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, timedelta
 
 from swing_trade_bot.frozen_ai_signal_engines import (
     SUPPORTED_ENGINES,
@@ -9,17 +9,17 @@ from swing_trade_bot.position_state import MarketBar
 
 
 def _bars(count: int = 260) -> list[MarketBar]:
-    start = datetime(2026, 1, 2, 14, 30, tzinfo=timezone.utc)
+    start = date(2025, 1, 2)
     rows: list[MarketBar] = []
     price = 100.0
     for index in range(count):
         drift = 0.35 if (index // 12) % 2 == 0 else -0.20
         price = max(10.0, price + drift + (0.15 if index % 5 == 0 else 0.0))
         rows.append(MarketBar(
-            timestamp=start + timedelta(hours=index),
-            open_price=price - 0.10,
-            high_price=price + 0.60,
-            low_price=price - 0.60,
+            date=start + timedelta(days=index),
+            open=price - 0.10,
+            high=price + 0.60,
+            low=price - 0.60,
             close=price,
             volume=1000.0 + index,
         ))
