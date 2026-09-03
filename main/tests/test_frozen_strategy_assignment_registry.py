@@ -7,6 +7,7 @@ from swing_trade_bot.frozen_strategy_assignment_registry import (
     BROKER_EXECUTION_ENABLED,
     CAPITAL_MOVEMENT_ENABLED,
     LIVE_TRADING_ENABLED,
+    MAX_SHADOWS,
     ORDER_PLACEMENT_ENABLED,
     PAPER_TRADE_MODE,
     load_frozen_symbol_stacks,
@@ -109,22 +110,64 @@ def test_repository_nflu_stack_uses_nflx_signals_and_all_three_shadows() -> None
     assert stack.shadow_slot_3_empty is False
 
 
-def test_registry_enforces_one_direct_and_max_three_shadows(tmp_path: Path) -> None:
+def test_repository_pltu_stack_uses_pltr_signals_and_four_shadows() -> None:
+    stack = resolve_frozen_stack("PLTU", Path("configs/frozen_strategy_assignments.json"))
+    assert stack is not None
+    assert stack.research_status == "PLTR_SIGNAL_MAPPED_PLTU_PAPER_VALIDATION"
+    assert stack.primary.strategy_id == "PLTU_PLTR_BIGBELUGA_RANGE_1H_PRIMARY"
+    assert stack.primary.signal_symbol == "PLTR"
+    assert stack.primary.vehicle_symbol == "PLTU"
+    assert stack.primary.engine_id == "BIGBELUGA_RANGE"
+    assert stack.primary.parameters["chop_max"] == 57.5
+    assert stack.primary.parameters["atr_pct_min"] == 1.0
+
+    assert [item.strategy_id for item in stack.shadows] == [
+        "PLTU_PLTR_KELTNER_1H_SHADOW_1",
+        "PLTU_PLTR_STRATEGY_F_4H_SHADOW_2",
+        "PLTU_PLTR_AI_C2_4H_SHADOW_3",
+        "PLTU_PLTR_AI_C1_1H_SHADOW_4",
+    ]
+    keltner, strategy_f, c2, c1 = stack.shadows
+    assert keltner.engine_id == "KELTNER_LONG"
+    assert keltner.parameters["hma_length"] == 20
+    assert keltner.parameters["atr_pct_min"] == 1.0
+    assert keltner.parameters["exit_mode"] == "LOWER"
+    assert strategy_f.engine_id == "STRATEGY_F"
+    assert strategy_f.timeframe == "4H"
+    assert strategy_f.parameters["tema_length"] == 44
+    assert strategy_f.parameters["macd_fast"] == 17
+    assert strategy_f.parameters["macd_slow"] == 26
+    assert strategy_f.parameters["macd_signal"] == 9
+    assert strategy_f.parameters["adx_min"] == 17.5
+    assert c2.engine_id == "C2_RECON"
+    assert c2.timeframe == "4H"
+    assert c2.parameters["mode"] == "K_K_CROSS"
+    assert c2.parameters["adx_min"] == 15.0
+    assert c1.engine_id == "C1_RECON"
+    assert c1.timeframe == "1H"
+    assert c1.parameters["hma_length"] == 200
+    assert c1.parameters["adx_min"] == 15.0
+    assert all(item.signal_symbol == "PLTR" for item in stack.shadows)
+    assert all(item.vehicle_symbol == "PLTU" for item in stack.shadows)
+    assert all(item.catastrophic_stop_percent == 20.0 for item in stack.shadows)
+
+
+def test_registry_enforces_one_direct_and_max_four_shadows(tmp_path: Path) -> None:
+    assert MAX_SHADOWS == 4
     config = tmp_path / "bad.json"
+    strategies = [
+        {"strategy_id": "P", "name": "P", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "DIRECT"}
+    ]
+    for slot in range(1, 6):
+        strategies.append({"strategy_id": f"S{slot}", "name": f"S{slot}", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "SHADOW"})
     config.write_text(json.dumps({
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "strategy_id": "SWING-001",
         "paper_trade_mode": True,
-        "strategies": [
-            {"strategy_id": "P", "name": "P", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "DIRECT"},
-            {"strategy_id": "S1", "name": "S1", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "SHADOW"},
-            {"strategy_id": "S2", "name": "S2", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "SHADOW"},
-            {"strategy_id": "S3", "name": "S3", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "SHADOW"},
-            {"strategy_id": "S4", "name": "S4", "signal_symbol": "SOXL", "vehicle_symbol": "SOXL", "timeframe": "1H", "engine_id": "ZERO_LAG", "parameters": {"length": 10, "multiplier": 1}, "assignment_mode": "SHADOW"}
-        ],
-        "symbols": [{"symbol": "SOXL", "primary_strategy_id": "P", "shadow_strategy_ids": ["S1", "S2", "S3", "S4"]}]
+        "strategies": strategies,
+        "symbols": [{"symbol": "SOXL", "primary_strategy_id": "P", "shadow_strategy_ids": ["S1", "S2", "S3", "S4", "S5"]}]
     }), encoding="utf-8")
-    with pytest.raises(ValueError, match="at most three"):
+    with pytest.raises(ValueError, match="at most four"):
         load_frozen_symbol_stacks(config)
 
 
