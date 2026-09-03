@@ -17,7 +17,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -148,7 +148,7 @@ def build_and_write_forward_primary_confidence_metrics(
             "historical_backtest_evidence_allowed": False,
             "shadow_performance_allowed": False,
             "frozen_strategy_performance_allowed": False,
-            "rows": [asdict(row) for row in rows],
+            "rows": [_json_row(row) for row in rows],
         },
     )
     return rows
@@ -200,6 +200,22 @@ def _finite_float(value: Any, field: str) -> float:
     return number
 
 
+def _json_row(row: ForwardPrimaryConfidenceMetric) -> dict[str, Any]:
+    return {
+        "symbol": row.symbol,
+        "vehicle_symbol": row.vehicle_symbol,
+        "signal_symbol": row.signal_symbol,
+        "strategy_id": row.strategy_id,
+        "win_rate": row.win_rate,
+        "profit_factor": "INF" if row.profit_factor is not None and math.isinf(row.profit_factor) else row.profit_factor,
+        "number_of_trades": row.number_of_trades,
+        "gross_profit": row.gross_profit,
+        "gross_loss": row.gross_loss,
+        "realized_pnl": row.realized_pnl,
+        "evidence_scope": row.evidence_scope,
+    }
+
+
 def _write_csv(path: Path, rows: Sequence[ForwardPrimaryConfidenceMetric]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -224,7 +240,7 @@ def _write_csv(path: Path, rows: Sequence[ForwardPrimaryConfidenceMetric]) -> Pa
                     {
                         "symbol": row.symbol,
                         "win_rate": "" if row.win_rate is None else row.win_rate,
-                        "profit_factor": "" if row.profit_factor is None or not math.isfinite(row.profit_factor) else row.profit_factor,
+                        "profit_factor": "" if row.profit_factor is None else ("inf" if math.isinf(row.profit_factor) else row.profit_factor),
                         "number_of_trades": row.number_of_trades,
                         "vehicle_symbol": row.vehicle_symbol,
                         "signal_symbol": row.signal_symbol,
