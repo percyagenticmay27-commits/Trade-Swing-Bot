@@ -19,12 +19,12 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .daily_committee_evidence_refresh import refresh_daily_committee_evidence
 from .discovery_engine import (
-    DiscoveryEngine,
     load_candidates,
     load_financial_health,
     load_mentions,
     write_watchlist_reports,
 )
+from .theme_enriched_discovery import ThemeEnrichedDiscoveryEngine
 from .enterprise_strategy_allocation_discovery import (
     load_discovered_strategy_allocations,
     resolve_strategy_allocation_evidence,
@@ -204,7 +204,7 @@ def _refresh_watchlist(
             raise FileNotFoundError(f"Current watchlist {label} input is missing: {path}")
 
     as_of = _cycle_date(generated_at)
-    rows = DiscoveryEngine(paper_trade_mode=True).evaluate(
+    rows = ThemeEnrichedDiscoveryEngine(paper_trade_mode=True).evaluate(
         load_candidates(candidates_path),
         load_mentions(mentions_path),
         load_financial_health(financial_health_path),
