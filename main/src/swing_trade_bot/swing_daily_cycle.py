@@ -37,6 +37,7 @@ from .opportunity_quality_inputs import build_and_write_opportunity_quality_inpu
 from .paper_portfolio_manager import build_and_write_paper_portfolio_report
 from .performance_analytics_engine import build_and_write_performance_analytics_report
 from .portfolio_manager import build_portfolio_manager_report
+from .promotion_readiness_runtime import build_and_write_promotion_readiness
 from .stock_performance_report import build_and_write_stock_performance_report
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
 from .swing_cio_milestone_1_freeze import build_freeze_report, render_markdown as render_freeze_markdown
@@ -469,6 +470,30 @@ def _produce_strategy_reports(
         stage("WEEKLY_STOCK_REPORT", False, "Skipped because Stock Performance did not complete")
         stage("EXECUTIVE_DASHBOARD", False, "Skipped because Weekly Stock Report did not complete")
         stage("MONTHLY_COMMAND_CENTER", False, "Skipped because Executive Dashboard did not complete")
+        return False
+
+    # Promotion Readiness is a read-only six-gate governance report.
+    # It consumes current Watchlist, Opportunity Quality, Entry Score, and
+    # Thesis evidence only. It does not change lifecycle state, allocation,
+    # strategy assignment, positions, or execute trades.
+    try:
+        promotion_json_path, promotion_csv_path = build_and_write_promotion_readiness(output_dir)
+        published.extend([
+            str(promotion_json_path),
+            str(promotion_csv_path),
+        ])
+        stage(
+            "PROMOTION_READINESS",
+            True,
+            "Six-gate Promotion Readiness was rebuilt from current-cycle authoritative evidence",
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"Promotion Readiness production failed: {exc}")
+        stage(
+            "PROMOTION_READINESS",
+            False,
+            "Promotion Readiness failed safely; no lifecycle, allocation, strategy, position, or execution state changed",
+        )
         return False
 
     evidence_relative = str(config.get("decision_trace_evidence_path", ""))
