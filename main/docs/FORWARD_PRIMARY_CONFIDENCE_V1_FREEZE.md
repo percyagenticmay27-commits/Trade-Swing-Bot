@@ -10,9 +10,15 @@ Confidence is separate from Opportunity Quality, Entry Score, Opportunity Rank, 
 
 Confidence must be based on forward completed paper-trade performance for the currently assigned Primary strategy.
 
+The authoritative lifecycle source is the persistent paper trade ledger normalized by `trade_history_manager.py` into completed paper positions. Confidence attribution uses the BUY-side `active_strategy` recorded on the completed trade so entry provenance is preserved.
+
+`results/frozen_strategy_performance.json` is not confidence authority. That artifact is a Primary/Shadow strategy simulation over the available intraday archive and is reserved for frozen strategy comparison/promotion evidence.
+
 Historical research/backtest checkpoints may select a Primary strategy, but they must not be promoted into forward confidence evidence.
 
 Shadow strategy performance is reserved for Primary/Shadow promotion governance and must not directly set stock-level confidence.
+
+An inherited position that was opened under a previous strategy is not credited to a newly assigned Primary merely because the new Primary later becomes exit authority.
 
 ## Starting State
 
