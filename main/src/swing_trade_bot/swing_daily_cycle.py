@@ -29,16 +29,16 @@ from .enterprise_strategy_allocation_discovery import (
     resolve_strategy_allocation_evidence,
 )
 from .executive_dashboard import build_executive_dashboard
+from .governed_allocation_bridge import refresh_forward_confidence_and_governed_allocation
 from .monthly_command_center import build_monthly_command_center
 from .opportunity_quality_engine import build_opportunity_quality_report
 from .opportunity_quality_inputs import build_and_write_opportunity_quality_inputs
 from .paper_portfolio_manager import build_and_write_paper_portfolio_report
 from .performance_analytics_engine import build_and_write_performance_analytics_report
-from .portfolio_allocation_engine import build_portfolio_allocation_report
 from .portfolio_manager import build_portfolio_manager_report
 from .stock_performance_report import build_and_write_stock_performance_report
 from .swing_cio_acceptance_test import build_cio_acceptance_report, render_markdown as render_acceptance_markdown
-from .swing_cio_milestone_1_freeze import build_freeze_report, render_freeze_markdown
+from .swing_cio_milestone_1_freeze import build_freeze_report, render_markdown as render_freeze_markdown
 from .swing_cio_validation_suite import validate_repository, render_markdown as render_validation_markdown
 from .swing_committee_runtime_evidence import build_and_write_runtime_evidence
 from .swing_committee_traceability import build_committee_step, build_decision_trace, write_decision_trace
@@ -51,7 +51,7 @@ from .trade_history_manager import build_and_write_trade_history_report
 from .weekly_stock_report import build_and_write_weekly_stock_report
 
 MODULE_NAME = "swing_daily_cycle"
-MODULE_VERSION = "1.1.1"
+MODULE_VERSION = "1.1.2"
 CYCLE_SCHEMA_VERSION = "1.0"
 PLUGIN_ID = "SWING-001"
 
@@ -289,28 +289,14 @@ def _refresh_allocation_and_paper_evidence(
     allocation_cfg = refresh.get("portfolio_allocation")
     if not isinstance(allocation_cfg, Mapping):
         raise ValueError("runtime portfolio allocation configuration is unavailable")
-    confidence_path = root / str(allocation_cfg.get("confidence_path", ""))
     strategy_path = root / str(allocation_cfg.get("strategy_recommendations_path", ""))
     watchlist_path = output_dir / "watchlist_report.json"
     for label, path in (
-        ("confidence", confidence_path),
         ("strategy recommendations", strategy_path),
         ("watchlist", watchlist_path),
     ):
         if not path.is_file():
             raise FileNotFoundError(f"Current portfolio allocation {label} input is missing: {path}")
-
-    build_portfolio_allocation_report(
-        confidence_path=confidence_path,
-        watchlist_path=watchlist_path,
-        strategy_recommendations_path=strategy_path,
-        output_dir=output_dir,
-        paper_trade_mode=True,
-    )
-    published.extend([
-        str(output_dir / "portfolio_allocations.csv"),
-        str(output_dir / "portfolio_allocations.json"),
-    ])
 
     ledger_cfg = refresh.get("paper_ledger")
     if not isinstance(ledger_cfg, Mapping):
@@ -321,6 +307,41 @@ def _refresh_allocation_and_paper_evidence(
         raise FileNotFoundError(f"Paper open-position state is missing: {ledger_dir / 'open_positions.json'}")
     if not (ledger_dir / "trade_history.json").is_file():
         raise FileNotFoundError(f"Paper trade history is missing: {ledger_dir / 'trade_history.json'}")
+
+    # Closed paper trades are the only forward-confidence authority. Rebuild them
+    # before the governed allocation bridge so confidence cannot consume stale
+    # lifecycle evidence from an earlier cycle.
+    build_and_write_trade_history_report(
+        trade_history_path=ledger_dir / "trade_history.json",
+        output_dir=ledger_dir,
+        data_dir=data_dir,
+    )
+    published.extend([
+        str(ledger_dir / "managed_trade_history.json"),
+        str(ledger_dir / "closed_positions.json"),
+        str(ledger_dir / "trade_history_summary.json"),
+    ])
+
+    governed_summary = refresh_forward_confidence_and_governed_allocation(
+        results_dir=output_dir,
+        ledger_dir=ledger_dir,
+        data_dir=data_dir,
+        config_path=root / "configs/frozen_strategy_assignments.json",
+        strategy_recommendations_path=strategy_path,
+        paper_trade_mode=True,
+    )
+    governed_summary_path = output_dir / "governed_allocation_bridge.json"
+    atomic_write_json(governed_summary, governed_summary_path)
+    published.extend([
+        str(output_dir / "frozen_primary_confidence_metrics.csv"),
+        str(output_dir / "frozen_primary_confidence_metrics.json"),
+        str(output_dir / "confidence_report.csv"),
+        str(output_dir / "confidence_report.json"),
+        str(output_dir / "committee_allocation_eligibility.json"),
+        str(output_dir / "portfolio_allocations.csv"),
+        str(output_dir / "portfolio_allocations.json"),
+        str(governed_summary_path),
+    ])
 
     allocations_payload, allocation_source_path = load_discovered_strategy_allocations()
     allocation_evidence = resolve_strategy_allocation_evidence(allocations_payload, PLUGIN_ID)
@@ -375,16 +396,6 @@ def _refresh_allocation_and_paper_evidence(
         if stale_manager.exists():
             stale_manager.unlink()
         published.append(str(current_portfolio_csv))
-
-    build_and_write_trade_history_report(
-        trade_history_path=ledger_dir / "trade_history.json",
-        output_dir=ledger_dir,
-    )
-    published.extend([
-        str(ledger_dir / "managed_trade_history.json"),
-        str(ledger_dir / "closed_positions.json"),
-        str(ledger_dir / "trade_history_summary.json"),
-    ])
 
     build_and_write_performance_analytics_report(
         ledger_dir=ledger_dir,
@@ -504,7 +515,7 @@ def _produce_strategy_reports(
         )
         for suffix in ("csv", "json", "md"):
             published.append(str(output_dir / f"stock_performance_report.{suffix}"))
-        stage("STOCK_PERFORMANCE_REPORT", True, "Stock Performance consumed current allocation and refreshed paper evidence")
+        stage("STOCK_PERFORMANCE_REPORT", True, "Stock Performance consumed current governed allocation and refreshed paper evidence")
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"Current allocation, paper evidence, or Stock Performance production failed: {exc}")
         stage("STOCK_PERFORMANCE_REPORT", False, "Current allocation, paper evidence, or Stock Performance production failed safely")
