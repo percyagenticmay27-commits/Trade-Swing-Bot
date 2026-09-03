@@ -32,6 +32,19 @@
       "primary_strategy_id": "NVDX_NVDA_STRATEGY_F_1H_PRIMARY",
       "shadow_strategy_ids": ["NVDX_NVDA_ZERO_LAG_BALANCE_1H_SHADOW_1", "NVDX_NVDA_KELTNER_1H_SHADOW_2", "NVDX_NVDA_ZERO_LAG_PROFIT_1H_SHADOW_3"],
       "shadow_slot_3": "NVDX_NVDA_ZERO_LAG_PROFIT_1H_SHADOW_3"
+    },
+    {
+      "symbol": "PLTU",
+      "research_status": "PLTR_SIGNAL_MAPPED_PLTU_PAPER_VALIDATION",
+      "primary_strategy_id": "PLTU_PLTR_BIGBELUGA_RANGE_1H_PRIMARY",
+      "shadow_strategy_ids": [
+        "PLTU_PLTR_KELTNER_1H_SHADOW_1",
+        "PLTU_PLTR_STRATEGY_F_4H_SHADOW_2",
+        "PLTU_PLTR_AI_C2_4H_SHADOW_3",
+        "PLTU_PLTR_AI_C1_1H_SHADOW_4"
+      ],
+      "shadow_slot_3": "PLTU_PLTR_AI_C2_4H_SHADOW_3",
+      "shadow_slot_4": "PLTU_PLTR_AI_C1_1H_SHADOW_4"
     }
   ],
   "strategies": [
@@ -137,6 +150,46 @@
       "parameters": {"length": 20, "multiplier": 2.5, "adx_min": 0.0, "chop_max": 0.0, "atr_pct_min": 0.0},
       "catastrophic_stop_percent": 20.0, "assignment_mode": "SHADOW", "enabled": true, "paper_trade_mode": true,
       "frozen_checkpoint": {"source_symbol": "NVDA", "checkpoint_scope": "NVDA_DIRECT_HISTORICAL_REFERENCE_ONLY_LOW_SAMPLE", "deployment_vehicle": "NVDX", "backtest_period": "2023-01-01_to_2026-08-28", "trade_count": 22, "win_rate_percent": 68.18, "net_pl_dollars": 221.76, "profit_factor": 5.984, "max_drawdown_dollars": 14.00}
+    },
+    {
+      "strategy_id": "PLTU_PLTR_BIGBELUGA_RANGE_1H_PRIMARY",
+      "name": "PLTU PLTR-Signal BigBeluga Range 1H Quality Primary",
+      "signal_symbol": "PLTR", "vehicle_symbol": "PLTU", "timeframe": "1H", "engine_id": "BIGBELUGA_RANGE",
+      "parameters": {"hma_entry": 0, "hma_exit": 0, "chop_max": 57.5, "atr_pct_min": 1.0},
+      "catastrophic_stop_percent": 20.0, "assignment_mode": "DIRECT", "enabled": true, "paper_trade_mode": true,
+      "frozen_checkpoint": {"source_symbol": "PLTR", "checkpoint_scope": "PLTR_DIRECT_HISTORICAL_REFERENCE_ONLY", "deployment_vehicle": "PLTU", "backtest_period": "2023-01_to_2026-08_validation", "trade_count": 59, "win_rate_percent": 67.80, "net_pl_dollars": 146.36, "profit_factor": 3.44, "max_drawdown_dollars": 12.50}
+    },
+    {
+      "strategy_id": "PLTU_PLTR_KELTNER_1H_SHADOW_1",
+      "name": "PLTU PLTR-Signal Keltner 1H Profit Leader Shadow 1",
+      "signal_symbol": "PLTR", "vehicle_symbol": "PLTU", "timeframe": "1H", "engine_id": "KELTNER_LONG",
+      "parameters": {"kc_length": 14, "kc_factor": 1.0, "hma_length": 20, "chop_max": 0.0, "adx_min": 0.0, "atr_pct_min": 1.0, "exit_mode": "LOWER"},
+      "catastrophic_stop_percent": 20.0, "assignment_mode": "SHADOW", "enabled": true, "paper_trade_mode": true,
+      "frozen_checkpoint": {"source_symbol": "PLTR", "checkpoint_scope": "PLTR_DIRECT_HISTORICAL_REFERENCE_ONLY", "deployment_vehicle": "PLTU", "backtest_period": "2023-01_to_2026-08_validation", "trade_count": 100, "win_rate_percent": 47.00, "net_pl_dollars": 190.21, "profit_factor": 3.02, "max_drawdown_dollars": 14.74}
+    },
+    {
+      "strategy_id": "PLTU_PLTR_STRATEGY_F_4H_SHADOW_2",
+      "name": "PLTU PLTR-Signal Strategy F 4H Quality Shadow 2",
+      "signal_symbol": "PLTR", "vehicle_symbol": "PLTU", "timeframe": "4H", "engine_id": "STRATEGY_F",
+      "parameters": {"tema_length": 44, "macd_fast": 17, "macd_slow": 26, "macd_signal": 9, "hma_length": 0, "chop_max": 0.0, "adx_min": 17.5, "atr_pct_min": 0.0, "rsi_min": 0.0},
+      "catastrophic_stop_percent": 20.0, "assignment_mode": "SHADOW", "enabled": true, "paper_trade_mode": true,
+      "frozen_checkpoint": {"source_symbol": "PLTR", "checkpoint_scope": "PLTR_DIRECT_HISTORICAL_REFERENCE_ONLY_LOW_SAMPLE", "deployment_vehicle": "PLTU", "backtest_period": "2023-01_to_2026-08_validation", "trade_count": 31, "win_rate_percent": 58.06, "net_pl_dollars": 150.92, "profit_factor": 6.59, "max_drawdown_dollars": 5.82}
+    },
+    {
+      "strategy_id": "PLTU_PLTR_AI_C2_4H_SHADOW_3",
+      "name": "PLTU PLTR-Signal AI-C2 4H Large Sample Shadow 3",
+      "signal_symbol": "PLTR", "vehicle_symbol": "PLTU", "timeframe": "4H", "engine_id": "C2_RECON",
+      "parameters": {"mode": "K_K_CROSS", "hma_length": 0, "chop_max": 0.0, "adx_min": 15.0, "rsi_min": 0.0},
+      "catastrophic_stop_percent": 20.0, "assignment_mode": "SHADOW", "enabled": true, "paper_trade_mode": true,
+      "frozen_checkpoint": {"source_symbol": "PLTR", "checkpoint_scope": "PLTR_DIRECT_HISTORICAL_REFERENCE_ONLY_AI_RECONSTRUCTED", "deployment_vehicle": "PLTU", "backtest_period": "2023-01_to_2026-08_validation", "trade_count": 158, "win_rate_percent": 54.43, "net_pl_dollars": 138.81, "profit_factor": 1.98, "max_drawdown_dollars": 12.26}
+    },
+    {
+      "strategy_id": "PLTU_PLTR_AI_C1_1H_SHADOW_4",
+      "name": "PLTU PLTR-Signal AI-C1 1H High WR Shadow 4",
+      "signal_symbol": "PLTR", "vehicle_symbol": "PLTU", "timeframe": "1H", "engine_id": "C1_RECON",
+      "parameters": {"hma_length": 200, "chop_max": 0.0, "adx_min": 15.0, "rsi_min": 0.0},
+      "catastrophic_stop_percent": 20.0, "assignment_mode": "SHADOW", "enabled": true, "paper_trade_mode": true,
+      "frozen_checkpoint": {"source_symbol": "PLTR", "checkpoint_scope": "PLTR_DIRECT_HISTORICAL_REFERENCE_ONLY_AI_RECONSTRUCTED", "deployment_vehicle": "PLTU", "backtest_period": "2023-01_to_2026-08_validation", "trade_count": 284, "win_rate_percent": 63.03, "net_pl_dollars": 91.44, "profit_factor": 1.72, "max_drawdown_dollars": 13.59}
     }
   ]
 }
