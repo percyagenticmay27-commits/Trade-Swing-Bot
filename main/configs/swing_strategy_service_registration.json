@@ -44,6 +44,7 @@
     "portfolio_allocations",
     "position_lifecycle",
     "stock_performance",
+    "strategy_assignments",
     "strategy_kpis",
     "trade_analytics",
     "watchlist",
@@ -126,6 +127,15 @@
       "artifact_id": "stock_performance",
       "artifact_type": "stock_performance",
       "path": "results/stock_performance_report.json",
+      "format": "json",
+      "scope": "STRATEGY",
+      "authoritative": true,
+      "required": false
+    },
+    {
+      "artifact_id": "strategy_assignments",
+      "artifact_type": "strategy_assignments",
+      "path": "results/enterprise_strategy_assignments.json",
       "format": "json",
       "scope": "STRATEGY",
       "authoritative": true,
