@@ -209,6 +209,79 @@ def test_missing_evidence_remains_null_for_engine_zero_rule(tmp_path: Path) -> N
     assert row["thesis_intact"] is None
 
 
+def test_thesis_monitor_reviews_populate_thesis_intact_with_provenance(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    (tmp_path / "thesis_monitor_report.json").write_text(
+        json.dumps(
+            {
+                "paper_trade_mode": True,
+                "version": "1.4",
+                "reviews": [
+                    {
+                        "symbol": "TOP",
+                        "thesis_state": "intact",
+                        "thesis_intact": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+    row = payload["rows"][0]
+    provenance = payload["component_provenance_by_symbol"]["TOP"]
+
+    assert row["thesis_intact"] is True
+    assert provenance["thesis_intact"] == "results/thesis_monitor_report.json"
+    assert "results/thesis_monitor_report.json" in payload["source_artifacts"]
+
+
+def test_thesis_monitor_false_is_preserved_not_treated_as_missing(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    (tmp_path / "thesis_monitor_report.json").write_text(
+        json.dumps(
+            {
+                "paper_trade_mode": True,
+                "version": "1.4",
+                "reviews": [
+                    {
+                        "symbol": "TOP",
+                        "thesis_state": "broken",
+                        "thesis_intact": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+
+    assert payload["rows"][0]["thesis_intact"] is False
+    assert payload["component_provenance_by_symbol"]["TOP"]["thesis_intact"] == "results/thesis_monitor_report.json"
+
+
+def test_thesis_monitor_does_not_change_entry_score_or_oq_components(tmp_path: Path) -> None:
+    _watchlist(tmp_path)
+    (tmp_path / "entry_score_report.json").write_text(
+        json.dumps({"rows": [{"symbol": "TOP", "entry_score": 70.0}]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "thesis_monitor_report.json").write_text(
+        json.dumps({"reviews": [{"symbol": "TOP", "thesis_intact": True, "thesis_health_score": 99.0}]}),
+        encoding="utf-8",
+    )
+
+    payload = build_opportunity_quality_inputs(tmp_path)
+    row = payload["rows"][0]
+
+    assert row["entry_score"] == 70.0
+    assert row["fundamental_analysis_score"] == 82
+    assert row["thesis_intact"] is True
+    assert payload["component_provenance_by_symbol"]["TOP"]["entry_score"] == "results/entry_score_report.json"
+
+
 def test_writes_paper_only_payload(tmp_path: Path) -> None:
     _watchlist(tmp_path)
     output = build_and_write_opportunity_quality_inputs(tmp_path)
