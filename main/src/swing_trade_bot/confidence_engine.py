@@ -179,7 +179,7 @@ def main() -> None:
 
 def _confidence_universe(
     *,
-    metrics: dict[str, dict[str, float]],
+    metrics: dict[str, dict[str, float | None]],
     starting_confidence: dict[str, str],
     candidate_symbols: list[str] | tuple[str, ...] | set[str] | None,
 ) -> tuple[str, ...]:
@@ -196,12 +196,12 @@ def _confidence_universe(
 def _evaluate_symbol(
     symbol: str,
     confidence: str,
-    metrics: dict[str, float] | None,
+    metrics: dict[str, float | None] | None,
     trading_days: int,
 ) -> ConfidenceRow:
     win_rate = metrics.get("win_rate") if metrics else None
     profit_factor = metrics.get("profit_factor") if metrics else None
-    trade_count = int(metrics.get("number_of_trades", 0)) if metrics else 0
+    trade_count = int(metrics.get("number_of_trades") or 0) if metrics else 0
     promotion_eligible = _promotion_eligible(confidence, win_rate, profit_factor, trade_count)
     demotion_eligible = _demotion_eligible(confidence, win_rate, profit_factor)
     return ConfidenceRow(
@@ -241,18 +241,23 @@ def _demotion_eligible(confidence: str, win_rate: float | None, profit_factor: f
     return False
 
 
-def _read_metrics(path: Path) -> dict[str, dict[str, float]]:
+def _read_metrics(path: Path) -> dict[str, dict[str, float | None]]:
     with path.open(newline="", encoding="utf-8-sig") as input_file:
         reader = csv.DictReader(input_file)
-        metrics: dict[str, dict[str, float]] = {}
+        metrics: dict[str, dict[str, float | None]] = {}
         for row in reader:
             symbol = row["symbol"].strip().upper()
             metrics[symbol] = {
-                "win_rate": float(row["win_rate"]),
-                "profit_factor": float(row["profit_factor"]),
-                "number_of_trades": float(row["number_of_trades"]),
+                "win_rate": _optional_float(row.get("win_rate")),
+                "profit_factor": _optional_float(row.get("profit_factor")),
+                "number_of_trades": _optional_float(row.get("number_of_trades")) or 0.0,
             }
     return metrics
+
+
+def _optional_float(value: str | None) -> float | None:
+    text = "" if value is None else value.strip()
+    return None if not text else float(text)
 
 
 def _trading_days(data_dir: Path, symbol: str) -> int:
