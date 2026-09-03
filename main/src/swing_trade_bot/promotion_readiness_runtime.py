@@ -113,13 +113,22 @@ def build_promotion_readiness_from_runtime(
         # company fundamentals from being misrepresented as a measured zero.
         health = _number(row, "financial_health_score")
         health_missing = health == 0.0
+
+        # Theme Momentum is authoritative only when Discovery also reports at
+        # least one actual theme. Older Watchlist rows serialized a default 0.0
+        # even when no theme evidence existed. Preserve those as PENDING, while a
+        # real calculated 0.0 attached to a reported theme remains a legitimate FAIL.
+        themes = str(row.get("themes", "")).strip()
+        theme_score = _number(row, "theme_momentum_score")
+        theme_missing = not themes
+
         results.append(evaluate_promotion_readiness(
             underlying_symbol=symbol,
             leveraged_symbol=str(row.get("leveraged_symbol", "")),
             lifecycle_status=str(row.get("watchlist_status", "")),
             source_confluence_score=_number(row, "source_confluence_score"),
             financial_health_score=None if health_missing else health,
-            theme_momentum_score=_number(row, "theme_momentum_score"),
+            theme_momentum_score=None if theme_missing else theme_score,
             opportunity_quality_score=_number(oq_row, "opportunity_quality_score"),
             thesis_intact=_boolean(thesis_row, "thesis_intact", "intact"),
             entry_score=_number(entry_row, "entry_score", "score"),
