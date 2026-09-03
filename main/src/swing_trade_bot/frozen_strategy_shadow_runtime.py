@@ -1,4 +1,4 @@
-"""Paper-only runtime for frozen 1H/4H AI-Suggestions strategies.
+"""Paper-only runtime for frozen 1H/4H/Daily AI-Suggestions strategies.
 
 This runtime is deliberately separate from the legacy declarative manual-strategy
 runner. It preserves frozen engine-specific execution timing, NY-session chart
@@ -54,8 +54,8 @@ class FrozenStrategySpec:
             raise ValueError("signal_symbol must be uppercase and trimmed")
         if not self.vehicle_symbol or self.vehicle_symbol != self.vehicle_symbol.strip().upper():
             raise ValueError("vehicle_symbol must be uppercase and trimmed")
-        if self.timeframe not in {"1H", "4H"}:
-            raise ValueError("frozen intraday strategies currently support only 1H or 4H")
+        if self.timeframe not in {"1H", "4H", "DAILY", "1D"}:
+            raise ValueError("frozen strategies currently support 1H, 4H, DAILY, or 1D")
         if self.engine_id not in SUPPORTED_ENGINES:
             raise ValueError(f"unsupported frozen engine: {self.engine_id}")
         if self.assignment_mode not in {"DIRECT", "SHADOW"}:
@@ -74,6 +74,11 @@ def _raw_rows_between(rows: Sequence[IntradayBar], start: datetime, end: datetim
     return [row for row in rows if start <= row.timestamp < end]
 
 
+def _chart_timeframe(timeframe: str) -> str:
+    """Map assignment vocabulary to the chart-bar builder's frozen vocabulary."""
+    return "1D" if timeframe == "DAILY" else timeframe
+
+
 def simulate_frozen_strategy(
     spec: FrozenStrategySpec,
     signal_rows: Sequence[IntradayBar],
@@ -87,8 +92,9 @@ def simulate_frozen_strategy(
 
     execution_timing = frozen_engine_execution_timing(spec.engine_id)
     close_execution = execution_timing == "CONFIRMED_SIGNAL_BAR_CLOSE"
-    signal_chart = build_chart_bars(signal_rows, spec.timeframe)  # type: ignore[arg-type]
-    vehicle_chart = build_chart_bars(vehicle_rows, spec.timeframe)  # type: ignore[arg-type]
+    chart_timeframe = _chart_timeframe(spec.timeframe)
+    signal_chart = build_chart_bars(signal_rows, chart_timeframe)  # type: ignore[arg-type]
+    vehicle_chart = build_chart_bars(vehicle_rows, chart_timeframe)  # type: ignore[arg-type]
     vehicle_chart_by_ts = _bars_by_timestamp(vehicle_chart)
     vehicle_raw = regular_session_rows(vehicle_rows)
 
@@ -170,8 +176,6 @@ def simulate_frozen_strategy(
             pending_entry = False
             pending_exit = False
 
-        # Stops are checked before a Strategy F close-of-bar entry, so raw rows
-        # earlier in the same bucket cannot stop a position that did not yet exist.
         if position_open and entry_price is not None and spec.catastrophic_stop_percent is not None:
             next_timestamp = signal_chart[index + 1].timestamp if index + 1 < len(signal_chart) else datetime.max.replace(tzinfo=signal_bar.timestamp.tzinfo)
             stop_price = entry_price * (1.0 - spec.catastrophic_stop_percent / 100.0)
