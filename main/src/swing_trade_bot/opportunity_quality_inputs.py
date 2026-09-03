@@ -27,11 +27,11 @@ COMPONENTS = (
 
 # Source order is intentional. Dedicated Opportunity Quality evidence remains
 # authoritative when present. Mapped-underlying evidence fills the same frozen
-# components for the leveraged Swing universe. Thesis Monitor is read only for
-# thesis_intact and does not alter Opportunity Quality or Entry Score. The ranked
-# watchlist is retained as a final fundamental fallback through
-# financial_health_score; it must not overwrite richer mapped-underlying evidence
-# with a zero placeholder.
+# components for the leveraged Swing universe. Thesis Monitor V2 is the only
+# current-universe thesis authority; the legacy Strategy A/B thesis artifact is
+# intentionally excluded from committee evidence. The ranked watchlist is retained
+# as a final fundamental fallback through financial_health_score; it must not
+# overwrite richer mapped-underlying evidence with a zero placeholder.
 SOURCES = (
     "fundamental_analysis.json",
     "market_intelligence.json",
@@ -40,7 +40,7 @@ SOURCES = (
     "market_regime.json",
     "portfolio_risk_report.json",
     "entry_score_report.json",
-    "thesis_monitor_report.json",
+    "thesis_monitor_v2_report.json",
     "mapped_underlying_fundamental_evidence.json",
     "mapped_underlying_intelligence_evidence.json",
     "mapped_underlying_quantitative_evidence.json",
@@ -87,8 +87,6 @@ def build_opportunity_quality_inputs(results_dir: str | Path, *, paper_trade_mod
         "selected_underlying_symbol": primary_underlying,
         "selected_leveraged_symbol": primary_leveraged,
         "source_artifacts": sorted(set(available)),
-        # Preserve the historical top-candidate provenance contract for existing
-        # downstream readers while also exposing provenance for every candidate.
         "component_provenance": provenance_by_symbol[primary_symbol],
         "component_provenance_by_symbol": provenance_by_symbol,
         "rows": outputs,
@@ -181,7 +179,7 @@ def _read_rows(path: Path) -> list[Mapping[str, Any]]:
     if isinstance(payload, list):
         return [row for row in payload if isinstance(row, Mapping)]
     if isinstance(payload, Mapping):
-        for key in ("rows", "reviews", "scores", "results", "candidates", "allocations"):
+        for key in ("rows", "scores", "results", "candidates", "allocations", "reviews"):
             value = payload.get(key)
             if isinstance(value, list):
                 return [row for row in value if isinstance(row, Mapping)]
