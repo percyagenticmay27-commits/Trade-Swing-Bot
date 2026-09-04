@@ -23,7 +23,7 @@
     "watchlist": {
       "candidates_path": "results/discovery_candidates_runtime.csv",
       "mentions_path": "results/discovery_mentions_runtime.csv",
-      "financial_health_path": "examples/financial_health.csv"
+      "financial_health_path": "results/discovery_financial_health_runtime.csv"
     },
     "portfolio_allocation": {
       "confidence_path": "results/confidence_report.csv",
