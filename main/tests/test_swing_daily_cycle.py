@@ -282,6 +282,14 @@ def test_strategy_producer_order_builds_quality_before_committees(tmp_path: Path
 
     monkeypatch.setattr(cycle, "build_and_write_opportunity_quality_inputs", quality_inputs)
     monkeypatch.setattr(cycle, "build_opportunity_quality_report", quality_report)
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_promotion_readiness",
+        lambda output_dir: (
+            Path(output_dir) / "promotion_readiness_report.json",
+            Path(output_dir) / "promotion_readiness_report.csv",
+        ),
+    )
     monkeypatch.setattr(cycle, "build_and_write_runtime_evidence", committee)
     monkeypatch.setattr(cycle, "build_committee_step", lambda **kwargs: kwargs)
     monkeypatch.setattr(cycle, "build_decision_trace", lambda **kwargs: {"trace": True})
@@ -309,7 +317,13 @@ def test_strategy_producer_order_builds_quality_before_committees(tmp_path: Path
     assert errors == []
     assert calls[:4] == ["quality_inputs", "quality_report", "committee_runtime", "decision_trace"]
     assert calls.index("stock_performance") > calls.index("decision_trace")
-    assert stages[:4] == ["OPPORTUNITY_QUALITY_INPUTS", "OPPORTUNITY_QUALITY", "COMMITTEE_RUNTIME_EVIDENCE", "COMMITTEE_DECISION_TRACE"]
+    assert stages[:5] == [
+        "OPPORTUNITY_QUALITY_INPUTS",
+        "OPPORTUNITY_QUALITY",
+        "PROMOTION_READINESS",
+        "COMMITTEE_RUNTIME_EVIDENCE",
+        "COMMITTEE_DECISION_TRACE",
+    ]
 
 
 def test_current_runtime_artifacts_are_rebuilt_even_when_old_files_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,6 +359,14 @@ def test_current_runtime_artifacts_are_rebuilt_even_when_old_files_exist(tmp_pat
 
     monkeypatch.setattr(cycle, "build_and_write_opportunity_quality_inputs", quality_inputs)
     monkeypatch.setattr(cycle, "build_opportunity_quality_report", quality_report)
+    monkeypatch.setattr(
+        cycle,
+        "build_and_write_promotion_readiness",
+        lambda output_dir: (
+            Path(output_dir) / "promotion_readiness_report.json",
+            Path(output_dir) / "promotion_readiness_report.csv",
+        ),
+    )
     monkeypatch.setattr(cycle, "build_and_write_runtime_evidence", committee)
     monkeypatch.setattr(cycle, "build_committee_step", lambda **kwargs: kwargs)
     monkeypatch.setattr(cycle, "build_decision_trace", lambda **kwargs: {"trace": True})
