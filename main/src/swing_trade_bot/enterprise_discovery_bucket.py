@@ -23,6 +23,7 @@ from .enterprise_candidate_state import (
     persist_candidate_state,
 )
 from .enterprise_evidence_normalization import normalize_enterprise_source, source_class_profile
+from .mention_extractor import tag_themes
 
 STRATEGY_ID = "SWING-001"
 BUCKET_SCHEMA_VERSION = "1.0"
@@ -31,6 +32,7 @@ DEFAULT_AI_CIO_REPOSITORY = Path(os.environ.get("AI_CIO_REPOSITORY", "/home/trad
 DEFAULT_BUCKET_RELATIVE_PATH = Path("results/enterprise_swing_discovery_bucket.json")
 DEFAULT_MAPPING_RELATIVE_PATH = Path("configs/swing_discovery_leveraged_mapping.json")
 DEFAULT_LOCAL_MENTIONS_RELATIVE_PATH = Path("results/discovery_mentions.csv")
+DEFAULT_MAPPED_NEWS_MENTIONS_RELATIVE_PATH = Path("results/mapped_underlying_news_mentions.csv")
 DEFAULT_RUNTIME_CANDIDATES_RELATIVE_PATH = Path("results/discovery_candidates_runtime.csv")
 DEFAULT_RUNTIME_MENTIONS_RELATIVE_PATH = Path("results/discovery_mentions_runtime.csv")
 DEFAULT_INTAKE_REPORT_RELATIVE_PATH = Path("results/enterprise_discovery_intake_report.json")
@@ -265,6 +267,47 @@ def bucket_mentions(bucket: Mapping[str, Any]) -> list[SourceMention]:
     return bucket_mentions_with_audit(bucket)[0]
 
 
+def mapped_news_mentions(path: str | Path) -> list[SourceMention]:
+    """Load mapped-news evidence and derive approved themes from its headlines.
+
+    The mapped-news collector stays a separate read-only artifact producer. This
+    intake bridge consumes that evidence without inventing symbol-to-theme mappings:
+    themes come only from the existing approved headline keyword classifier.
+    """
+    source = Path(path)
+    if not source.is_file():
+        return []
+    mentions: list[SourceMention] = []
+    with source.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            symbol = str(row.get("underlying_symbol", "")).strip().upper()
+            source_name = str(row.get("source", "")).strip()
+            mentioned_raw = str(row.get("mentioned_on", "")).strip()
+            source_class = str(row.get("source_class", "")).strip().upper() or None
+            if not symbol or not source_name or not mentioned_raw or not source_class:
+                continue
+            try:
+                mentioned = date.fromisoformat(mentioned_raw)
+            except ValueError:
+                continue
+            headline = str(row.get("headline", ""))
+            existing_themes = _themes(row)
+            derived_themes = tag_themes(headline)
+            mentions.append(
+                SourceMention(
+                    underlying_symbol=symbol,
+                    source=source_name,
+                    mentioned_on=mentioned,
+                    themes=_merge_themes(existing_themes, derived_themes),
+                    earnings_growth_related=str(row.get("earnings_growth_related", "")).strip().lower() == "true",
+                    analyst_upgrade_related=str(row.get("analyst_upgrade_related", "")).strip().lower() == "true",
+                    source_class=source_class,
+                    original_source=str(row.get("original_source", "")).strip() or source_name,
+                )
+            )
+    return mentions
+
+
 def _mention_identity(mention: SourceMention) -> str:
     return (mention.original_source or mention.source).strip().upper()
 
@@ -338,6 +381,7 @@ def refresh_enterprise_discovery_inputs(
     root = Path(swing_root) if swing_root is not None else Path.cwd()
     state_path = ensure_candidate_state(root=root)
     local_mentions_path = root / DEFAULT_LOCAL_MENTIONS_RELATIVE_PATH
+    mapped_news_path = root / DEFAULT_MAPPED_NEWS_MENTIONS_RELATIVE_PATH
     mapping_path = root / DEFAULT_MAPPING_RELATIVE_PATH
     runtime_candidates_path = root / DEFAULT_RUNTIME_CANDIDATES_RELATIVE_PATH
     runtime_mentions_path = root / DEFAULT_RUNTIME_MENTIONS_RELATIVE_PATH
@@ -349,6 +393,8 @@ def refresh_enterprise_discovery_inputs(
 
     candidates, metadata = load_candidate_state(root=root)
     mentions = load_mentions(local_mentions_path)
+    mapped_mentions = mapped_news_mentions(mapped_news_path)
+    mentions = merge_mentions(mentions, mapped_mentions)
     mapping = load_leveraged_mapping(mapping_path)
     bucket_path = discover_bucket_path(repository_root=ai_cio_repository)
     bucket_available = bucket_path.is_file()
@@ -408,6 +454,9 @@ def refresh_enterprise_discovery_inputs(
         "candidate_state_path": str(state_path),
         "candidate_state_authority": "SWING_OWNED_DURABLE_STATE",
         "local_mentions_path": str(local_mentions_path),
+        "mapped_news_mentions_path": str(mapped_news_path),
+        "mapped_news_mentions_available": mapped_news_path.is_file(),
+        "mapped_news_mention_count": len(mapped_mentions),
         "leveraged_mapping_path": str(mapping_path),
         "runtime_candidates_path": str(runtime_candidates_path),
         "runtime_mentions_path": str(runtime_mentions_path),
