@@ -21,6 +21,8 @@ ALLOWED_REPORT_FILENAMES = {
     "monthly_command_center.json",
     "portfolio_allocations.json",
     "trade_lifecycle_report.json",
+    "promotion_readiness_report.json",
+    "enterprise_strategy_assignments.json",
     "watchlist_report.json",
     "stock_performance_report.json",
     "weekly_stock_report.json",

@@ -43,6 +43,7 @@
     "opportunity_quality",
     "portfolio_allocations",
     "position_lifecycle",
+    "promotion_readiness",
     "stock_performance",
     "strategy_assignments",
     "strategy_kpis",
@@ -118,6 +119,15 @@
       "artifact_id": "position_lifecycle",
       "artifact_type": "position_lifecycle",
       "path": "results/trade_lifecycle_report.json",
+      "format": "json",
+      "scope": "STRATEGY",
+      "authoritative": true,
+      "required": false
+    },
+    {
+      "artifact_id": "promotion_readiness",
+      "artifact_type": "promotion_readiness",
+      "path": "results/promotion_readiness_report.json",
       "format": "json",
       "scope": "STRATEGY",
       "authoritative": true,
