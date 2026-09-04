@@ -24,6 +24,8 @@ from .discovery_engine import (
     load_mentions,
     write_watchlist_reports,
 )
+from .enterprise_discovery_bucket import refresh_enterprise_discovery_inputs
+from .enterprise_financial_health import refresh_enterprise_financial_health_inputs
 from .theme_enriched_discovery import ThemeEnrichedDiscoveryEngine
 from .enterprise_strategy_allocation_discovery import (
     load_discovered_strategy_allocations,
@@ -423,6 +425,9 @@ def _produce_strategy_reports(
     refresh = _runtime_refresh_config(config)
     try:
         if refresh is not None:
+            as_of = _cycle_date(generated_at)
+            refresh_enterprise_discovery_inputs(swing_root=root)
+            refresh_enterprise_financial_health_inputs(swing_root=root, as_of=as_of)
             _refresh_watchlist(root, output_dir, refresh, generated_at, published)
         quality_input_path = root / str(config.get("opportunity_quality_input_path", ""))
         if refresh is not None:
