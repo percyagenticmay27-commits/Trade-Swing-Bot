@@ -122,6 +122,15 @@ def build_promotion_readiness_from_runtime(
         theme_score = _number(row, "theme_momentum_score")
         theme_missing = not themes
 
+        # Thesis Monitor v2 evidence availability takes precedence over the
+        # thesis_intact boolean. Preserve legacy rows that do not expose
+        # evidence_status, but never promote a non-evaluable v2 review.
+        thesis_intact = _boolean(thesis_row, "thesis_intact", "intact")
+        if thesis_row is not None and "evidence_status" in thesis_row:
+            evidence_status = str(thesis_row.get("evidence_status", "")).strip().upper()
+            if evidence_status != "AVAILABLE":
+                thesis_intact = None
+
         results.append(evaluate_promotion_readiness(
             underlying_symbol=symbol,
             leveraged_symbol=str(row.get("leveraged_symbol", "")),
@@ -130,7 +139,7 @@ def build_promotion_readiness_from_runtime(
             financial_health_score=None if health_missing else health,
             theme_momentum_score=None if theme_missing else theme_score,
             opportunity_quality_score=_number(oq_row, "opportunity_quality_score"),
-            thesis_intact=_boolean(thesis_row, "thesis_intact", "intact"),
+            thesis_intact=thesis_intact,
             entry_score=_number(entry_row, "entry_score", "score"),
             stale={
                 "trusted_sources": not _is_current(watchlist),
