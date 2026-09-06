@@ -36,7 +36,7 @@ def service_registration() -> dict:
     return {
         "plugin_id": "SWING-001",
         "paper_compatible": True,
-        "governance_required": True,
+        "governance_review_required": True,
         "automatic_activation_allowed": False,
     }
 
@@ -175,6 +175,21 @@ def test_ready_report(config, validation_report, service_registration, profiles,
     assert report["final_result"] == "READY_FOR_CIO"
     assert report["passed_stage_count"] == len(REQUIRED_STAGES)
     assert report["errors"] == []
+
+
+def test_legacy_governance_required_field_remains_accepted(config, validation_report, service_registration, profiles, governance, learning, trace):
+    changed = copy.deepcopy(service_registration)
+    changed.pop("governance_review_required")
+    changed["governance_required"] = True
+    report = build_report(config, validation_report, changed, profiles, governance, learning, trace)
+    assert report["final_result"] == "READY_FOR_CIO"
+
+
+def test_conflicting_governance_fields_fail_closed(config, validation_report, service_registration, profiles, governance, learning, trace):
+    changed = copy.deepcopy(service_registration)
+    changed["governance_required"] = False
+    report = build_report(config, validation_report, changed, profiles, governance, learning, trace)
+    assert report["final_result"] == "NOT_READY_FOR_CIO"
 
 
 def test_discovery_failure_blocks_acceptance(config, validation_report, service_registration, profiles, governance, learning, trace):

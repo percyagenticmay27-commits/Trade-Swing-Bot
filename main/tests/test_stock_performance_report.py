@@ -45,6 +45,46 @@ def test_builds_strategy_comparison_and_switch_signal(tmp_path: Path) -> None:
     assert row.better_drawdown_strategy == "STRATEGY B"
 
 
+def test_portfolio_manager_allocation_before_is_current_allocation(tmp_path: Path) -> None:
+    comparison, recommendations, allocations, manager = _inputs(tmp_path)
+    allocations.write_text(
+        json.dumps(
+            {
+                "allocations": [
+                    {"symbol": "SOXL", "allocation_percent": 14.285714},
+                    {"symbol": "TQQQ", "allocation_percent": 14.285714},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    comparison.write_text(json.dumps({"rows": []}), encoding="utf-8")
+    _csv(
+        recommendations,
+        [
+            {"symbol": "SOXL", "active_strategy": "Strategy A", "recommended_strategy": "Strategy A", "months_outperforming": 0},
+            {"symbol": "TQQQ", "active_strategy": "Strategy A", "recommended_strategy": "Strategy A", "months_outperforming": 0},
+        ],
+    )
+    _csv(
+        manager,
+        [
+            {"symbol": "SOXL", "allocation_before": 25.456743, "allocation_after": 14.285714, "action": "SELL"},
+            {"symbol": "TQQQ", "allocation_before": 14.881605, "allocation_after": 14.285714, "action": "SELL"},
+        ],
+    )
+
+    report = build_stock_performance_report(comparison, recommendations, allocations, manager)
+    rows = {row.symbol: row for row in report.rows}
+
+    assert rows["SOXL"].current_allocation == pytest.approx(25.456743)
+    assert rows["TQQQ"].current_allocation == pytest.approx(14.881605)
+    assert rows["SOXL"].target_allocation == pytest.approx(14.285714)
+    assert rows["TQQQ"].target_allocation == pytest.approx(14.285714)
+    assert rows["SOXL"].portfolio_action == "SELL"
+    assert rows["TQQQ"].portfolio_action == "SELL"
+
+
 def test_writes_csv_json_and_markdown(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
     report = build_and_write_stock_performance_report(*inputs, tmp_path / "out")

@@ -3,7 +3,8 @@
 This module owns no market-data fetching and performs no broker operations. It
 reads open paper positions plus completed local daily CSV bars, validates that
 those bars are fresh, applies split normalization when adjusted-close evidence
-requires it, and atomically publishes authoritative portfolio evidence.
+requires it, reconciles realized P/L from the append-only paper trade history,
+and atomically publishes authoritative portfolio evidence.
 """
 from __future__ import annotations
 
@@ -17,13 +18,16 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .paper_position_excursion import calculate_long_position_excursion
+from .trade_history_manager import build_trade_history_report
+
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
 BROKER_EXECUTION_ENABLED = False
 ORDER_PLACEMENT_ENABLED = False
 CAPITAL_MOVEMENT_ENABLED = False
 DIRECT_DATABASE_WRITES = False
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.3"
 DEFAULT_MAX_PRICE_AGE_DAYS = 5
 
 
@@ -44,6 +48,14 @@ class ValuedPaperPosition:
     split_adjustment_factor: float = 1.0
     price_source: str = "ADJ_CLOSE"
     status: str = "OPEN"
+    max_drawdown_amount: float | None = None
+    max_drawdown_percent: float | None = None
+    max_drawdown_peak_price: float | None = None
+    max_drawdown_peak_date: str | None = None
+    max_drawdown_trough_price: float | None = None
+    max_drawdown_trough_date: str | None = None
+    drawdown_observation_count: int | None = None
+    drawdown_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,13 +66,14 @@ class PaperPortfolioReport:
     cash_balance: float
     positions_market_value: float
     portfolio_value: float
+    realized_pnl: float
     unrealized_pnl: float
     portfolio_return_percent: float
     position_count: int
     positions: tuple[ValuedPaperPosition, ...]
     warnings: tuple[str, ...]
     errors: tuple[str, ...]
-    valuation_source: str = "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
+    valuation_source: str = "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET_WITH_REALIZED_PNL"
     paper_trade_mode: bool = True
     live_trading_enabled: bool = False
     broker_execution_enabled: bool = False
@@ -78,7 +91,7 @@ def build_paper_portfolio_report(
     as_of: date | None = None,
     max_price_age_days: int = DEFAULT_MAX_PRICE_AGE_DAYS,
 ) -> PaperPortfolioReport:
-    """Mark open paper positions to fresh, split-adjusted completed closes."""
+    """Mark open paper positions to market and reconcile realized paper P/L."""
     if not math.isfinite(account_capital) or account_capital <= 0:
         raise ValueError("account_capital must be finite and positive")
     if max_price_age_days < 0:
@@ -104,8 +117,9 @@ def build_paper_portfolio_report(
         cost_basis = _nonnegative(row.get("cost_basis"), f"{symbol}.cost_basis")
         entry_date = _parse_date(row.get("entry_date"), f"{symbol}.entry_date")
 
+        market_path = data_dir / f"{symbol}.csv"
         price_date, current_price, split_factor, price_source = _latest_completed_adjusted_close(
-            data_dir / f"{symbol}.csv",
+            market_path,
             valuation_date,
             entry_date=entry_date,
             max_price_age_days=max_price_age_days,
@@ -122,6 +136,19 @@ def build_paper_portfolio_report(
         if split_factor != 1.0:
             warnings.append(
                 f"{symbol} position normalized for corporate action factor {split_factor:g}"
+            )
+
+        excursion = calculate_long_position_excursion(
+            market_data_path=market_path,
+            entry_date=entry_date,
+            as_of=valuation_date,
+            normalized_entry_price=entry_price,
+            normalized_shares=shares,
+        )
+        if excursion is None:
+            warnings.append(
+                f"{symbol} max drawdown is not reportable because market-data history "
+                "does not cover the paper entry date"
             )
 
         market_value = round(shares * current_price, 2)
@@ -144,6 +171,14 @@ def build_paper_portfolio_report(
                 split_adjustment_factor=split_factor,
                 price_source=price_source,
                 status="OPEN",
+                max_drawdown_amount=(excursion.max_drawdown_amount if excursion else None),
+                max_drawdown_percent=(excursion.max_drawdown_percent if excursion else None),
+                max_drawdown_peak_price=(excursion.max_drawdown_peak_price if excursion else None),
+                max_drawdown_peak_date=(excursion.max_drawdown_peak_date if excursion else None),
+                max_drawdown_trough_price=(excursion.max_drawdown_trough_price if excursion else None),
+                max_drawdown_trough_date=(excursion.max_drawdown_trough_date if excursion else None),
+                drawdown_observation_count=(excursion.observation_count if excursion else None),
+                drawdown_source=(excursion.source if excursion else None),
             )
         )
 
@@ -151,11 +186,22 @@ def build_paper_portfolio_report(
     invested = round(sum(position.cost_basis for position in positions), 2)
     if invested > round(account_capital, 2) + 0.01:
         raise ValueError("paper position cost basis exceeds account_capital")
-    cash = round(account_capital - invested, 2)
+
+    realized_pnl = _realized_pnl_from_trade_history(ledger_dir, data_dir)
+    cash = round(account_capital - invested + realized_pnl, 2)
+    if cash < -0.01:
+        raise ValueError(
+            "paper ledger reconciles to negative cash after realized P/L; "
+            "paper position state and trade history are inconsistent"
+        )
     market_value = round(sum(position.market_value for position in positions), 2)
-    portfolio_value = round(cash + market_value, 2)
     unrealized = round(market_value - invested, 2)
-    return_percent = round((unrealized / account_capital) * 100.0, 6)
+    total_pnl = round(realized_pnl + unrealized, 2)
+    portfolio_value = round(cash + market_value, 2)
+    expected_value = round(account_capital + total_pnl, 2)
+    if abs(portfolio_value - expected_value) > 0.02:
+        raise ValueError("paper portfolio value does not reconcile to realized plus unrealized P/L")
+    return_percent = round((total_pnl / account_capital) * 100.0, 6)
 
     return PaperPortfolioReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -164,6 +210,7 @@ def build_paper_portfolio_report(
         cash_balance=cash,
         positions_market_value=market_value,
         portfolio_value=portfolio_value,
+        realized_pnl=realized_pnl,
         unrealized_pnl=unrealized,
         portfolio_return_percent=return_percent,
         position_count=len(positions),
@@ -213,6 +260,18 @@ def build_and_write_paper_portfolio_report(
     return report
 
 
+def _realized_pnl_from_trade_history(ledger_dir: Path, data_dir: Path) -> float:
+    """Return FIFO realized P/L from authoritative paper trade history when present."""
+    trade_history_path = ledger_dir / "trade_history.json"
+    if not trade_history_path.is_file():
+        return 0.0
+    report = build_trade_history_report(
+        trade_history_path=trade_history_path,
+        data_dir=data_dir,
+    )
+    return round(report.realized_pnl, 2)
+
+
 def _latest_completed_adjusted_close(
     path: Path,
     as_of: date,
@@ -256,11 +315,6 @@ def _latest_completed_adjusted_close(
     current_price = latest_adjusted if latest_adjusted is not None else latest_close
     price_source = "ADJ_CLOSE" if latest_adjusted is not None else "CLOSE"
 
-    # Split inference requires a bar at or before the ledger entry date. Some
-    # valid datasets begin after the paper entry date (for example a shortened
-    # fixture or a newly downloaded history window). In that case valuation is
-    # still safe, but there is no evidence for a corporate-action adjustment,
-    # so preserve the ledger shares and entry price with factor 1.0.
     entry_candidates = [row for row in rows if row[0] <= entry_date]
     if not entry_candidates:
         return latest_date, round(current_price, 12), 1.0, price_source

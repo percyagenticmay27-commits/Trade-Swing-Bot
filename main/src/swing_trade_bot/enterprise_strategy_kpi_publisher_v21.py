@@ -7,6 +7,7 @@ modify strategy calculations, place orders, move capital, or import host code.
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -16,13 +17,15 @@ from typing import Any, Mapping
 from .enterprise_strategy_kpi_publisher import (
     DEFAULT_STRATEGY_ALLOCATIONS_PATH,
     STRATEGY_ID,
+    _find_numeric,
     _load_json,
+    _require_safe_source,
     build_enterprise_strategy_kpis,
     validate_enterprise_strategy_kpis,
 )
 
 MODULE_NAME = "enterprise_strategy_kpi_publisher_v21"
-MODULE_VERSION = "2.1.0"
+MODULE_VERSION = "2.1.10"
 SCHEMA_VERSION = "2.1"
 KPI_CONTRACT_VERSION = "2.1"
 
@@ -36,7 +39,7 @@ DIRECT_DATABASE_WRITES = False
 ARTIFACT_SPECS = (
     ("portfolio_allocations", "PORTFOLIO_ALLOCATIONS", "portfolio_allocations.json"),
     ("executive_dashboard", "EXECUTIVE_DASHBOARD", "executive_dashboard.json"),
-    ("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality.json"),
+    ("opportunity_quality", "OPPORTUNITY_QUALITY", "opportunity_quality_report.json"),
     ("watchlist", "WATCHLIST", "watchlist_report.json"),
     ("paper_portfolio_summary", "PAPER_PORTFOLIO_SUMMARY", "paper_ledger/paper_portfolio_summary.json"),
     ("paper_portfolio_positions", "PAPER_HOLDINGS", "paper_ledger/paper_portfolio_positions.json"),
@@ -44,7 +47,20 @@ ARTIFACT_SPECS = (
     ("trade_history_summary", "TRADE_HISTORY_SUMMARY", "paper_ledger/trade_history_summary.json"),
     ("closed_positions", "CLOSED_POSITIONS", "paper_ledger/closed_positions.json"),
     ("paper_performance", "PERFORMANCE_ANALYTICS", "paper_ledger/paper_performance.json"),
+    ("swing_trade_analytics_report", "TRADE_ANALYTICS", "swing_trade_analytics_report.json"),
+    ("swing_strategy_alerts_report", "STRATEGY_ALERTS", "swing_strategy_alerts_report.json"),
+    ("swing_decision_journal_report", "DECISION_JOURNAL", "swing_decision_journal_report.json"),
 )
+
+_LEGACY_ALLOCATION_VALIDATION_ERRORS = {
+    "allocation_source must identify accepted allocation evidence",
+    "allocation provenance source must match allocation_source",
+}
+
+_ACCEPTED_PORTFOLIO_VALUATION_SOURCES = {
+    "PAPER_LEDGER_MARK_TO_MARKET",
+    "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET",
+}
 
 
 def _artifact_contract(results_dir: Path) -> list[dict[str, Any]]:
@@ -71,6 +87,213 @@ def _load_optional(results_dir: Path, relative_path: str) -> dict[str, Any] | No
     return _load_json(results_dir / relative_path)
 
 
+def _finite(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _nonnegative(value: object) -> float | None:
+    number = _finite(value)
+    return number if number is not None and number >= 0 else None
+
+
+def _first_number(row: Mapping[str, Any], *keys: str, signed: bool = False) -> float | None:
+    for key in keys:
+        if key not in row:
+            continue
+        value = _finite(row.get(key)) if signed else _nonnegative(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _first_text(row: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _explicit_drawdown(row: Mapping[str, Any]) -> tuple[float | None, float | None]:
+    """Return only explicitly published drawdown evidence.
+
+    Drawdown is deliberately never inferred from entry/current prices or P&L.
+    """
+    amount = _first_number(
+        row,
+        "max_drawdown_amount",
+        "maximum_drawdown_amount",
+        "max_drawdown_dollars",
+        signed=True,
+    )
+    percent = _first_number(
+        row,
+        "max_drawdown_percent",
+        "maximum_drawdown_percent",
+        "max_drawdown_pct",
+        signed=True,
+    )
+    return amount, percent
+
+
+def _open_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    _require_safe_source(payload, "paper_portfolio_positions")
+    rows = payload.get("positions") or payload.get("holdings")
+    if not isinstance(rows, list):
+        return []
+
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        symbol = str(row.get("symbol", "")).strip().upper()
+        shares = _nonnegative(row.get("shares"))
+        if not symbol or shares is None or shares <= 0:
+            continue
+        max_drawdown_amount, max_drawdown_percent = _explicit_drawdown(row)
+        normalized: dict[str, Any] = {
+            "symbol": symbol,
+            "entry_date": _first_text(row, "entry_date", "opened_date", "purchase_date"),
+            "entry_price": _first_number(row, "entry_price", "average_cost", "avg_cost"),
+            "shares": round(shares, 8),
+            "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
+            "current_price": _first_number(row, "current_price", "price"),
+            "market_value": _first_number(row, "market_value", "current_value"),
+            "unrealized_pnl": _first_number(row, "unrealized_pnl", "unrealized_gain", signed=True),
+            "unrealized_pnl_percent": _first_number(
+                row,
+                "unrealized_pnl_percent",
+                "unrealized_gain_percent",
+                "return_percent",
+                signed=True,
+            ),
+            "active_strategy": _first_text(row, "active_strategy", "strategy_owner") or "",
+            "position_status": (_first_text(row, "position_status", "status") or "OPEN").upper(),
+            "max_drawdown_amount": max_drawdown_amount,
+            "max_drawdown_percent": max_drawdown_percent,
+        }
+        output.append(normalized)
+    return sorted(output, key=lambda item: item["symbol"])
+
+
+def _closed_trade_analytics(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    _require_safe_source(payload, "closed_positions")
+    rows = (
+        payload.get("closed_trades")
+        or payload.get("closed_positions")
+        or payload.get("positions")
+        or payload.get("trades")
+    )
+    if not isinstance(rows, list):
+        return []
+
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        symbol = str(row.get("symbol", "")).strip().upper()
+        if not symbol:
+            continue
+        max_drawdown_amount, max_drawdown_percent = _explicit_drawdown(row)
+        normalized: dict[str, Any] = {
+            "symbol": symbol,
+            "entry_date": _first_text(row, "entry_date", "opened_date", "purchase_date"),
+            "entry_price": _first_number(row, "entry_price", "average_cost", "avg_cost"),
+            "shares": _first_number(row, "shares", "quantity"),
+            "cost_basis": _first_number(row, "cost_basis", "total_cost", "cost_basis_value"),
+            "exit_date": _first_text(row, "exit_date", "closed_date", "sale_date"),
+            "exit_price": _first_number(row, "exit_price", "sale_price", "closed_price"),
+            "realized_pnl": _first_number(row, "realized_pnl", "realized_gain", "profit_loss", signed=True),
+            "realized_pnl_percent": _first_number(
+                row,
+                "realized_pnl_percent",
+                "realized_gain_percent",
+                "return_percent",
+                signed=True,
+            ),
+            "holding_days": _first_number(row, "holding_days", "days_held"),
+            "exit_reason": _first_text(row, "exit_reason", "close_reason", "sell_reason"),
+            "active_strategy": _first_text(row, "active_strategy", "strategy_owner") or "",
+            "position_status": (_first_text(row, "position_status", "status") or "CLOSED").upper(),
+            "max_drawdown_amount": max_drawdown_amount,
+            "max_drawdown_percent": max_drawdown_percent,
+        }
+        proceeds = _first_number(row, "proceeds", "exit_value", "sale_value")
+        if proceeds is not None:
+            normalized["proceeds"] = proceeds
+        output.append(normalized)
+    return sorted(output, key=lambda item: (item["symbol"], str(item.get("exit_date") or "")))
+
+
+def _current_opportunity_score(payload: Mapping[str, Any] | None) -> float | None:
+    direct = _find_numeric(payload, ("opportunity_quality_score", "opportunity_quality", "score"))
+    if direct is not None:
+        return direct
+    rows = payload.get("rows") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list):
+        return None
+    scores: list[float] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        value = _find_numeric(row, ("opportunity_quality_score", "opportunity_quality", "score"))
+        if value is not None:
+            scores.append(value)
+    return max(scores) if scores else None
+
+
+def _apply_current_paper_portfolio(
+    base: dict[str, Any],
+    summary: Mapping[str, Any] | None,
+    positions: Mapping[str, Any] | None,
+    warnings: list[str],
+) -> None:
+    if not summary:
+        return
+    _require_safe_source(summary, "paper_portfolio_summary")
+    valuation_source = str(summary.get("valuation_source", "")).strip()
+    if valuation_source not in _ACCEPTED_PORTFOLIO_VALUATION_SOURCES:
+        return
+
+    allocated = _finite(base.get("allocated_capital"))
+    account_capital = _finite(summary.get("account_capital"))
+    if allocated is None or account_capital is None or abs(allocated - account_capital) > 0.01:
+        raise ValueError("current paper portfolio account_capital must match governed SWING-001 allocation")
+
+    required = {
+        "portfolio_value": _finite(summary.get("portfolio_value")),
+        "cash_balance": _finite(summary.get("cash_balance")),
+        "invested_capital": _finite(summary.get("invested_capital")),
+        "positions_market_value": _finite(summary.get("positions_market_value")),
+        "unrealized_pnl": _finite(summary.get("unrealized_pnl")),
+        "portfolio_return_percent": _finite(summary.get("portfolio_return_percent")),
+    }
+    position_count = summary.get("position_count")
+    if any(value is None for value in required.values()) or not isinstance(position_count, int) or position_count < 0:
+        return
+
+    holdings = _open_trade_analytics(positions)
+    if positions is not None and len(holdings) != position_count:
+        warnings.append("Detailed holdings count does not match the current paper portfolio position count.")
+
+    base.update(
+        {
+            **required,
+            "position_count": position_count,
+            "open_positions": holdings,
+            "portfolio_value_source": valuation_source,
+        }
+    )
+
+
 def build_enterprise_strategy_kpis_v21(
     results_dir: str | Path = "results",
     *,
@@ -87,8 +310,10 @@ def build_enterprise_strategy_kpis_v21(
     trade_history = _load_optional(root, "paper_ledger/managed_trade_history.json")
     closed_positions = _load_optional(root, "paper_ledger/closed_positions.json")
     executive = _load_optional(root, "executive_dashboard.json")
-    opportunity = _load_optional(root, "opportunity_quality.json")
+    opportunity = _load_optional(root, "opportunity_quality_report.json")
     watchlist = _load_optional(root, "watchlist_report.json")
+    portfolio_summary = _load_optional(root, "paper_ledger/paper_portfolio_summary.json")
+    paper_positions = _load_optional(root, "paper_ledger/paper_portfolio_positions.json")
 
     artifacts = _artifact_contract(root)
     available_artifacts = [item["artifact_id"] for item in artifacts if item["available"]]
@@ -100,8 +325,16 @@ def build_enterprise_strategy_kpis_v21(
             "Optional evidence unavailable: " + ", ".join(sorted(missing_optional_artifacts))
         )
 
+    _apply_current_paper_portfolio(base, portfolio_summary, paper_positions, warnings)
+    current_opportunity_score = _current_opportunity_score(opportunity)
+    if current_opportunity_score is not None:
+        base["opportunity_quality"] = current_opportunity_score
+
+    normalized_closed_positions = _closed_trade_analytics(closed_positions)
+    allocation_provenance = dict(base.get("allocation_provenance", {}))
     portfolio_section = {
         "allocated_capital": base.get("allocated_capital"),
+        "allocation_provenance": allocation_provenance,
         "portfolio_value": base.get("portfolio_value"),
         "portfolio_value_source": base.get("portfolio_value_source"),
         "cash_balance": base.get("cash_balance"),
@@ -124,6 +357,14 @@ def build_enterprise_strategy_kpis_v21(
         "win_rate_percent": base.get("win_rate_percent"),
         "analytics": base.get("performance"),
     }
+    trade_analytics_section = {
+        "open_position_count": len(base.get("open_positions", [])),
+        "closed_position_count": len(normalized_closed_positions),
+        "open_positions": base.get("open_positions", []),
+        "closed_positions": normalized_closed_positions,
+        "max_drawdown_policy": "AUTHORITATIVE_POSITION_HISTORY_ONLY",
+        "max_drawdown_inference_allowed": False,
+    }
     strategy_intelligence_section = {
         "opportunity_quality": base.get("opportunity_quality"),
         "watchlist_count": base.get("watchlist_count"),
@@ -135,6 +376,7 @@ def build_enterprise_strategy_kpis_v21(
         "summary": _load_optional(root, "paper_ledger/trade_history_summary.json"),
         "events": trade_history,
         "closed_positions": closed_positions,
+        "closed_position_analytics": normalized_closed_positions,
     }
 
     payload = dict(base)
@@ -145,15 +387,19 @@ def build_enterprise_strategy_kpis_v21(
             "module_name": MODULE_NAME,
             "module_version": MODULE_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "allocation_provenance": allocation_provenance,
             "portfolio": portfolio_section,
             "holdings": holdings_section,
             "performance_summary": performance_section,
+            "trade_analytics": trade_analytics_section,
             "strategy_intelligence": strategy_intelligence_section,
             "trade_history": trade_history_section,
             "dashboard_sections": {
+                "allocation_provenance": allocation_provenance,
                 "portfolio": portfolio_section,
                 "holdings": holdings_section,
                 "performance": performance_section,
+                "trade_analytics": trade_analytics_section,
                 "watchlist": {
                     "count": base.get("watchlist_count"),
                     "evidence": watchlist,
@@ -174,14 +420,67 @@ def build_enterprise_strategy_kpis_v21(
 
 
 def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    errors = list(validate_enterprise_strategy_kpis({**payload, "kpi_contract_version": "2.0"}))
+    provenance = payload.get("allocation_provenance")
+    provenance_is_mapping = isinstance(provenance, Mapping)
+
+    legacy_payload = dict(payload)
+    legacy_payload["kpi_contract_version"] = "2.0"
+    legacy_errors = validate_enterprise_strategy_kpis(legacy_payload)
+    errors = [
+        error
+        for error in legacy_errors
+        if error not in _LEGACY_ALLOCATION_VALIDATION_ERRORS
+    ]
+
     if payload.get("strategy_id") != STRATEGY_ID:
         errors.append("strategy_id must be SWING-001")
     if payload.get("kpi_contract_version") != KPI_CONTRACT_VERSION:
         errors.append("kpi_contract_version must be 2.1")
-    for section in ("portfolio", "holdings", "performance_summary", "strategy_intelligence", "trade_history", "dashboard_sections"):
+
+    if not provenance_is_mapping:
+        errors.append("allocation_provenance must be an object")
+    else:
+        required_fields = (
+            "allocated_capital",
+            "allocation_source",
+            "allocation_evidence_schema",
+            "allocation_source_json_path",
+            "allocation_field",
+        )
+        for field in required_fields:
+            if field not in provenance or provenance.get(field) in (None, ""):
+                errors.append(f"allocation_provenance missing required field: {field}")
+
+        provenance_source = provenance.get("allocation_source")
+        payload_source = payload.get("allocation_source")
+        if not isinstance(payload_source, str) or not payload_source.strip():
+            errors.append("allocation_source must identify accepted allocation evidence")
+        if not isinstance(provenance_source, str) or not provenance_source.strip():
+            errors.append("allocation_provenance allocation_source is required")
+        if provenance_source != payload_source:
+            errors.append("allocation provenance source must match allocation_source")
+
+        provenance_capital = provenance.get("allocated_capital")
+        payload_capital = payload.get("allocated_capital")
+        try:
+            capital_matches = abs(float(provenance_capital) - float(payload_capital)) <= 0.01
+        except (TypeError, ValueError):
+            capital_matches = False
+        if not capital_matches:
+            errors.append("allocation_provenance allocated_capital must match allocated_capital")
+
+    for section in (
+        "portfolio",
+        "holdings",
+        "performance_summary",
+        "trade_analytics",
+        "strategy_intelligence",
+        "trade_history",
+        "dashboard_sections",
+    ):
         if not isinstance(payload.get(section), Mapping):
             errors.append(f"{section} must be an object")
+
     contract = payload.get("artifact_contract")
     if not isinstance(contract, list):
         errors.append("artifact_contract must be a list")
@@ -199,11 +498,13 @@ def validate_enterprise_strategy_kpis_v21(payload: Mapping[str, Any]) -> tuple[s
                 errors.append("runtime evidence artifacts must remain optional")
             if not Path(str(item.get("path", ""))).is_absolute():
                 errors.append("artifact paths must be absolute")
+
     return tuple(sorted(set(errors)))
 
 
 def write_enterprise_strategy_kpis_v21(payload: Mapping[str, Any], output_path: str | Path) -> Path:
-    errors = validate_enterprise_strategy_kpis_v21(payload)
+    output_payload = dict(payload)
+    errors = validate_enterprise_strategy_kpis_v21(output_payload)
     if errors:
         raise ValueError("Invalid Swing Enterprise KPI v2.1 evidence: " + "; ".join(errors))
     path = Path(output_path)
@@ -211,7 +512,7 @@ def write_enterprise_strategy_kpis_v21(payload: Mapping[str, Any], output_path: 
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(dict(payload), handle, indent=2, sort_keys=True)
+            json.dump(output_payload, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())

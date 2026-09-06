@@ -10,10 +10,16 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .data_tools import REQUIRED_COLUMNS, REQUIRED_SYMBOLS, format_validation_summary, validate_data_directory
+
+
+DEFAULT_MAX_CACHE_AGE_DAYS = 3
+HTTP_429_RETRIES = 3
+HTTP_429_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+USER_AGENT = "Mozilla/5.0 (compatible; Trade-Swing-Bot/1.0; read-only-market-data)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +45,9 @@ class DownloadSummary:
     updated: bool
     source: str | None = None
     error: str | None = None
+    data_source: str | None = None
+    is_stale: bool = False
+    retrieved_at_utc: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,19 +66,36 @@ def build_historical_data(
     refresh: bool = False,
     import_dir: Path | None = None,
     symbols: tuple[str, ...] = REQUIRED_SYMBOLS,
+    max_cache_age_days: int = DEFAULT_MAX_CACHE_AGE_DAYS,
 ) -> DownloadRun:
-    """Download, merge, write, and validate historical OHLCV CSVs."""
+    """Download, merge, write, and validate historical OHLCV CSVs.
+
+    Provider order is fresh local cache -> Yahoo CSV -> Yahoo Chart -> Stooq ->
+    optional imported historical CSV -> stale local cache. Stale cache is
+    reported explicitly and preserves provider errors so publication can fail
+    closed rather than pretending old evidence is live.
+    """
     if years <= 0:
         raise ValueError("years must be positive")
+    if max_cache_age_days < 0:
+        raise ValueError("max_cache_age_days cannot be negative")
     data_dir.mkdir(parents=True, exist_ok=True)
 
     end = date.today()
     start = end - timedelta(days=round(years * 365.25))
     summaries = tuple(
-        _update_symbol(symbol, data_dir, start=start, end=end, refresh=refresh, import_dir=import_dir)
+        _update_symbol(
+            symbol,
+            data_dir,
+            start=start,
+            end=end,
+            refresh=refresh,
+            import_dir=import_dir,
+            max_cache_age_days=max_cache_age_days,
+        )
         for symbol in symbols
     )
-    validations = validate_data_directory(data_dir)
+    validations = validate_data_directory(data_dir, as_of=end, symbols=symbols)
     return DownloadRun(
         summaries=summaries,
         validation_summary=format_validation_summary(validations),
@@ -80,18 +106,19 @@ def build_historical_data(
 def format_download_summary(summaries: tuple[DownloadSummary, ...]) -> str:
     """Render the acquisition summary table."""
     lines = [
-        "Symbol  Rows  Start Date  End Date    Updated  Source  Error",
-        "------  ----  ----------  ----------  -------  ------  -----",
+        "Symbol  Rows  Start Date  End Date    Updated  Source  Stale  Error",
+        "------  ----  ----------  ----------  -------  ------  -----  -----",
     ]
     for summary in summaries:
         start = summary.start_date.isoformat() if summary.start_date else "-"
         end = summary.end_date.isoformat() if summary.end_date else "-"
         updated = "yes" if summary.updated else "no"
         source = summary.source or "-"
+        stale = "yes" if summary.is_stale else "no"
         error = summary.error or "-"
         lines.append(
             f"{summary.symbol.ljust(6)}  {str(summary.rows).rjust(4)}  {start.ljust(10)}  "
-            f"{end.ljust(10)}  {updated.ljust(7)}  {source.ljust(6)}  {error}"
+            f"{end.ljust(10)}  {updated.ljust(7)}  {source.ljust(12)}  {stale.ljust(5)}  {error}"
         )
     return "\n".join(lines)
 
@@ -125,11 +152,27 @@ def _update_symbol(
     end: date,
     refresh: bool,
     import_dir: Path | None,
+    max_cache_age_days: int,
 ) -> DownloadSummary:
     path = data_dir / f"{symbol}.csv"
     existing = {} if refresh else _bars_by_date(_load_local_csv(path))
-    errors: list[str] = []
+    retrieved_at = _utc_now()
 
+    if existing and not refresh:
+        local = tuple(sorted(existing.values(), key=lambda bar: bar.date))
+        if _cache_is_fresh(local[-1].date, as_of=end, max_age_days=max_cache_age_days):
+            return _summary(
+                symbol,
+                local,
+                updated=False,
+                source="cache_fresh",
+                data_source="CACHE_FRESH",
+                is_stale=False,
+                retrieved_at_utc=retrieved_at,
+                error=None,
+            )
+
+    errors: list[str] = []
     downloaded: list[OHLCVBar] = []
     source: str | None = None
     for provider_name, provider in (
@@ -150,13 +193,22 @@ def _update_symbol(
         imported = import_dir / f"{symbol}.csv"
         downloaded = _load_local_csv(imported)
         if downloaded:
-            source = "csv"
+            source = "historical_csv"
         else:
-            errors.append("csv: no rows")
+            errors.append("historical_csv: no rows")
 
     if not downloaded:
-        current = tuple(existing.values())
-        return _summary(symbol, current, updated=False, source=None, error="; ".join(errors))
+        current = tuple(sorted(existing.values(), key=lambda bar: bar.date))
+        return _summary(
+            symbol,
+            current,
+            updated=False,
+            source="cache_stale" if current else None,
+            data_source="CACHE_STALE_FALLBACK" if current else "UNAVAILABLE",
+            is_stale=bool(current),
+            retrieved_at_utc=retrieved_at,
+            error="; ".join(errors),
+        )
 
     merged = existing
     before = set(merged)
@@ -164,7 +216,16 @@ def _update_symbol(
     bars = sorted(merged.values(), key=lambda bar: bar.date)
     _write_csv(path, bars)
     updated = bool(set(merged) - before) or refresh
-    return _summary(symbol, bars, updated=updated, source=source, error=None)
+    return _summary(
+        symbol,
+        tuple(bars),
+        updated=updated,
+        source=source,
+        data_source="LIVE_PROVIDER" if source != "historical_csv" else "HISTORICAL_CSV_FALLBACK",
+        is_stale=False,
+        retrieved_at_utc=retrieved_at,
+        error=None,
+    )
 
 
 def _download_yahoo(symbol: str, start: date, end: date) -> list[OHLCVBar]:
@@ -223,15 +284,31 @@ def _download_yahoo_chart(symbol: str, start: date, end: date) -> list[OHLCVBar]
 
 def _download_stooq(symbol: str, start: date, end: date) -> list[OHLCVBar]:
     ticker = f"{symbol.lower()}.us"
-    url = (
-        f"https://stooq.com/q/d/l/?s={ticker}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
-    )
+    url = f"https://stooq.com/q/d/l/?s={ticker}&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d"
     return _parse_provider_csv(_read_url(url))
 
 
 def _read_url(url: str) -> str:
-    with urlopen(url, timeout=30) as response:
-        return response.read().decode("utf-8-sig")
+    """Read a public, read-only market-data URL with bounded 429 backoff."""
+    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/csv,application/json,*/*"})
+    attempts = HTTP_429_RETRIES + 1
+    for attempt in range(attempts):
+        try:
+            with urlopen(request, timeout=30) as response:
+                return response.read().decode("utf-8-sig")
+        except HTTPError as exc:
+            if exc.code != 429 or attempt >= HTTP_429_RETRIES:
+                raise
+            time.sleep(HTTP_429_BACKOFF_SECONDS[attempt])
+    raise RuntimeError("unreachable market-data retry state")
+
+
+def _cache_is_fresh(last_date: date, *, as_of: date, max_age_days: int) -> bool:
+    return 0 <= (as_of - last_date).days <= max_age_days
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _load_local_csv(path: Path) -> list[OHLCVBar]:
@@ -279,7 +356,10 @@ def _summary(
     *,
     updated: bool,
     source: str | None,
-    error: str | None,
+    data_source: str | None = None,
+    is_stale: bool = False,
+    retrieved_at_utc: str | None = None,
+    error: str | None = None,
 ) -> DownloadSummary:
     return DownloadSummary(
         symbol=symbol,
@@ -289,11 +369,15 @@ def _summary(
         updated=updated,
         source=source,
         error=error,
+        data_source=data_source,
+        is_stale=is_stale,
+        retrieved_at_utc=retrieved_at_utc,
     )
 
 
 def _write_csv(path: Path, bars: list[OHLCVBar]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as output:
+    temp = path.with_suffix(path.suffix + ".tmp")
+    with temp.open("w", newline="", encoding="utf-8") as output:
         writer = csv.DictWriter(output, fieldnames=list(REQUIRED_COLUMNS))
         writer.writeheader()
         for bar in bars:
@@ -307,6 +391,7 @@ def _write_csv(path: Path, bars: list[OHLCVBar]) -> None:
                     "volume": int(bar.volume) if bar.volume.is_integer() else bar.volume,
                 }
             )
+    temp.replace(path)
 
 
 if __name__ == "__main__":

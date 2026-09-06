@@ -1,0 +1,342 @@
+# Swing Bot to AI CIO Implementation Handoff
+
+Last updated: 2026-08-21  
+Repository: `percyagenticmay27-commits/Trade-Swing-Bot`  
+Branch: `feature/swing-phase2-enterprise-market-data`  
+DigitalOcean repository: `/home/tradebot/Trade-Swing-Bot`  
+Runtime root: `/home/tradebot/Trade-Swing-Bot/main`
+
+## Mandatory governance
+
+- Modify Trade-Swing-Bot only. Do not modify Trade-Dividend-Bot.
+- Preserve strategy ID `SWING-001`.
+- Preserve the AI CIO governed Swing allocation of $4,500. The allocation must continue to come from `AI_CIO_ENTERPRISE_EVIDENCE`; do not replace it with a production literal.
+- Preserve paper-only operation:
+  - `paper_trade_mode = true`
+  - `live_trading_enabled = false`
+  - `broker_execution_enabled = false`
+  - `order_placement_enabled = false`
+  - `capital_movement_enabled = false`
+- Do not fabricate SELL events or closed positions.
+- Tests may use synthetic fixtures only in temporary test directories.
+- Do not manually edit generated JSON or CSV results.
+- Update this handoff for every material development change or architectural decision.
+
+## Authoritative operational state
+
+The deployed Swing operational cycle is healthy:
+
+- `cycle_status = COMPLETE`
+- 15/15 stages passed
+- `registration_published = true`
+- Operational health: `HEALTHY`
+- Errors: none
+- Warnings: none
+
+AI CIO allocation:
+
+- `strategy_id = SWING-001`
+- `allocated_capital = 4500.0`
+- `allocation_source = AI_CIO_ENTERPRISE_EVIDENCE`
+
+Current paper portfolio:
+
+- Portfolio value: $4,525.52
+- Invested capital: $1,800.00
+- Cash: $2,700.00
+- Position count: 2
+- Unrealized P&L: $25.52
+
+The authentic paper ledger contains two BUY events and no SELL events:
+
+- `PAPER-SOXL-2026-08-04-BUY`
+- `PAPER-TQQQ-2026-08-04-BUY`
+
+There are currently zero authentic closed Swing positions.
+
+## Authoritative open-position drawdown
+
+Drawdown policy:
+
+- `max_drawdown_policy = AUTHORITATIVE_POSITION_HISTORY_ONLY`
+- `max_drawdown_inference_allowed = false`
+- Source: `COMPLETED_DAILY_MARK_TO_MARKET_BARS_SINCE_ENTRY`
+
+SOXL:
+
+- Max drawdown: $82.42 / 7.308378%
+- Peak: 140.25 on 2026-08-07
+- Trough: 130.00 on 2026-08-10
+- Observations: 8
+
+TQQQ:
+
+- Max drawdown: $25.17 / 3.728951%
+- Peak: 74.819999694824 on 2026-08-04
+- Trough: 72.029998779297 on 2026-08-06
+- Observations: 8
+
+Do not redesign `paper_position_excursion.py`; reuse its authority model.
+
+## Closed-position lifecycle development
+
+The handoff baseline was commit `dfc7bf3`, after authoritative open-position drawdown was completed.
+
+Seven later commits implemented closed-position drawdown-through-exit:
+
+1. `eb167df` — support closed-trade excursion normalization
+2. `6db5380` — preserve closed-trade excursion evidence
+3. `2abcd56` — archive closed-trade drawdown before KPI publication
+4. `3486003` — cover preserved closed-trade drawdown evidence
+5. `a8eed77` — consume canonical `closed_trades` analytics evidence
+6. `85cd9e5` — cover canonical `closed_trades` KPI analytics
+7. `897946d` — warn when closed-trade drawdown evidence is unavailable
+
+Architecture:
+
+- `trade_history_manager.py` remains the authoritative FIFO lifecycle source.
+- `paper_position_excursion.py` calculates drawdown from completed daily bars and terminates a closed trade's window at its actual exit date.
+- `closed_trade_excursion_archive.py` enriches canonical closed-trade rows and persists immutable evidence by `closed_trade_id`.
+- Archived drawdown survives a later shortened market-data window.
+- Archive identity mismatches fail closed.
+- Missing or incomplete lifetime history produces a warning and does not fabricate drawdown.
+- `publish_enterprise_strategy_kpis_v21.py` performs the lifecycle enrichment before Enterprise KPI publication.
+- `enterprise_strategy_kpi_publisher_v21.py` consumes canonical `closed_trades` evidence.
+
+## Product decision: dedicated Swing Trade Analytics report
+
+The Swing repository publishes authoritative Swing trade lifecycle evidence instead of forcing Swing into Dividend income/distribution fields.
+
+Artifacts:
+
+- `results/swing_trade_analytics_report.json`
+- `results/swing_trade_analytics_report.csv`
+- `results/swing_trade_analytics_report.md`
+
+Authority rules:
+
+- Open rows use current marked values and unrealized P&L.
+- Closed rows use actual paper SELL/FIFO lifecycle evidence and realized P&L.
+- Max drawdown is published only from authoritative position history.
+- No exit fields may be fabricated for open positions.
+- No closed row may be fabricated while the authentic ledger remains buy-only.
+
+## Swing Decision Journal final freeze
+
+Final complete repository suite after the deployed publication-wiring correction and regression lock:
+
+- **1044 passed, 1 skipped in 8.31s**
+- Exit code 0
+
+Final authoritative deployed state:
+
+- Operational cycle: `COMPLETE`, 15/15 stages, zero errors/warnings.
+- Decision Journal JSON and Markdown are generated by the normal KPI publication command.
+- KPI `dashboard_sections.decisions` equals the standalone report.
+- Registration v1.9 declares `decision_journal` and `swing_decision_journal_report.json`.
+- SOXL and TQQQ publish current Strategy A `HOLD` position decisions.
+- NBIS publishes a separate `WAITING_FOR_ENTRY` candidate decision with authoritative committee state `REJECTED`.
+- `rebalance_actions.json` is explicitly excluded from journal authority.
+- No BUY, SELL, exit, sale, or closed position is fabricated.
+- SWING-001, AI CIO governed $4,500 allocation, and all paper-only safety controls remain unchanged.
+
+Swing-side Decision Journal development is complete and frozen.
+
+## Weekly mapped-universe requalification and Tuesday scheduler — COMPLETE
+
+Status: **IMPLEMENTED, VALIDATED, DEPLOYED**
+
+Purpose:
+
+- Persist known verified underlying → leveraged-vehicle mappings even when a stock is no longer on the active watchlist.
+- Reconsider the full mapped universe weekly using Swing-owned evidence.
+- Promote a mapped name back to `WATCHLIST` when frozen Opportunity Quality Version 1.2 reaches the qualification threshold.
+- Do not automatically create a paper position from weekly qualification; normal Entry Score / committee / paper-trading gates still control purchase eligibility.
+- Reserve `REMOVED` for unavailable/invalid mapped vehicles rather than normal evidence weakening.
+
+Lifecycle behavior:
+
+- Valid mapping leaving active watchlist transitions to `MONITOR`, not permanent removal.
+- `MONITOR -> WATCHLIST` is allowed when weekly OQ requalifies.
+- A previously `REMOVED` candidate may return to `WATCHLIST` when the verified mapping is valid again and weekly OQ selects it.
+- User veto blocks progression.
+- Persistent mapping is not deleted merely because a candidate weakens or leaves the watchlist.
+
+Key lifecycle commits:
+
+- `7466cbd` — allow mapped candidates to return to Swing watchlist
+- `dcf1914` — test mapped candidate watchlist reactivation
+- `920ef52` — reserve REMOVED for unavailable mapped vehicles
+- `97cb357` — test recoverable lifecycle states
+- `925f0f6` — apply unavailable vehicle removal before lifecycle demotion
+- `e87a25a` — cover unavailable vehicles across lifecycle tiers
+
+Focused lifecycle/workflow validation on DigitalOcean:
+
+- **43 passed in 0.69s**
+
+Validated behaviors include:
+
+- stale watchlist + valid mapping -> `MONITOR`
+- unavailable mapped vehicle -> `REMOVED`
+- `MONITOR` can requalify
+- selected previously-removed mapped candidate can reactivate
+- user veto blocks progression
+- persistent mapped universe is reviewed independently of the AI CIO discovery bucket
+- frozen OQ V1.2 ranks mapped underlyings
+- Tuesday workflow remains paper-only and fail-closed at the orchestration boundary
+
+### SEC fundamental evidence configuration
+
+The initial Tuesday integration exposed a runtime configuration problem:
+
+- `SEC_USER_AGENT` was not configured.
+- SEC Companyfacts refresh therefore produced `FETCH_OR_PARSE_ERROR` for all 7 mapped underlyings.
+- The `.env` line was corrected to a quoted value:
+  - `SEC_USER_AGENT="Trade-Swing-Bot percyagenticmay27@gmail.com"`
+- After loading `/home/tradebot/Trade-Swing-Bot/.env`, the SEC refresh produced **7/7 usable fundamental metric sets** with exit code 0.
+
+Validated SEC fundamental availability:
+
+- AMZN: AVAILABLE
+- AVGO: AVAILABLE
+- GOOGL: AVAILABLE
+- NFLX: AVAILABLE
+- NVDA: AVAILABLE
+- PLTR: AVAILABLE
+- SNDK: AVAILABLE
+
+### Runtime evidence precedence correction
+
+A second integration defect was found after SEC fundamentals became available:
+
+- Fresh mapped-underlying evidence files were loaded first.
+- Later generic/stale OQ input files could overwrite those authoritative fresh values with stale zeros.
+- This caused valid fundamental, momentum, conviction, and technical evidence to be suppressed in the weekly OQ calculation.
+
+Fixes:
+
+- `466c715` — preserve authoritative mapped evidence source precedence
+- `5de368d` — regression test proving stale generic evidence cannot overwrite fresh mapped evidence
+
+Focused regression result:
+
+- **21 passed in 0.68s**, exit code 0
+
+### Corrected weekly OQ result
+
+Frozen minimum weekly OQ threshold remains **70.0**. No threshold or frozen V1.2 weight change was made.
+
+Corrected full-evidence ranking:
+
+1. PLTR -> PLTU — OQ **80.59** — selected
+2. NFLX -> NFLU — OQ **75.89** — selected
+3. AMZN -> AMZU — OQ **75.14** — selected
+4. SNDK -> SNXX — OQ **72.71** — selected
+5. NVDA -> NVDX — OQ **70.64** — selected
+6. AVGO -> AVL — OQ **68.74** — not selected; remains persistently mapped for future reconsideration
+7. GOOGL -> GGLL — OQ **54.93** — not selected; remains persistently mapped for future reconsideration
+
+All seven had complete `7/7` component evidence after the precedence fix.
+
+Current authoritative component evidence used by the weekly review:
+
+- AMZN: F 75.31 / MI 90.0 / C 80.83 / M 61.88 / T 50.0 / R 82.5 / PR 100.0
+- AVGO: F 91.08 / MI 80.0 / C 80.5 / M 31.98 / T 30.0 / R 82.5 / PR 100.0
+- GOOGL: F 87.13 / MI 51.67 / C 48.33 / M 55.83 / T 0.0 / R 82.5 / PR 100.0
+- NFLX: F 83.92 / MI 64.17 / C 62.0 / M 64.98 / T 100.0 / R 82.5 / PR 100.0
+- NVDA: F 97.5 / MI 56.67 / C 45.83 / M 43.43 / T 100.0 / R 82.5 / PR 100.0
+- PLTR: F 93.83 / MI 67.5 / C 66.83 / M 82.21 / T 90.0 / R 82.5 / PR 100.0
+- SNDK: F 97.26 / MI 72.5 / C 59.83 / M 67.76 / T 50.0 / R 82.5 / PR 100.0
+
+### Watchlist synchronization validation
+
+Weekly selected underlyings:
+
+- AMZN
+- NFLX
+- NVDA
+- PLTR
+- SNDK
+
+`oq_watchlist_sync.json` showed:
+
+- `promoted_to_watchlist = []`
+- `added_to_watchlist = []`
+- `retained_existing_lifecycle = [AMZN, NFLX, NVDA, PLTR, SNDK]`
+- `veto_blocked = []`
+
+This is correct because all five qualifying names were already in `WATCHLIST`; the sync retained them rather than recreating lifecycle rows.
+
+No weekly selection created a paper position. Weekly OQ remains an eligibility/watchlist lifecycle gate only.
+
+### Tuesday systemd scheduler deployment
+
+Existing deployment files were updated rather than creating duplicate units:
+
+- `deploy/systemd/swing-weekly-mapped-universe-review.service`
+- `deploy/systemd/swing-weekly-mapped-universe-review.timer`
+
+Deployment commits:
+
+- `c50a42c` — harden weekly mapped-universe service and load Swing environment
+- `066f37c` — schedule weekly mapped-universe review Tuesday at 8 PM ET
+
+Deployed service properties:
+
+- `User=tradebot`
+- `Group=tradebot`
+- `WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main`
+- `EnvironmentFile=/home/tradebot/Trade-Swing-Bot/.env`
+- `Environment=PYTHONUNBUFFERED=1`
+- `Environment=PYTHONPATH=/home/tradebot/Trade-Swing-Bot/main:/home/tradebot/Trade-Swing-Bot/main/src`
+- `ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.tuesday_mapped_universe_workflow`
+- `NoNewPrivileges=true`
+- `PrivateTmp=true`
+- `ProtectSystem=full`
+- `ReadWritePaths=/home/tradebot/Trade-Swing-Bot/main`
+- `ReadOnlyPaths=/home/tradebot/Trade-Dividend-Bot`
+
+Deployed timer properties:
+
+- `OnCalendar=Tue *-*-* 20:00:00 America/New_York`
+- `Persistent=true`
+- `AccuracySec=1min`
+- `Unit=swing-weekly-mapped-universe-review.service`
+
+DigitalOcean timer validation:
+
+- `systemctl is-enabled swing-weekly-mapped-universe-review.timer` -> **enabled**
+- `systemctl is-active swing-weekly-mapped-universe-review.timer` -> **active**
+- Next trigger shown by server in CDT: `Tue 2026-08-25 19:00:00 CDT`, which equals Tuesday 8:00 PM America/New_York.
+
+Manual systemd execution validation:
+
+- `sudo systemctl start swing-weekly-mapped-universe-review.service`
+- ExecStart exited `status=0/SUCCESS`
+- Journal: `Tuesday mapped universe workflow: COMPLETE; 5 selected`
+- Service deactivated successfully after the oneshot run, which is expected.
+
+Final generated workflow status after the systemd-run validation:
+
+- `status = COMPLETE`
+- `selected_watchlist_count = 5`
+- `selected_underlyings = [PLTR, NFLX, AMZN, SNDK, NVDA]`
+- `error = None`
+
+The weekly mapped-universe requalification lifecycle and Tuesday 8 PM ET scheduler are complete and deployed.
+
+## Latest complete repository validation
+
+After the later manual-strategy registration alignment and evidence-precedence work, the authoritative full repository suite reached:
+
+- **1258 passed, 1 skipped in 11.89s**
+- Exit code 0
+
+Do not use destructive reset/clean operations on the DigitalOcean checkout. Authentic runtime/generated evidence exists in the working tree. A retained targeted stash containing an older generated registration snapshot is a recovery checkpoint only; do not pop it.
+
+## Next development direction
+
+The mapped-universe weekly lifecycle is complete. Future Swing work should proceed from this state without changing the frozen OQ V1.2 weights or the 70 weekly threshold unless the user explicitly reopens those decisions.
+
+The old `watchlist_report.json` contains legacy Discovery-oriented fields that may not reflect the newer weekly OQ evidence. Do not conflate those fields with Opportunity Quality without a separate contract/design decision.

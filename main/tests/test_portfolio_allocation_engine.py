@@ -9,6 +9,7 @@ from swing_trade_bot.portfolio_allocation_engine import (
     PortfolioCandidate,
     build_candidates,
     format_portfolio_table,
+    read_watchlist_rows,
     write_portfolio_reports,
 )
 
@@ -101,7 +102,41 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
         self.assertEqual(rows[0].theme, "Semiconductors")
         self.assertEqual(rows[0].strategy_return, 22.5)
 
-    def test_report_files_are_written(self) -> None:
+    def test_current_json_watchlist_is_supported_for_runtime_allocation(self) -> None:
+        with workspace_temp_dir() as directory:
+            path = directory / "watchlist_report.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "strategy_id": "SWING-001",
+                        "freshness_status": "CURRENT_CYCLE",
+                        "rows": [
+                            {
+                                "underlying_symbol": "NBIS",
+                                "leveraged_symbol": "NEBX",
+                                "watchlist_status": "WATCHLIST",
+                                "watchlist_rank": 1,
+                                "themes": "AI Infrastructure;Data Centers",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = read_watchlist_rows(path)
+
+        self.assertEqual(list(rows), ["NBIS"])
+        self.assertEqual(rows["NBIS"]["watchlist_rank"], "1")
+        self.assertEqual(rows["NBIS"]["themes"], "AI Infrastructure;Data Centers")
+
+    def test_current_json_watchlist_missing_symbol_fails_clearly(self) -> None:
+        with workspace_temp_dir() as directory:
+            path = directory / "watchlist_report.json"
+            path.write_text(json.dumps({"rows": [{"watchlist_status": "WATCHLIST"}]}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "underlying_symbol"):
+                read_watchlist_rows(path)
+
+    def test_report_files_are_written_as_swing_owned_paper_evidence(self) -> None:
         with workspace_temp_dir() as directory:
             report = PortfolioAllocationEngine().allocate(
                 [candidate("SOXL", "HIGH", 1, "Semiconductors")]
@@ -110,14 +145,23 @@ class PortfolioAllocationEngineTests(unittest.TestCase):
             with csv_path.open(newline="", encoding="utf-8") as input_file:
                 rows = list(csv.DictReader(input_file))
             payload = json.loads(json_path.read_text(encoding="utf-8"))
+            temporary_files = list(directory.glob(".*.tmp"))
 
         self.assertEqual(rows[-1]["symbol"], "SGOV")
+        self.assertEqual(payload["strategy_id"], "SWING-001")
+        self.assertTrue(payload["generated_at"])
         self.assertTrue(payload["paper_trade_mode"])
+        self.assertTrue(payload["advisory_only"])
+        self.assertFalse(payload["live_trading_enabled"])
+        self.assertFalse(payload["broker_execution_enabled"])
+        self.assertFalse(payload["order_placement_enabled"])
+        self.assertFalse(payload["capital_movement_enabled"])
         self.assertIn("sgov_allocation", payload)
         self.assertTrue(payload["rank_controls_relative_allocation"])
         self.assertFalse(payload["theme_allocation_limit_enabled"])
         self.assertFalse(payload["strategy_assignment_boost_enabled"])
         self.assertFalse(payload["historical_return_weighting_enabled"])
+        self.assertEqual(temporary_files, [])
 
     def test_rebalance_table_includes_reserve(self) -> None:
         report = PortfolioAllocationEngine().allocate([candidate("SOXL", "HIGH", 1, "Semiconductors")])

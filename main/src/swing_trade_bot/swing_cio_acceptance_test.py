@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 MODULE_NAME = "swing_cio_acceptance_test"
-MODULE_VERSION = "1.0.0"
+MODULE_VERSION = "1.0.1"
 ACCEPTANCE_SCHEMA_VERSION = "1.0"
 PLUGIN_ID = "SWING-001"
 COMMITTEE_SEQUENCE = (
@@ -131,6 +131,22 @@ def validate_trace_replay(trace: Mapping[str, Any], replay: Mapping[str, Any]) -
     return AcceptanceValidationResult(not errors, tuple(errors), ())
 
 
+def _registration_governance_required(service_registration: Mapping[str, Any]) -> bool:
+    """Resolve legacy/current registration governance fields fail-closed.
+
+    Current registrations publish ``governance_review_required``. Older
+    acceptance fixtures used ``governance_required``. Either form is accepted,
+    but if both are present they must agree and must both require governance.
+    """
+    legacy = service_registration.get("governance_required")
+    current = service_registration.get("governance_review_required")
+    if legacy is not None and current is not None:
+        return legacy is True and current is True
+    if current is not None:
+        return current is True
+    return legacy is True
+
+
 def build_cio_acceptance_report(
     *,
     acceptance_config: Mapping[str, Any],
@@ -155,7 +171,7 @@ def build_cio_acceptance_report(
 
     registration_ready = (
         service_registration.get("paper_compatible") is True
-        and service_registration.get("governance_required") is True
+        and _registration_governance_required(service_registration)
         and service_registration.get("automatic_activation_allowed") is False
     )
     stage("PLUGIN_REGISTRATION", registration_ready, "Registration is paper-compatible and governance-controlled")

@@ -8,12 +8,12 @@ from swing_trade_bot.confidence_engine import build_confidence_report
 
 
 class ConfidenceEngineTests(unittest.TestCase):
-    def test_low_confidence_promotion_requires_metrics_trades_and_days(self) -> None:
+    def test_low_confidence_promotion_requires_metrics_and_trades_not_days(self) -> None:
         with temp_data_dir() as directory:
             root = Path(directory)
             scores_path = root / "best_by_score.csv"
             write_scores(scores_path, [("SOXL", 40.0, 1.50, 15)])
-            write_bars(root / "SOXL.csv", 252)
+            write_bars(root / "SOXL.csv", 1)
 
             rows = build_confidence_report(
                 scores_path,
@@ -24,16 +24,15 @@ class ConfidenceEngineTests(unittest.TestCase):
 
         soxl = by_symbol(rows, "SOXL")
         self.assertEqual(soxl.confidence, "LOW")
-        self.assertEqual(soxl.trading_days, 252)
+        self.assertEqual(soxl.trading_days, 1)
         self.assertTrue(soxl.promotion_eligible)
         self.assertFalse(soxl.demotion_eligible)
 
-    def test_medium_confidence_promotion_requires_stronger_metrics(self) -> None:
+    def test_medium_confidence_promotion_requires_stronger_metrics_not_days(self) -> None:
         with temp_data_dir() as directory:
             root = Path(directory)
             scores_path = root / "best_by_score.csv"
             write_scores(scores_path, [("TQQQ", 50.0, 2.00, 25)])
-            write_bars(root / "TQQQ.csv", 504)
 
             rows = build_confidence_report(
                 scores_path,
@@ -43,8 +42,37 @@ class ConfidenceEngineTests(unittest.TestCase):
             )
 
         tqqq = by_symbol(rows, "TQQQ")
+        self.assertEqual(tqqq.trading_days, 0)
         self.assertTrue(tqqq.promotion_eligible)
         self.assertFalse(tqqq.demotion_eligible)
+
+    def test_low_confidence_does_not_promote_below_trade_minimum(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLU", 75.0, 3.00, 14)])
+
+            rows = build_confidence_report(scores_path, root, output_dir=root)
+
+        nflu = by_symbol(rows, "NFLU")
+        self.assertEqual(nflu.confidence, "LOW")
+        self.assertFalse(nflu.promotion_eligible)
+
+    def test_medium_confidence_does_not_promote_below_trade_minimum(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLU", 70.0, 4.00, 24)])
+
+            rows = build_confidence_report(
+                scores_path,
+                root,
+                output_dir=root,
+                starting_confidence={"NFLU": "MEDIUM"},
+            )
+
+        nflu = by_symbol(rows, "NFLU")
+        self.assertFalse(nflu.promotion_eligible)
 
     def test_high_confidence_demotes_on_weak_win_rate_or_profit_factor(self) -> None:
         with temp_data_dir() as directory:
@@ -104,6 +132,52 @@ class ConfidenceEngineTests(unittest.TestCase):
         self.assertFalse(nebx.promotion_eligible)
         self.assertFalse(nebx.demotion_eligible)
 
+    def test_current_metric_symbol_is_not_blocked_by_legacy_static_universe(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLX", 58.82, 3.007, 34)])
+
+            rows = build_confidence_report(scores_path, root, output_dir=root)
+
+        self.assertEqual([row.symbol for row in rows], ["NFLX"])
+        nflx = by_symbol(rows, "NFLX")
+        self.assertEqual(nflx.confidence, "LOW")
+        self.assertTrue(nflx.promotion_eligible)
+
+    def test_current_candidate_without_performance_stays_low_and_unpromoted(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("SOXL", 60.0, 3.00, 30)])
+
+            rows = build_confidence_report(
+                scores_path,
+                root,
+                output_dir=root,
+                candidate_symbols=["NFLX"],
+            )
+
+        nflx = by_symbol(rows, "NFLX")
+        self.assertEqual(nflx.confidence, "LOW")
+        self.assertIsNone(nflx.win_rate)
+        self.assertIsNone(nflx.profit_factor)
+        self.assertEqual(nflx.trade_count, 0)
+        self.assertFalse(nflx.promotion_eligible)
+        self.assertFalse(nflx.demotion_eligible)
+
+    def test_legacy_symbols_are_not_emitted_without_current_evidence_or_candidate_status(self) -> None:
+        with temp_data_dir() as directory:
+            root = Path(directory)
+            scores_path = root / "best_by_score.csv"
+            write_scores(scores_path, [("NFLX", 58.82, 3.007, 34)])
+
+            rows = build_confidence_report(scores_path, root, output_dir=root)
+
+        self.assertEqual({row.symbol for row in rows}, {"NFLX"})
+        self.assertNotIn("NEBX", {row.symbol for row in rows})
+        self.assertNotIn("TQQQ", {row.symbol for row in rows})
+
     def test_report_files_are_written(self) -> None:
         with temp_data_dir() as directory:
             root = Path(directory)
@@ -118,8 +192,12 @@ class ConfidenceEngineTests(unittest.TestCase):
 
         self.assertIn("symbol,confidence,win_rate,profit_factor,trade_count,trading_days", csv_text)
         self.assertTrue(payload["paper_trade_mode"])
-        self.assertIn("promotion_rules", payload)
-        self.assertIn("demotion_rules", payload)
+        self.assertEqual(payload["universe_source"], "CURRENT_EVIDENCE_AND_CANDIDATES")
+        self.assertFalse(payload["legacy_static_universe_enabled"])
+        self.assertEqual(payload["confidence_policy_version"], "FORWARD_PRIMARY_V1")
+        self.assertTrue(payload["trading_days_informational_only"])
+        self.assertNotIn("trading_days_min", payload["promotion_rules"]["LOW_to_MEDIUM"])
+        self.assertNotIn("trading_days_min", payload["promotion_rules"]["MEDIUM_to_HIGH"])
         self.assertEqual(payload["rows"][0]["symbol"], "SOXL")
 
     def test_live_mode_is_rejected(self) -> None:

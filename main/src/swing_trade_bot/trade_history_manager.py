@@ -16,6 +16,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .paper_position_excursion import calculate_closed_long_trade_excursion
+
 PAPER_TRADE_MODE = True
 LIVE_TRADING_ENABLED = False
 BROKER_EXECUTION_ENABLED = False
@@ -69,6 +71,14 @@ class ClosedPaperTrade:
     holding_days: int
     active_strategy: str
     exit_reason: str
+    max_drawdown_amount: float | None = None
+    max_drawdown_percent: float | None = None
+    max_drawdown_peak_price: float | None = None
+    max_drawdown_peak_date: str | None = None
+    max_drawdown_trough_price: float | None = None
+    max_drawdown_trough_date: str | None = None
+    drawdown_observation_count: int | None = None
+    drawdown_source: str | None = None
     status: str = "CLOSED"
 
 
@@ -99,8 +109,18 @@ class TradeHistoryReport:
     schema_version: str = SCHEMA_VERSION
 
 
-def build_trade_history_report(*, trade_history_path: Path) -> TradeHistoryReport:
-    """Validate paper trade events and derive FIFO lifecycle evidence."""
+def build_trade_history_report(
+    *,
+    trade_history_path: Path,
+    data_dir: Path | None = None,
+) -> TradeHistoryReport:
+    """Validate paper trade events and derive FIFO lifecycle evidence.
+
+    When authoritative completed daily market history is available, each closed
+    long paper trade also receives lifetime peak-to-trough drawdown evidence.
+    Missing or truncated history leaves drawdown explicitly unavailable rather
+    than inferring it from entry/exit snapshots.
+    """
     payload = _load_json(trade_history_path)
     rows = payload.get("trades")
     if not isinstance(rows, list):
@@ -109,6 +129,7 @@ def build_trade_history_report(*, trade_history_path: Path) -> TradeHistoryRepor
     trades = tuple(_normalize_trade(row) for row in rows)
     _validate_unique_trade_ids(trades)
     ordered = tuple(sorted(trades, key=lambda item: (item.trade_date, item.trade_id)))
+    resolved_data_dir = _resolve_data_dir(trade_history_path, data_dir)
 
     lots_by_symbol: dict[str, list[dict[str, Any]]] = {}
     closed: list[ClosedPaperTrade] = []
@@ -140,17 +161,35 @@ def build_trade_history_report(*, trade_history_path: Path) -> TradeHistoryRepor
             proceeds = round(matched * trade.price, 2)
             realized = round(proceeds - cost_basis, 2)
             realized_percent = round((realized / cost_basis) * 100.0, 6) if cost_basis else 0.0
-            holding_days = (
-                date.fromisoformat(trade.trade_date)
-                - date.fromisoformat(str(lot["entry_date"]))
-            ).days
+            entry_day = date.fromisoformat(str(lot["entry_date"]))
+            exit_day = date.fromisoformat(trade.trade_date)
+            holding_days = (exit_day - entry_day).days
             if holding_days < 0:
                 raise ValueError(f"SELL {trade.trade_id} occurs before its matched BUY")
+
+            closed_trade_id = f"CLOSED-{lot['trade_id']}-{trade.trade_id}-{len(closed) + 1}"
+            excursion = None
+            if resolved_data_dir is not None:
+                try:
+                    excursion = calculate_closed_long_trade_excursion(
+                        market_data_path=resolved_data_dir / f"{trade.symbol}.csv",
+                        entry_date=entry_day,
+                        exit_date=exit_day,
+                        entry_price=float(lot["entry_price"]),
+                        shares=matched,
+                    )
+                except (FileNotFoundError, ValueError) as exc:
+                    warnings.append(
+                        f"{closed_trade_id} max drawdown unavailable from authoritative market history: {exc}"
+                    )
+                if excursion is None:
+                    warnings.append(
+                        f"{closed_trade_id} max drawdown is not reportable because authoritative market history does not cover the full holding period."
+                    )
+
             closed.append(
                 ClosedPaperTrade(
-                    closed_trade_id=(
-                        f"CLOSED-{lot['trade_id']}-{trade.trade_id}-{len(closed) + 1}"
-                    ),
+                    closed_trade_id=closed_trade_id,
                     symbol=trade.symbol,
                     buy_trade_id=str(lot["trade_id"]),
                     sell_trade_id=trade.trade_id,
@@ -166,6 +205,14 @@ def build_trade_history_report(*, trade_history_path: Path) -> TradeHistoryRepor
                     holding_days=holding_days,
                     active_strategy=str(lot["active_strategy"]),
                     exit_reason=trade.reason,
+                    max_drawdown_amount=(excursion.max_drawdown_amount if excursion else None),
+                    max_drawdown_percent=(excursion.max_drawdown_percent if excursion else None),
+                    max_drawdown_peak_price=(excursion.max_drawdown_peak_price if excursion else None),
+                    max_drawdown_peak_date=(excursion.max_drawdown_peak_date if excursion else None),
+                    max_drawdown_trough_price=(excursion.max_drawdown_trough_price if excursion else None),
+                    max_drawdown_trough_date=(excursion.max_drawdown_trough_date if excursion else None),
+                    drawdown_observation_count=(excursion.observation_count if excursion else None),
+                    drawdown_source=(excursion.source if excursion else None),
                 )
             )
             lot["remaining_shares"] = round(float(lot["remaining_shares"]) - matched, 8)
@@ -216,7 +263,7 @@ def build_trade_history_report(*, trade_history_path: Path) -> TradeHistoryRepor
         trades=ordered,
         open_lots=tuple(sorted(open_lots, key=lambda item: (item.symbol, item.entry_date, item.source_trade_id))),
         closed_trades=closed_tuple,
-        warnings=tuple(warnings),
+        warnings=tuple(dict.fromkeys(warnings)),
         errors=(),
     )
 
@@ -262,10 +309,24 @@ def build_and_write_trade_history_report(
     *,
     trade_history_path: Path = Path("results/paper_ledger/trade_history.json"),
     output_dir: Path = Path("results/paper_ledger"),
+    data_dir: Path | None = None,
 ) -> TradeHistoryReport:
-    report = build_trade_history_report(trade_history_path=trade_history_path)
+    report = build_trade_history_report(
+        trade_history_path=trade_history_path,
+        data_dir=data_dir,
+    )
     write_trade_history_outputs(output_dir, report)
     return report
+
+
+def _resolve_data_dir(trade_history_path: Path, data_dir: Path | None) -> Path | None:
+    if data_dir is not None:
+        return Path(data_dir)
+    try:
+        candidate = trade_history_path.resolve().parents[2] / "data"
+    except IndexError:
+        return None
+    return candidate if candidate.is_dir() else None
 
 
 def _normalize_trade(row: Any) -> ManagedTrade:

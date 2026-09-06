@@ -144,6 +144,11 @@ def render_freeze_markdown(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# Compatibility alias for orchestration modules that import a generic renderer.
+# The canonical public renderer remains render_freeze_markdown.
+render_markdown = render_freeze_markdown
+
+
 def write_freeze_report(report: Mapping[str, Any], output_dir: str | Path) -> dict[str, str]:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)

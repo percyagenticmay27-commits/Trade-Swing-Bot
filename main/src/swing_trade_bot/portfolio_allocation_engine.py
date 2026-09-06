@@ -9,12 +9,16 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
+import tempfile
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 
+STRATEGY_ID = "SWING-001"
 LEVEL_CAPS = {
     "HIGH": 0.25,
     "MEDIUM": 0.15,
@@ -82,9 +86,9 @@ class PortfolioAllocationEngine:
     def allocate(self, candidates: Sequence[PortfolioCandidate]) -> PortfolioAllocationReport:
         """Return capped allocation percentages plus SGOV reserve.
 
-Better opportunity rank increases the raw allocation weight, subject to confidence,
-position, theme, and paper-only risk caps.
-"""
+        Better opportunity rank increases the raw allocation weight, subject to
+        confidence and paper-only position caps.
+        """
         live_candidates = [
             candidate
             for candidate in candidates
@@ -186,7 +190,7 @@ def build_candidates(
 
 
 def write_portfolio_reports(output_dir: Path, report: PortfolioAllocationReport) -> tuple[Path, Path]:
-    """Write portfolio_allocations.csv and portfolio_allocations.json."""
+    """Atomically write portfolio_allocations.csv and portfolio_allocations.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "portfolio_allocations.csv"
     json_path = output_dir / "portfolio_allocations.json"
@@ -203,30 +207,71 @@ def write_portfolio_reports(output_dir: Path, report: PortfolioAllocationReport)
             "cash_equivalent": CASH_EQUIVALENT_SYMBOL,
         },
     ]
-    with csv_path.open("w", newline="", encoding="utf-8") as output:
-        writer = csv.DictWriter(output, fieldnames=list(PORTFOLIO_COLUMNS))
-        writer.writeheader()
-        writer.writerows(rows)
-    json_path.write_text(
-        json.dumps(
-            {
-                "paper_trade_mode": True,
-                "monthly_rebalance": True,
-                "max_position_allocation": MAX_POSITION_ALLOCATION,
-                "rank_controls_relative_allocation": True,
-                "theme_allocation_limit_enabled": False,
-                "strategy_assignment_boost_enabled": False,
-                "historical_return_weighting_enabled": False,
-                "cash_allocation": report.cash_allocation,
-                "sgov_allocation": report.sgov_allocation,
-                "allocations": rows,
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    _atomic_csv(csv_path, list(PORTFOLIO_COLUMNS), rows)
+    _atomic_json(
+        json_path,
+        {
+            "strategy_id": STRATEGY_ID,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "paper_trade_mode": True,
+            "advisory_only": True,
+            "live_trading_enabled": False,
+            "broker_execution_enabled": False,
+            "order_placement_enabled": False,
+            "capital_movement_enabled": False,
+            "monthly_rebalance": True,
+            "max_position_allocation": MAX_POSITION_ALLOCATION,
+            "rank_controls_relative_allocation": True,
+            "theme_allocation_limit_enabled": False,
+            "strategy_assignment_boost_enabled": False,
+            "historical_return_weighting_enabled": False,
+            "cash_allocation": report.cash_allocation,
+            "sgov_allocation": report.sgov_allocation,
+            "allocations": rows,
+        },
     )
     return csv_path, json_path
+
+
+def _atomic_csv(path: Path, fields: list[str], rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as output:
+            writer = csv.DictWriter(output, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            json.dump(dict(payload), output, indent=2, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def format_portfolio_table(report: PortfolioAllocationReport) -> str:
@@ -258,6 +303,9 @@ def read_confidence_rows(path: Path) -> dict[str, dict[str, str]]:
 
 
 def read_watchlist_rows(path: Path) -> dict[str, dict[str, str]]:
+    """Read the authoritative watchlist from either CSV or current JSON report."""
+    if path.suffix.lower() == ".json":
+        return _read_json_by_symbol(path, "underlying_symbol", rows_field="rows")
     return _read_by_symbol(path, "underlying_symbol")
 
 
@@ -289,9 +337,45 @@ def _read_by_symbol(path: Path, symbol_field: str) -> dict[str, dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as input_file:
         rows: dict[str, dict[str, str]] = {}
         for row in csv.DictReader(input_file):
-            symbol = row[symbol_field].strip().upper()
-            rows[symbol] = {key: value for key, value in row.items()}
+            if symbol_field not in row:
+                raise ValueError(f"{path} is missing required column {symbol_field!r}")
+            symbol = str(row.get(symbol_field, "")).strip().upper()
+            if not symbol:
+                continue
+            rows[symbol] = {key: "" if value is None else str(value) for key, value in row.items()}
         return rows
+
+
+def _read_json_by_symbol(
+    path: Path,
+    symbol_field: str,
+    *,
+    rows_field: str,
+) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"Expected JSON object: {path}")
+    raw_rows = payload.get(rows_field)
+    if not isinstance(raw_rows, list):
+        raise ValueError(f"{path} must contain a {rows_field!r} list")
+    rows: dict[str, dict[str, str]] = {}
+    for index, raw_row in enumerate(raw_rows):
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{path} {rows_field}[{index}] must be an object")
+        if symbol_field not in raw_row:
+            raise ValueError(
+                f"{path} {rows_field}[{index}] is missing required field {symbol_field!r}"
+            )
+        symbol = str(raw_row.get(symbol_field, "")).strip().upper()
+        if not symbol:
+            continue
+        rows[symbol] = {
+            str(key): "" if value is None else str(value)
+            for key, value in raw_row.items()
+        }
+    return rows
 
 
 def _raw_rank_weights(candidates: Sequence[PortfolioCandidate]) -> list[float]:

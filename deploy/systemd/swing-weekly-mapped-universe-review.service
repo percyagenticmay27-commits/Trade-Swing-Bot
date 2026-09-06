@@ -1,0 +1,32 @@
+[Unit]
+Description=Trade Swing Bot Tuesday mapped-underlying evidence refresh and strength review
+Documentation=https://github.com/percyagenticmay27-commits/Trade-Swing-Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tradebot
+Group=tradebot
+WorkingDirectory=/home/tradebot/Trade-Swing-Bot/main
+EnvironmentFile=/home/tradebot/Trade-Swing-Bot/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/tradebot/Trade-Swing-Bot/main:/home/tradebot/Trade-Swing-Bot/main/src
+ExecStart=/home/tradebot/Trade-Swing-Bot/main/.venv/bin/python -m swing_trade_bot.tuesday_mapped_universe_workflow
+TimeoutStartSec=30min
+Nice=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/tradebot/Trade-Swing-Bot/main
+ReadOnlyPaths=/home/tradebot/Trade-Dividend-Bot
+StandardOutput=journal
+StandardError=journal
+
+# Permanent paper-safety boundary: this unit performs Swing-owned evidence refresh,
+# Opportunity Quality review, and watchlist lifecycle synchronization only.
+# It must never invoke broker execution, live orders, or capital moves.
+
+[Install]
+WantedBy=multi-user.target

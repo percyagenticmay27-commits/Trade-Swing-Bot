@@ -10,12 +10,30 @@
   "publish_registration_last": true,
   "atomic_publish_required": true,
   "static_artifacts": {
+    "enterprise_strategy_assignments.json": "configs/frozen_strategy_assignments.json",
     "swing_plugin_manifest.json": "configs/swing_cio_plugin_manifest.json",
     "swing_output_contract.json": "configs/swing_cio_output_contract.json",
     "swing_schema_registry.json": "configs/swing_cio_schema_registry.json",
     "swing_strategy_service_registration.json": "configs/swing_strategy_service_registration.json",
     "swing_strategy_capability_profiles.json": "configs/swing_strategy_capability_profiles.json",
     "swing_committee_governance.json": "configs/swing_committee_governance.json"
+  },
+  "runtime_evidence_refresh": {
+    "enabled": true,
+    "watchlist": {
+      "candidates_path": "results/discovery_candidates_runtime.csv",
+      "mentions_path": "results/discovery_mentions_runtime.csv",
+      "financial_health_path": "examples/financial_health.csv"
+    },
+    "portfolio_allocation": {
+      "confidence_path": "results/confidence_report.csv",
+      "strategy_recommendations_path": "results/strategy_recommendations.csv"
+    },
+    "paper_ledger": {
+      "ledger_dir": "results/paper_ledger",
+      "data_dir": "data",
+      "max_price_age_days": 5
+    }
   },
   "validation_config": "configs/swing_cio_validation_suite.json",
   "acceptance_config": "configs/swing_cio_acceptance_test.json",

@@ -8,7 +8,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .allocation_engine import ALLOCATION_UNIVERSE, FORCED_CONFIDENCE
+from .allocation_engine import FORCED_CONFIDENCE
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,19 +31,39 @@ def build_confidence_report(
     *,
     output_dir: Path | None = None,
     starting_confidence: dict[str, str] | None = None,
+    candidate_symbols: list[str] | tuple[str, ...] | set[str] | None = None,
     paper_trade_mode: bool = True,
 ) -> list[ConfidenceRow]:
-    """Evaluate confidence for all allocation universe symbols and write reports."""
+    """Evaluate confidence for the current evidence-driven candidate universe.
+
+    The confidence universe is no longer the legacy static allocation universe.
+    Symbols are discovered from current performance evidence, explicit starting
+    confidence, and optional current candidate symbols. Legacy forced-confidence
+    values are retained only as starting labels for matching discovered symbols.
+
+    Trading-day counts remain reportable context only. Version 1 forward-confidence
+    promotion is governed by win rate, profit factor, and completed trade count.
+    """
     if not paper_trade_mode:
         raise ValueError("Confidence engine requires paper_trade_mode=True")
     metrics = _read_metrics(scores_path)
-    confidence = {
-        symbol: value.upper()
-        for symbol, value in (starting_confidence or FORCED_CONFIDENCE).items()
+    explicit_confidence = {
+        symbol.upper(): value.upper()
+        for symbol, value in (starting_confidence or {}).items()
     }
+    universe = _confidence_universe(
+        metrics=metrics,
+        starting_confidence=explicit_confidence,
+        candidate_symbols=candidate_symbols,
+    )
     rows = [
-        _evaluate_symbol(symbol, confidence.get(symbol, "LOW"), metrics.get(symbol), _trading_days(data_dir, symbol))
-        for symbol in ALLOCATION_UNIVERSE
+        _evaluate_symbol(
+            symbol,
+            explicit_confidence.get(symbol, FORCED_CONFIDENCE.get(symbol, "LOW")),
+            metrics.get(symbol),
+            _trading_days(data_dir, symbol),
+        )
+        for symbol in universe
     ]
     write_confidence_reports(output_dir or scores_path.parent, rows)
     return rows
@@ -74,18 +94,20 @@ def write_confidence_reports(output_dir: Path, rows: list[ConfidenceRow]) -> tup
         json.dumps(
             {
                 "paper_trade_mode": True,
+                "universe_source": "CURRENT_EVIDENCE_AND_CANDIDATES",
+                "legacy_static_universe_enabled": False,
+                "confidence_policy_version": "FORWARD_PRIMARY_V1",
+                "trading_days_informational_only": True,
                 "promotion_rules": {
                     "LOW_to_MEDIUM": {
                         "win_rate_min": 40.0,
                         "profit_factor_min": 1.50,
                         "trade_count_min": 15,
-                        "trading_days_min": 252,
                     },
                     "MEDIUM_to_HIGH": {
                         "win_rate_min": 50.0,
                         "profit_factor_min": 2.00,
                         "trade_count_min": 25,
-                        "trading_days_min": 504,
                     },
                 },
                 "demotion_rules": {
@@ -117,6 +139,8 @@ def format_confidence_table(rows: list[ConfidenceRow]) -> str:
         )
         for row in rows
     ]
+    if not table_rows:
+        return "  ".join(headers)
     widths = [
         max(len(headers[index]), *(len(row[index]) for row in table_rows))
         for index in range(len(headers))
@@ -135,27 +159,50 @@ def main() -> None:
     parser.add_argument("--scores", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument(
+        "--candidate-symbol",
+        action="append",
+        default=[],
+        help="Optional current candidate symbol. Can be provided multiple times.",
+    )
     args = parser.parse_args()
 
     rows = build_confidence_report(
         args.scores,
         args.data_dir,
         output_dir=args.output_dir,
+        candidate_symbols=args.candidate_symbol,
         paper_trade_mode=True,
     )
     print(format_confidence_table(rows))
 
 
+def _confidence_universe(
+    *,
+    metrics: dict[str, dict[str, float | None]],
+    starting_confidence: dict[str, str],
+    candidate_symbols: list[str] | tuple[str, ...] | set[str] | None,
+) -> tuple[str, ...]:
+    """Return deterministic current symbols without importing the legacy universe."""
+    symbols = set(metrics) | set(starting_confidence)
+    symbols.update(
+        str(symbol).strip().upper()
+        for symbol in (candidate_symbols or ())
+        if str(symbol).strip()
+    )
+    return tuple(sorted(symbols))
+
+
 def _evaluate_symbol(
     symbol: str,
     confidence: str,
-    metrics: dict[str, float] | None,
+    metrics: dict[str, float | None] | None,
     trading_days: int,
 ) -> ConfidenceRow:
     win_rate = metrics.get("win_rate") if metrics else None
     profit_factor = metrics.get("profit_factor") if metrics else None
-    trade_count = int(metrics.get("number_of_trades", 0)) if metrics else 0
-    promotion_eligible = _promotion_eligible(confidence, win_rate, profit_factor, trade_count, trading_days)
+    trade_count = int(metrics.get("number_of_trades") or 0) if metrics else 0
+    promotion_eligible = _promotion_eligible(confidence, win_rate, profit_factor, trade_count)
     demotion_eligible = _demotion_eligible(confidence, win_rate, profit_factor)
     return ConfidenceRow(
         symbol=symbol,
@@ -174,14 +221,13 @@ def _promotion_eligible(
     win_rate: float | None,
     profit_factor: float | None,
     trade_count: int,
-    trading_days: int,
 ) -> bool:
     if win_rate is None or profit_factor is None:
         return False
     if confidence == "LOW":
-        return win_rate >= 40.0 and profit_factor >= 1.50 and trade_count >= 15 and trading_days >= 252
+        return win_rate >= 40.0 and profit_factor >= 1.50 and trade_count >= 15
     if confidence == "MEDIUM":
-        return win_rate >= 50.0 and profit_factor >= 2.00 and trade_count >= 25 and trading_days >= 504
+        return win_rate >= 50.0 and profit_factor >= 2.00 and trade_count >= 25
     return False
 
 
@@ -195,18 +241,23 @@ def _demotion_eligible(confidence: str, win_rate: float | None, profit_factor: f
     return False
 
 
-def _read_metrics(path: Path) -> dict[str, dict[str, float]]:
+def _read_metrics(path: Path) -> dict[str, dict[str, float | None]]:
     with path.open(newline="", encoding="utf-8-sig") as input_file:
         reader = csv.DictReader(input_file)
-        metrics: dict[str, dict[str, float]] = {}
+        metrics: dict[str, dict[str, float | None]] = {}
         for row in reader:
             symbol = row["symbol"].strip().upper()
             metrics[symbol] = {
-                "win_rate": float(row["win_rate"]),
-                "profit_factor": float(row["profit_factor"]),
-                "number_of_trades": float(row["number_of_trades"]),
+                "win_rate": _optional_float(row.get("win_rate")),
+                "profit_factor": _optional_float(row.get("profit_factor")),
+                "number_of_trades": _optional_float(row.get("number_of_trades")) or 0.0,
             }
     return metrics
+
+
+def _optional_float(value: str | None) -> float | None:
+    text = "" if value is None else value.strip()
+    return None if not text else float(text)
 
 
 def _trading_days(data_dir: Path, symbol: str) -> int:

@@ -17,16 +17,19 @@ PUBLISHED_PATH = Path("results/swing_strategy_service_registration.json")
 ALLOWED_REPORT_FILENAMES = {
     "opportunity_quality_report.json",
     "executive_dashboard.json",
+    "manual_entry_strategy_form_contract.json",
     "monthly_command_center.json",
     "portfolio_allocations.json",
-    "portfolio_risk.json",
-    "position_lifecycle.json",
+    "trade_lifecycle_report.json",
     "watchlist_report.json",
     "stock_performance_report.json",
     "weekly_stock_report.json",
     "market_data_refresh_status.json",
     "swing_daily_cycle_report.json",
     "enterprise_strategy_kpis.json",
+    "swing_strategy_alerts_report.json",
+    "swing_decision_journal_report.json",
+    "swing_trade_analytics_report.json",
 }
 
 
@@ -40,7 +43,7 @@ def manifest() -> dict:
         "display_name": "Trade Swing Bot",
         "plugin_type": "STRATEGY_PLUGIN",
         "strategy_class": "SWING_TRADING",
-        "plugin_version": "1.4",
+        "plugin_version": "1.6",
         "runtime_status": "AVAILABLE",
         "safety": {
             "paper_trade_mode": True,
@@ -58,8 +61,7 @@ def test_registry_v2_metadata_validates():
     result = validate_strategy_service_registration(registration)
     assert result.valid, result.errors
     assert registration["plugin_contract_version"] == "2.0"
-    assert len(registration["capabilities"]) > 0
-    assert len(registration["dashboard_artifacts"]) > 0
+    assert registration["repository_root"] == DEPLOYMENT_ROOT
 
 
 def test_published_registration_matches_configured_registry_v2_metadata():
@@ -74,6 +76,7 @@ def test_published_registration_matches_configured_registry_v2_metadata():
 def test_builder_produces_registry_v2_metadata():
     registration = build_strategy_service_registration(manifest())
     assert registration["plugin_contract_version"] == "2.0"
+    assert registration["repository_root"] == DEPLOYMENT_ROOT
     assert validate_strategy_service_registration(registration).valid
 
 
@@ -86,6 +89,7 @@ def test_capability_names_are_deterministic_unique_and_host_compatible():
     assert tuple(capabilities) == CAPABILITIES
     assert set(artifact_types) <= set(capabilities)
     assert all(item == item.lower() for item in capabilities)
+    assert "portfolio_risk" not in capabilities
 
 
 def test_artifact_ids_are_unique():
@@ -94,32 +98,36 @@ def test_artifact_ids_are_unique():
     assert len(artifact_ids) == len(set(artifact_ids))
 
 
-def test_evidence_paths_are_absolute_and_rooted_on_digitalocean():
+def test_evidence_paths_are_repository_relative_and_contained():
     registration = load_registration()
+    assert registration["repository_root"] == DEPLOYMENT_ROOT
     for field in ("manifest_path", "presentation_path"):
-        path = registration[field]
-        assert PurePosixPath(path).is_absolute()
-        assert path.startswith(DEPLOYMENT_ROOT + "/")
+        path = PurePosixPath(registration[field])
+        assert not path.is_absolute()
+        assert ".." not in path.parts
     for artifact in registration["dashboard_artifacts"]:
-        path = artifact["path"]
-        assert PurePosixPath(path).is_absolute()
-        assert path.startswith(DEPLOYMENT_ROOT + "/results/")
+        path = PurePosixPath(artifact["path"])
+        assert not path.is_absolute()
+        assert path.parts[0] == "results"
+        assert ".." not in path.parts
         assert artifact["scope"] == "STRATEGY"
 
 
 def test_only_authoritative_swing_report_filenames_are_declared():
-    declared = {
-        PurePosixPath(item["path"]).name
-        for item in load_registration()["dashboard_artifacts"]
-    }
+    declared = {PurePosixPath(item["path"]).name for item in load_registration()["dashboard_artifacts"]}
     assert declared == ALLOWED_REPORT_FILENAMES
     assert declared == {PurePosixPath(item["path"]).name for item in DASHBOARD_ARTIFACTS}
+
+
+def test_position_lifecycle_uses_authentic_trade_lifecycle_artifact():
+    artifact = next(item for item in load_registration()["dashboard_artifacts"] if item["artifact_type"] == "position_lifecycle")
+    assert artifact["path"] == "results/trade_lifecycle_report.json"
 
 
 def test_strategy_kpi_artifact_is_declared_for_dashboard_evidence():
     registration = load_registration()
     artifact = next(item for item in registration["dashboard_artifacts"] if item["artifact_type"] == "strategy_kpis")
-    assert artifact["path"].endswith("/results/enterprise_strategy_kpis.json")
+    assert artifact["path"] == "results/enterprise_strategy_kpis.json"
     assert artifact["required"] is False
     assert "strategy_kpis" in registration["capabilities"]
 
@@ -147,6 +155,7 @@ def test_optional_missing_reports_do_not_invalidate_registration(tmp_path):
         ("reporting_only", False),
         ("live_trading_enabled", True),
         ("broker_execution_enabled", True),
+        ("order_placement_enabled", True),
         ("capital_movement_enabled", True),
         ("automatic_activation_allowed", True),
         ("governance_review_required", False),
@@ -186,9 +195,15 @@ def test_artifact_without_matching_capability_is_rejected():
     assert any("no matching enabled capability" in error for error in result.errors)
 
 
-def test_relative_artifact_path_is_rejected():
+def test_absolute_artifact_path_is_rejected():
     registration = load_registration()
-    registration["dashboard_artifacts"][0]["path"] = "results/opportunity_quality_report.json"
+    registration["dashboard_artifacts"][0]["path"] = f"{DEPLOYMENT_ROOT}/results/opportunity_quality_report.json"
+    assert not validate_strategy_service_registration(registration).valid
+
+
+def test_parent_traversal_artifact_path_is_rejected():
+    registration = load_registration()
+    registration["dashboard_artifacts"][0]["path"] = "results/../outside.json"
     assert not validate_strategy_service_registration(registration).valid
 
 

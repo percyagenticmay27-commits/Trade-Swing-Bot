@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule Trade Swing Bot Paper-Only Operational Cycle
+
+[Timer]
+# Run after the US market close so completed daily candles are available.
+# The timer is intentionally not enabled by repository installation alone.
+OnCalendar=Mon..Fri *-*-* 18:30:00 America/New_York
+Persistent=true
+AccuracySec=1min
+Unit=swing-operational.service
+
+[Install]
+WantedBy=timers.target

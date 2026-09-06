@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Trade Swing Bot weekend leveraged-vehicle maintenance Sunday morning
+
+[Timer]
+OnCalendar=Sun *-*-* 09:00:00
+Persistent=true
+Unit=swing-weekend-vehicle-maintenance.service
+
+[Install]
+WantedBy=timers.target

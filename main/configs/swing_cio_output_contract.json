@@ -6,7 +6,13 @@
   "paper_trade_mode": true,
   "advisory_only": true,
   "direct_database_writes": false,
-  "supported_formats": ["json", "csv", "markdown", "html", "zip"],
+  "supported_formats": [
+    "json",
+    "csv",
+    "markdown",
+    "html",
+    "zip"
+  ],
   "timestamp_policy": {
     "preferred_field": "generated_at_utc",
     "format": "ISO-8601 UTC",
@@ -23,83 +29,6 @@
   },
   "artifacts": [
     {
-      "artifact_id": "strategy_assignments_json",
-      "path": "results/strategy_assignments.json",
-      "format": "json",
-      "owner_module": "strategy_assignment_engine",
-      "artifact_version": "1.3",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Strategy Assignment",
-      "root_type": "object",
-      "required_fields": ["paper_trade_mode", "version", "assignments"],
-      "record_collection": "assignments",
-      "record_required_fields": ["symbol", "active_strategy", "recommended_strategy", "switch_eligible", "confidence_level", "review_window", "cooldown_remaining_weeks", "reason"],
-      "allowed_enums": {
-        "active_strategy": ["Strategy A", "Strategy B"],
-        "recommended_strategy": ["Strategy A", "Strategy B"],
-        "confidence_level": ["warning", "review", "preferred", "high", "hold"],
-        "review_window": ["1_week", "4_week", "8_week", "12_week"]
-      },
-      "missing_behavior": "WARN"
-    },
-    {
-      "artifact_id": "strategy_assignments_csv",
-      "path": "results/strategy_assignments.csv",
-      "format": "csv",
-      "owner_module": "strategy_assignment_engine",
-      "artifact_version": "1.3",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Strategy Assignment",
-      "columns": ["symbol", "active_strategy", "recommended_strategy", "switch_eligible", "confidence_level", "review_window", "cooldown_remaining_weeks", "reason", "strategy_a_return", "strategy_b_return", "strategy_a_max_drawdown", "strategy_b_max_drawdown", "strategy_a_win_rate", "strategy_b_win_rate", "strategy_a_trade_count", "strategy_b_trade_count"],
-      "missing_behavior": "WARN"
-    },
-    {
-      "artifact_id": "strategy_assignments_markdown",
-      "path": "results/strategy_assignments.md",
-      "format": "markdown",
-      "owner_module": "strategy_assignment_engine",
-      "artifact_version": "1.3",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Strategy Assignment",
-      "required_sections": ["Strategy Assignment Report"],
-      "missing_behavior": "WARN"
-    },
-    {
-      "artifact_id": "thesis_monitor_json",
-      "path": "results/thesis_monitor_report.json",
-      "format": "json",
-      "owner_module": "thesis_monitor",
-      "artifact_version": "1.4",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Thesis Monitor",
-      "root_type": "object",
-      "required_fields": ["paper_trade_mode", "version", "reviews"],
-      "record_collection": "reviews",
-      "record_required_fields": ["symbol", "active_strategy", "thesis_state", "thesis_health_score", "thesis_intact", "suggested_review_action", "evidence_count", "weak_evidence_count", "original_thesis", "reason"],
-      "allowed_enums": {
-        "active_strategy": ["Strategy A", "Strategy B"],
-        "thesis_state": ["strong", "intact", "weakening", "broken", "unknown"],
-        "suggested_review_action": ["continue_research", "monitor_thesis", "review_thesis", "high_priority_review", "insufficient_evidence"]
-      },
-      "missing_behavior": "WARN"
-    },
-    {
-      "artifact_id": "thesis_monitor_markdown",
-      "path": "results/thesis_monitor_report.md",
-      "format": "markdown",
-      "owner_module": "thesis_monitor",
-      "artifact_version": "1.4",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Thesis Monitor",
-      "required_sections": ["Thesis Monitor Report"],
-      "missing_behavior": "WARN"
-    },
-    {
       "artifact_id": "executive_dashboard_json",
       "path": "results/executive_dashboard.json",
       "format": "json",
@@ -109,20 +38,9 @@
       "required": false,
       "dashboard_destination": "Swing Strategy Overview",
       "root_type": "object",
-      "required_fields": ["paper_trade_mode"],
-      "missing_behavior": "WARN"
-    },
-    {
-      "artifact_id": "monthly_command_center_json",
-      "path": "results/monthly_command_center.json",
-      "format": "json",
-      "owner_module": "monthly_command_center",
-      "artifact_version": "1.0",
-      "schema_version": "1.0",
-      "required": false,
-      "dashboard_destination": "Swing Strategy Overview",
-      "root_type": "object",
-      "required_fields": ["paper_trade_mode"],
+      "required_fields": [
+        "paper_trade_mode"
+      ],
       "missing_behavior": "WARN"
     },
     {
@@ -135,7 +53,347 @@
       "required": false,
       "dashboard_destination": "Historical Evidence and Archive Health",
       "root_type": "object",
-      "required_fields": ["paper_trade_mode"],
+      "required_fields": [
+        "paper_trade_mode"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "monthly_command_center_json",
+      "path": "results/monthly_command_center.json",
+      "format": "json",
+      "owner_module": "monthly_command_center",
+      "artifact_version": "1.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Strategy Overview",
+      "root_type": "object",
+      "required_fields": [
+        "paper_trade_mode"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "strategy_assignments_csv",
+      "path": "results/strategy_assignments.csv",
+      "format": "csv",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "columns": [
+        "symbol",
+        "active_strategy",
+        "recommended_strategy",
+        "switch_eligible",
+        "confidence_level",
+        "review_window",
+        "cooldown_remaining_weeks",
+        "reason",
+        "strategy_a_return",
+        "strategy_b_return",
+        "strategy_a_max_drawdown",
+        "strategy_b_max_drawdown",
+        "strategy_a_win_rate",
+        "strategy_b_win_rate",
+        "strategy_a_trade_count",
+        "strategy_b_trade_count"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "strategy_assignments_json",
+      "path": "results/strategy_assignments.json",
+      "format": "json",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "root_type": "object",
+      "required_fields": [
+        "paper_trade_mode",
+        "version",
+        "assignments"
+      ],
+      "record_collection": "assignments",
+      "record_required_fields": [
+        "symbol",
+        "active_strategy",
+        "recommended_strategy",
+        "switch_eligible",
+        "confidence_level",
+        "review_window",
+        "cooldown_remaining_weeks",
+        "reason"
+      ],
+      "allowed_enums": {
+        "active_strategy": [
+          "Strategy A",
+          "Strategy B"
+        ],
+        "recommended_strategy": [
+          "Strategy A",
+          "Strategy B"
+        ],
+        "confidence_level": [
+          "warning",
+          "review",
+          "preferred",
+          "high",
+          "hold"
+        ],
+        "review_window": [
+          "1_week",
+          "4_week",
+          "8_week",
+          "12_week"
+        ]
+      },
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "strategy_assignments_markdown",
+      "path": "results/strategy_assignments.md",
+      "format": "markdown",
+      "owner_module": "strategy_assignment_engine",
+      "artifact_version": "1.3",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Strategy Assignment",
+      "required_sections": [
+        "Strategy Assignment Report"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_decision_journal_json",
+      "path": "results/swing_decision_journal_report.json",
+      "format": "json",
+      "owner_module": "swing_decision_journal_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Decisions",
+      "root_type": "object",
+      "required_fields": [
+        "strategy_id",
+        "paper_trade_mode",
+        "advisory_only",
+        "decision_authority_policy",
+        "position_decision_count",
+        "candidate_decision_count",
+        "decisions",
+        "evidence_warnings"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_decision_journal_markdown",
+      "path": "results/swing_decision_journal_report.md",
+      "format": "markdown",
+      "owner_module": "swing_decision_journal_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Decisions",
+      "required_sections": [
+        "Swing Decision Journal",
+        "Current Decisions"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_strategy_alerts_csv",
+      "path": "results/swing_strategy_alerts_report.csv",
+      "format": "csv",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "columns": [
+        "strategy_id",
+        "symbol",
+        "alert_category",
+        "severity",
+        "priority",
+        "status",
+        "message",
+        "recommended_review_action",
+        "evidence_source",
+        "evidence_timestamp",
+        "paper_trade_mode",
+        "advisory_only"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_strategy_alerts_json",
+      "path": "results/swing_strategy_alerts_report.json",
+      "format": "json",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "root_type": "object",
+      "required_fields": [
+        "strategy_id",
+        "paper_trade_mode",
+        "advisory_only",
+        "alert_authority_policy",
+        "actionable_alert_count",
+        "alerts",
+        "evidence_warnings",
+        "source_evaluations"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_strategy_alerts_markdown",
+      "path": "results/swing_strategy_alerts_report.md",
+      "format": "markdown",
+      "owner_module": "swing_strategy_alerts_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Alerts",
+      "required_sections": [
+        "Swing Strategy Alerts",
+        "Actionable Alerts",
+        "Evidence Warnings"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_trade_analytics_csv",
+      "path": "results/swing_trade_analytics_report.csv",
+      "format": "csv",
+      "owner_module": "swing_trade_analytics_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Trade Analytics",
+      "columns": [
+        "symbol",
+        "entry_date",
+        "entry_price",
+        "current_price",
+        "exit_date",
+        "exit_price",
+        "shares",
+        "cost_basis",
+        "current_or_exit_value",
+        "gain_loss_amount",
+        "gain_loss_percent",
+        "max_drawdown_amount",
+        "max_drawdown_percent",
+        "days_held",
+        "active_strategy",
+        "position_status",
+        "exit_reason"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_trade_analytics_json",
+      "path": "results/swing_trade_analytics_report.json",
+      "format": "json",
+      "owner_module": "swing_trade_analytics_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Trade Analytics",
+      "root_type": "object",
+      "required_fields": [
+        "strategy_id",
+        "paper_trade_mode",
+        "open_position_count",
+        "closed_position_count",
+        "positions",
+        "max_drawdown_policy",
+        "max_drawdown_inference_allowed"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "swing_trade_analytics_markdown",
+      "path": "results/swing_trade_analytics_report.md",
+      "format": "markdown",
+      "owner_module": "swing_trade_analytics_report",
+      "artifact_version": "1.0.0",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Swing Trade Analytics",
+      "required_sections": [
+        "Swing Trade Analytics / Position Performance"
+      ],
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "thesis_monitor_json",
+      "path": "results/thesis_monitor_report.json",
+      "format": "json",
+      "owner_module": "thesis_monitor",
+      "artifact_version": "1.4",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Thesis Monitor",
+      "root_type": "object",
+      "required_fields": [
+        "paper_trade_mode",
+        "version",
+        "reviews"
+      ],
+      "record_collection": "reviews",
+      "record_required_fields": [
+        "symbol",
+        "active_strategy",
+        "thesis_state",
+        "thesis_health_score",
+        "thesis_intact",
+        "suggested_review_action",
+        "evidence_count",
+        "weak_evidence_count",
+        "original_thesis",
+        "reason"
+      ],
+      "allowed_enums": {
+        "active_strategy": [
+          "Strategy A",
+          "Strategy B"
+        ],
+        "thesis_state": [
+          "strong",
+          "intact",
+          "weakening",
+          "broken",
+          "unknown"
+        ],
+        "suggested_review_action": [
+          "continue_research",
+          "monitor_thesis",
+          "review_thesis",
+          "high_priority_review",
+          "insufficient_evidence"
+        ]
+      },
+      "missing_behavior": "WARN"
+    },
+    {
+      "artifact_id": "thesis_monitor_markdown",
+      "path": "results/thesis_monitor_report.md",
+      "format": "markdown",
+      "owner_module": "thesis_monitor",
+      "artifact_version": "1.4",
+      "schema_version": "1.0",
+      "required": false,
+      "dashboard_destination": "Thesis Monitor",
+      "required_sections": [
+        "Thesis Monitor Report"
+      ],
       "missing_behavior": "WARN"
     }
   ]

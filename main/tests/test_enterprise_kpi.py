@@ -11,6 +11,10 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _swing_allocation(amount: float = 4500.0) -> dict:
+    return {"strategy_allocations": {"SWING-001": amount}}
+
+
 def test_build_kpis_uses_preserved_swing_strategy_allocation(tmp_path):
     _write_json(
         tmp_path / "portfolio_allocations.json",
@@ -25,7 +29,7 @@ def test_build_kpis_uses_preserved_swing_strategy_allocation(tmp_path):
 
     payload = enterprise_kpi.build_kpis(
         tmp_path,
-        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+        strategy_allocations=_swing_allocation(),
     )
 
     assert payload["strategy_id"] == "SWING-001"
@@ -58,7 +62,7 @@ def test_build_kpis_prefers_authoritative_paper_ledger(tmp_path):
 
     payload = enterprise_kpi.build_kpis(
         tmp_path,
-        strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+        strategy_allocations=_swing_allocation(),
     )
 
     assert payload["portfolio_value"] == 4550.0
@@ -94,7 +98,7 @@ def test_paper_ledger_capital_must_match_swing_allocation(tmp_path):
     with pytest.raises(ValueError, match="SWING-001 allocation"):
         enterprise_kpi.build_kpis(
             tmp_path,
-            strategy_allocations={"strategy_allocations": {"SWING-001": 4500.0}},
+            strategy_allocations=_swing_allocation(),
         )
 
 
@@ -102,7 +106,7 @@ def test_publish_kpis_reads_strategy_allocation_file(tmp_path):
     results = tmp_path / "results"
     _write_json(results / "portfolio_allocations.json", {"allocations": []})
     allocation_file = tmp_path / "preserved_allocations.json"
-    _write_json(allocation_file, {"strategy_allocations": {"SWING-001": 4500.0}})
+    _write_json(allocation_file, _swing_allocation())
     output = results / "enterprise_strategy_kpis.json"
 
     published = enterprise_kpi.publish_kpis(
@@ -141,7 +145,7 @@ def test_missing_allocation_file_is_rejected(tmp_path):
 def test_proxy_must_equal_strategy_allocation(tmp_path):
     payload = enterprise_kpi.build_kpis(
         tmp_path,
-        strategy_allocations={"SWING-001": 4500.0},
+        strategy_allocations=_swing_allocation(),
     )
     payload["portfolio_value"] = 10000.0
     assert "PAPER_ALLOCATION_PROXY must equal allocated_capital" in enterprise_kpi.validate_kpis(payload)

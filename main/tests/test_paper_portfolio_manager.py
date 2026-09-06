@@ -77,10 +77,113 @@ def test_marks_positions_to_market_and_preserves_cash(tmp_path):
     assert report.cash_balance == 3000.0
     assert report.positions_market_value == 1550.0
     assert report.portfolio_value == 4550.0
+    assert report.realized_pnl == 0.0
     assert report.unrealized_pnl == 50.0
     assert report.portfolio_return_percent == pytest.approx(1.111111)
     assert report.position_count == 2
-    assert report.valuation_source == "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
+    assert report.valuation_source == "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET_WITH_REALIZED_PNL"
+
+
+def test_realized_profit_increases_cash_portfolio_value_and_return(tmp_path):
+    ledger = tmp_path / "ledger"
+    _write_json(ledger / "open_positions.json", {"positions": []})
+    _write_json(
+        ledger / "trade_history.json",
+        {
+            "paper_trade_mode": True,
+            "trades": [
+                {
+                    "trade_id": "BUY-AAA-1",
+                    "symbol": "AAA",
+                    "side": "BUY",
+                    "trade_date": "2026-08-01",
+                    "price": 100.0,
+                    "shares": 10.0,
+                    "notional": 1000.0,
+                    "active_strategy": "SOXL_BIGBELUGA_1H_PRIMARY",
+                    "reason": "TEST_ENTRY",
+                    "paper_trade_mode": True,
+                },
+                {
+                    "trade_id": "SELL-AAA-1",
+                    "symbol": "AAA",
+                    "side": "SELL",
+                    "trade_date": "2026-08-02",
+                    "price": 110.0,
+                    "shares": 10.0,
+                    "notional": 1100.0,
+                    "active_strategy": "SOXL_BIGBELUGA_1H_PRIMARY",
+                    "reason": "TEST_EXIT",
+                    "paper_trade_mode": True,
+                },
+            ],
+        },
+    )
+
+    report = build_paper_portfolio_report(
+        ledger_dir=ledger,
+        data_dir=tmp_path / "data",
+        account_capital=4500.0,
+        as_of=date(2026, 8, 2),
+    )
+
+    assert report.invested_capital == 0.0
+    assert report.realized_pnl == 100.0
+    assert report.unrealized_pnl == 0.0
+    assert report.cash_balance == 4600.0
+    assert report.positions_market_value == 0.0
+    assert report.portfolio_value == 4600.0
+    assert report.portfolio_return_percent == pytest.approx(2.222222)
+
+
+def test_realized_loss_reduces_cash_without_becoming_unrealized_loss(tmp_path):
+    ledger = tmp_path / "ledger"
+    _write_json(ledger / "open_positions.json", {"positions": []})
+    _write_json(
+        ledger / "trade_history.json",
+        {
+            "paper_trade_mode": True,
+            "trades": [
+                {
+                    "trade_id": "BUY-AAA-1",
+                    "symbol": "AAA",
+                    "side": "BUY",
+                    "trade_date": "2026-08-01",
+                    "price": 100.0,
+                    "shares": 10.0,
+                    "notional": 1000.0,
+                    "active_strategy": "SOXL_BIGBELUGA_1H_PRIMARY",
+                    "reason": "TEST_ENTRY",
+                    "paper_trade_mode": True,
+                },
+                {
+                    "trade_id": "SELL-AAA-1",
+                    "symbol": "AAA",
+                    "side": "SELL",
+                    "trade_date": "2026-08-02",
+                    "price": 80.0,
+                    "shares": 10.0,
+                    "notional": 800.0,
+                    "active_strategy": "SOXL_BIGBELUGA_1H_PRIMARY",
+                    "reason": "TEST_STOP",
+                    "paper_trade_mode": True,
+                },
+            ],
+        },
+    )
+
+    report = build_paper_portfolio_report(
+        ledger_dir=ledger,
+        data_dir=tmp_path / "data",
+        account_capital=4500.0,
+        as_of=date(2026, 8, 2),
+    )
+
+    assert report.realized_pnl == -200.0
+    assert report.unrealized_pnl == 0.0
+    assert report.cash_balance == 4300.0
+    assert report.portfolio_value == 4300.0
+    assert report.portfolio_return_percent == pytest.approx(-4.444444)
 
 
 def test_split_adjustment_updates_shares_and_entry_price_without_changing_cost_basis(tmp_path):
@@ -160,8 +263,9 @@ def test_writes_authoritative_summary_and_positions(tmp_path):
     summary = json.loads((ledger / "paper_portfolio_summary.json").read_text(encoding="utf-8"))
     positions = json.loads((ledger / "paper_portfolio_positions.json").read_text(encoding="utf-8"))
     assert summary["portfolio_value"] == report.portfolio_value
+    assert summary["realized_pnl"] == 0.0
     assert summary["position_count"] == 2
-    assert summary["valuation_source"] == "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET"
+    assert summary["valuation_source"] == "PAPER_LEDGER_SPLIT_ADJUSTED_MARK_TO_MARKET_WITH_REALIZED_PNL"
     assert "positions" not in summary
     assert positions["position_count"] == 2
     assert len(positions["positions"]) == 2
